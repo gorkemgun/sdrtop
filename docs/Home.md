@@ -17,6 +17,7 @@
 | [Phase 3 - TUI Dashboard - Log](phases/Phase%203%20-%20TUI%20Dashboard%20-%20Log.md) | Phase 3 — borrow checker fix, misleading footer removal |
 | [Phase 4 - Architecture Refactor - Steps](phases/Phase%204%20-%20Architecture%20Refactor%20-%20Steps.md) | Phase 4 — intended approach |
 | [Phase 4 - Architecture Refactor - Log](phases/Phase%204%20-%20Architecture%20Refactor%20-%20Log.md) | Phase 4 — 670 → 43 lines, deviations from plan |
+| [Phase 5 - Interactive Controls - Steps](phases/Phase%205%20-%20Interactive%20Controls%20-%20Steps.md) | Phase 5 — intended approach |
 
 ---
 
