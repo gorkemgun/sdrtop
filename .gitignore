@@ -10,3 +10,4 @@ target/
 
 # Obsidian — machine-specific config
 docs/.obsidian/
+.obsidian/
