@@ -5,13 +5,16 @@ edition = "2021"
 
 [[bin]]
 name = "sdrtop"
-path = "main.rs"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.26"
 crossterm = "0.27"
-hackrf = "0.1.0"
+libc = "0.2"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
+
+[build-dependencies]
+pkg-config = "0.3"
