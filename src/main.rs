@@ -8,9 +8,10 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
+    widgets::{Block, Borders, Gauge, Paragraph, Sparkline, Wrap},
     Terminal,
 };
+use std::collections::VecDeque;
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -314,6 +315,15 @@ extern "C" fn rx_callback(transfer: *mut hackrf_ffi::hackrf_transfer) -> libc::c
     0
 }
 
+const THROUGHPUT_HISTORY_LEN: usize = 64;
+const LOG_MAX_ENTRIES: usize = 100;
+
+// Default gain/frequency values used on startup and on reset
+const DEFAULT_LNA_GAIN: u32 = 16;
+const DEFAULT_VGA_GAIN: u32 = 20;
+const DEFAULT_FREQUENCY: u64 = 2_400_000_000;
+const DEFAULT_SAMPLE_RATE: f64 = 10_000_000.0;
+
 #[derive(Clone)]
 struct SdrMetrics {
     frequency: u64,
@@ -329,6 +339,28 @@ struct SdrMetrics {
     bytes_since_last_poll: u64,
     last_poll_time: std::time::Instant,
     current_throughput_bps: u64,
+    // Throughput history in KB/s for sparkline display
+    throughput_history: VecDeque<u64>,
+    // In-app log messages (replaces eprintln! while TUI is active)
+    log: VecDeque<String>,
+}
+
+impl SdrMetrics {
+    fn push_log(&mut self, msg: impl Into<String>) {
+        if self.log.len() >= LOG_MAX_ENTRIES {
+            self.log.pop_front();
+        }
+        self.log.push_back(msg.into());
+    }
+
+    fn reset_to_defaults(&mut self) {
+        self.lna_gain = DEFAULT_LNA_GAIN;
+        self.vga_gain = DEFAULT_VGA_GAIN;
+        self.amp_enabled = false;
+        self.frequency = DEFAULT_FREQUENCY;
+        self.config_sample_rate = DEFAULT_SAMPLE_RATE;
+        self.push_log("Settings reset to defaults");
+    }
 }
 
 #[tokio::main]
@@ -342,17 +374,19 @@ async fn main() -> Result<()> {
     };
 
     let metrics = Arc::new(Mutex::new(SdrMetrics {
-        frequency: 2_400_000_000,
-        config_sample_rate: 10_000_000.0,
+        frequency: DEFAULT_FREQUENCY,
+        config_sample_rate: DEFAULT_SAMPLE_RATE,
         actual_sample_rate: 0,
-        lna_gain: 16,
-        vga_gain: 20,
+        lna_gain: DEFAULT_LNA_GAIN,
+        vga_gain: DEFAULT_VGA_GAIN,
         amp_enabled: false,
         rx_enabled: false,
         hw_streaming: false,
         bytes_since_last_poll: 0,
         last_poll_time: std::time::Instant::now(),
         current_throughput_bps: 0,
+        throughput_history: VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
+        log: VecDeque::new(),
     }));
 
     let metrics_bg = Arc::clone(&metrics);
@@ -381,6 +415,12 @@ async fn main() -> Result<()> {
                     m.current_throughput_bps = (bytes * 1000) / elapsed_ms as u64;
                     // 2 bytes per IQ sample (8-bit I + 8-bit Q)
                     m.actual_sample_rate = (m.current_throughput_bps / 2) as u32;
+                    // Record KB/s in history for sparkline
+                    let throughput_kb = m.current_throughput_bps / 1024;
+                    if m.throughput_history.len() >= THROUGHPUT_HISTORY_LEN {
+                        m.throughput_history.pop_front();
+                    }
+                    m.throughput_history.push_back(throughput_kb);
                 }
             }
 
@@ -389,17 +429,25 @@ async fn main() -> Result<()> {
             if rx_enabled && !hw_rx_active {
                 let user_param = Arc::as_ptr(&metrics_bg) as *mut libc::c_void;
                 match board_bg.start_rx(rx_callback, user_param) {
-                    Ok(()) => hw_rx_active = true,
+                    Ok(()) => {
+                        hw_rx_active = true;
+                        metrics_bg.lock().unwrap().push_log("RX streaming started");
+                    }
                     Err(e) => {
-                        eprintln!("Error starting RX: {}", e);
-                        metrics_bg.lock().unwrap().rx_enabled = false;
+                        let msg = format!("Error starting RX: {}", e);
+                        let mut m = metrics_bg.lock().unwrap();
+                        m.rx_enabled = false;
+                        m.push_log(msg);
                     }
                 }
             } else if !rx_enabled && hw_rx_active {
-                if let Err(e) = board_bg.stop_rx() {
-                    eprintln!("Error stopping RX: {}", e);
-                }
+                let result = board_bg.stop_rx();
                 hw_rx_active = false;
+                let mut m = metrics_bg.lock().unwrap();
+                match result {
+                    Ok(()) => m.push_log("RX streaming stopped"),
+                    Err(e) => m.push_log(format!("Error stopping RX: {}", e)),
+                }
             }
 
             tokio::time::sleep(Duration::from_millis(200)).await;
@@ -410,6 +458,12 @@ async fn main() -> Result<()> {
     let board_id = board.board_id()?;
     let board_name = board.board_name(board_id);
     let serial = board.serial_number()?;
+
+    {
+        let mut m = metrics.lock().unwrap();
+        m.push_log(format!("Connected: {} | Serial: {}", board_name, serial));
+        m.push_log(format!("Firmware: {}", version));
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -447,31 +501,34 @@ fn run_app<B: ratatui::backend::Backend>(
         terminal.draw(|f| {
             let size = f.size();
 
+            // Outer vertical layout: header / body / log / footer
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),
-                    Constraint::Min(0),
-                    Constraint::Length(3),
+                    Constraint::Length(3),  // Header
+                    Constraint::Min(0),     // Body
+                    Constraint::Length(7),  // Log panel
+                    Constraint::Length(3),  // Footer
                 ])
                 .split(size);
 
-            let header = Paragraph::new(format!(" {} | FW: {} ", board_name, fw_version))
-                .block(Block::default().borders(Borders::ALL))
-                .alignment(Alignment::Center);
+            // Header: device name, firmware, serial
+            let header = Paragraph::new(format!(
+                " {} | FW: {} | S/N: {} ",
+                board_name, fw_version, serial
+            ))
+            .block(Block::default().borders(Borders::ALL))
+            .alignment(Alignment::Center);
             f.render_widget(header, chunks[0]);
 
+            // Body: telemetry (left) | gains + sparkline (right)
             let body_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(chunks[1]);
 
             let status_text = if m.hw_streaming { "STREAMING" } else { "IDLE" };
-            let status_color = if m.hw_streaming {
-                Color::Green
-            } else {
-                Color::Yellow
-            };
+            let status_color = if m.hw_streaming { Color::Green } else { Color::Yellow };
 
             let info_text = format!(
                 "Model:       {}\n\
@@ -492,17 +549,24 @@ fn run_app<B: ratatui::backend::Backend>(
             );
 
             let telemetry_panel = Paragraph::new(info_text)
-                .block(Block::default().title(" Telemetry ").borders(Borders::ALL))
+                .block(
+                    Block::default()
+                        .title(" Telemetry ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(status_color)),
+                )
                 .alignment(Alignment::Left)
                 .wrap(Wrap { trim: true });
             f.render_widget(telemetry_panel, body_chunks[0]);
 
+            // Right side: LNA / VGA / Sample Rate gauges + sparkline
             let gain_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3),
-                    Constraint::Length(3),
-                    Constraint::Min(0),
+                    Constraint::Length(3),  // LNA gauge
+                    Constraint::Length(3),  // VGA gauge
+                    Constraint::Length(3),  // Sample Rate gauge
+                    Constraint::Min(0),     // USB throughput sparkline
                 ])
                 .split(body_chunks[1]);
 
@@ -518,6 +582,7 @@ fn run_app<B: ratatui::backend::Backend>(
                         .bg(Color::Black)
                         .add_modifier(Modifier::ITALIC),
                 )
+                // LNA valid range: 0–40 dB in 8 dB steps
                 .percent(((m.lna_gain as f32 / 40.0) * 100.0) as u16);
             f.render_widget(lna_gauge, gain_chunks[0]);
 
@@ -533,19 +598,57 @@ fn run_app<B: ratatui::backend::Backend>(
                         .bg(Color::Black)
                         .add_modifier(Modifier::ITALIC),
                 )
+                // VGA valid range: 0–62 dB in 2 dB steps
                 .percent(((m.vga_gain as f32 / 62.0) * 100.0) as u16);
             f.render_widget(vga_gauge, gain_chunks[1]);
 
-            let hw_state_block = Block::default()
-                .title(" Hardware State ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(status_color));
-            f.render_widget(hw_state_block, gain_chunks[2]);
+            let sr_gauge = Gauge::default()
+                .block(
+                    Block::default()
+                        .title(format!(
+                            " Sample Rate: {:.1} Msps ",
+                            m.actual_sample_rate as f64 / 1_000_000.0
+                        ))
+                        .borders(Borders::ALL),
+                )
+                .gauge_style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .bg(Color::Black)
+                        .add_modifier(Modifier::ITALIC),
+                )
+                // HackRF One max: 20 Msps
+                .percent(((m.actual_sample_rate as f32 / 20_000_000.0) * 100.0).min(100.0) as u16);
+            f.render_widget(sr_gauge, gain_chunks[2]);
 
-            let footer = Paragraph::new(" [Q] Quit | [SPACE] Start/Stop RX ")
+            let sparkline_data: Vec<u64> = m.throughput_history.iter().cloned().collect();
+            let sparkline_max = sparkline_data.iter().cloned().max().unwrap_or(0).max(1);
+            let sparkline = Sparkline::default()
+                .block(
+                    Block::default()
+                        .title(format!(" USB Throughput (KB/s, peak: {}) ", sparkline_max))
+                        .borders(Borders::ALL),
+                )
+                .data(&sparkline_data)
+                .max(sparkline_max)
+                .style(Style::default().fg(Color::Green));
+            f.render_widget(sparkline, gain_chunks[3]);
+
+            // Log panel: most recent messages, oldest at top
+            let log_lines: Vec<&str> = m.log.iter().map(|s| s.as_str()).collect();
+            let log_text = log_lines.join("\n");
+            let log_panel = Paragraph::new(log_text)
+                .block(Block::default().title(" Log ").borders(Borders::ALL))
+                .alignment(Alignment::Left)
+                .wrap(Wrap { trim: true });
+            f.render_widget(log_panel, chunks[2]);
+
+            let footer = Paragraph::new(
+                " [Q] Quit | [SPACE] Start/Stop RX | [R] Reset to defaults ",
+            )
             .block(Block::default().borders(Borders::ALL))
             .alignment(Alignment::Center);
-            f.render_widget(footer, chunks[2]);
+            f.render_widget(footer, chunks[3]);
         })?;
 
         if event::poll(Duration::from_millis(100))? {
@@ -555,6 +658,9 @@ fn run_app<B: ratatui::backend::Backend>(
                     KeyCode::Char(' ') => {
                         let mut m = metrics.lock().unwrap();
                         m.rx_enabled = !m.rx_enabled;
+                    }
+                    KeyCode::Char('r') => {
+                        metrics.lock().unwrap().reset_to_defaults();
                     }
                     _ => {}
                 }

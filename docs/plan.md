@@ -32,12 +32,12 @@ To create a high-performance, terminal-based resource monitor (TUI) specifically
 - [x] **Goal:** Continuous console output of hardware status.
 
 ### Phase 3: TUI Dashboard Implementation
-- [ ] Create the layout using `ratatui`:
-    - [ ] **Header:** Device name, Firmware, and Serial.
-    - [ ] **Main Panel:** Real-time gauges for Gain and Sample Rate.
-    - [ ] **Graph Panel:** Sparklines for USB transfer stability.
-    - [ ] **Log Panel:** System messages/errors.
-- [ ] Implement keyboard shortcuts (e.g., 'q' to quit, 'r' to reset).
+- [x] Create the layout using `ratatui`:
+    - [x] **Header:** Device name, Firmware, and Serial.
+    - [x] **Main Panel:** Real-time gauges for Gain and Sample Rate.
+    - [x] **Graph Panel:** Sparklines for USB transfer stability.
+    - [x] **Log Panel:** System messages/errors.
+- [x] Implement keyboard shortcuts (e.g., 'q' to quit, 'r' to reset).
 
 ### Phase 4: Signal Visualization (The "Killer Feature")
 - [ ] Implement a lightweight FFT (Fast Fourier Transform) on a sample buffer.
