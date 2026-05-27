@@ -18,6 +18,11 @@
 | [Phase 4 - Architecture Refactor - Steps](phases/Phase%204%20-%20Architecture%20Refactor%20-%20Steps.md) | Phase 4 — intended approach |
 | [Phase 4 - Architecture Refactor - Log](phases/Phase%204%20-%20Architecture%20Refactor%20-%20Log.md) | Phase 4 — 670 → 43 lines, deviations from plan |
 | [Phase 5 - Interactive Controls - Steps](phases/Phase%205%20-%20Interactive%20Controls%20-%20Steps.md) | Phase 5 — intended approach |
+| [Phase 5 - Interactive Controls - Log](phases/Phase%205%20-%20Interactive%20Controls%20-%20Log.md) | Phase 5 — InputMode design, event loop restructure, gain clamping |
+| [Phase 6 - Dashboard Engine - Steps](phases/Phase%206%20-%20Dashboard%20Engine%20-%20Steps.md) | Phase 6 — intended approach |
+| [Phase 6 - Dashboard Engine - Log](phases/Phase%206%20-%20Dashboard%20Engine%20-%20Log.md) | Phase 6 — Panel trait, LayoutEngine, left_pct bug fix |
+| [Phase 7 - Hardware Health Panels - Steps](phases/Phase%207%20-%20Hardware%20Health%20Panels%20-%20Steps.md) | Phase 7 — intended approach |
+| [Phase 7 - Hardware Health Panels - Log](phases/Phase%207%20-%20Hardware%20Health%20Panels%20-%20Log.md) | Phase 7 — accumulator pattern, clippy checked_div fix |
 
 ---
 
@@ -29,10 +34,10 @@
 | 2 | Telemetry polling & USB throughput | ✅ Done |
 | 3 | TUI dashboard (gauges, sparkline, log, shortcuts) | ✅ Done |
 | 4 | Architecture refactor (modular layout) | ✅ Done |
-| 5 | Interactive controls | 🔲 Next |
-| 6 | Dashboard engine (panel system, presets, layout config) | 🔲 Planned |
-| 7 | Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | 🔲 Planned |
-| 8 | FFT spectrum analyzer | 🔲 Planned |
+| 5 | Interactive controls | ✅ Done |
+| 6 | Dashboard engine (panel system, presets, layout config) | ✅ Done |
+| 7 | Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | ✅ Done |
+| 8 | FFT spectrum analyzer | 🔲 Next |
 | 9 | Waterfall display | 🔲 Planned |
 | 10 | Configuration & persistence | 🔲 Planned |
 | 11 | Multi-device support | 🔲 Planned |

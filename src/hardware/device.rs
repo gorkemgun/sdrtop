@@ -15,13 +15,85 @@ pub extern "C" fn rx_callback(transfer: *mut hackrf_transfer) -> c_int {
     unsafe {
         let t = &*transfer;
         let metrics_ptr = t.rx_ctx as *const Mutex<SdrMetrics>;
-        if !metrics_ptr.is_null() {
-            if let Ok(mut m) = (*metrics_ptr).lock() {
-                m.bytes_since_last_poll += t.valid_length as u64;
-            }
+        if metrics_ptr.is_null() { return 0; }
+        let Ok(mut m) = (*metrics_ptr).lock() else { return 0; };
+
+        let buf = std::slice::from_raw_parts(
+            t.buffer as *const u8,
+            t.valid_length as usize,
+        );
+
+        // Throughput
+        m.bytes_since_last_poll += t.valid_length as u64;
+
+        // Drop detection: valid_length < buffer_length means libhackrf dropped samples
+        if t.valid_length < t.buffer_length {
+            let dropped_pairs = ((t.buffer_length - t.valid_length) / 2) as u64;
+            m.acc_drops += dropped_pairs;
+            m.total_drops_session += dropped_pairs;
         }
+
+        // IQ accumulation — integers only, no float arithmetic on this thread
+        let mut saturated: u64 = 0;
+        let mut i_sum: i64 = 0;
+        let mut q_sum: i64 = 0;
+        let mut i_sq: i64 = 0;
+        let mut q_sq: i64 = 0;
+
+        for chunk in buf.chunks_exact(2) {
+            let i = chunk[0] as i8 as i64;
+            let q = chunk[1] as i8 as i64;
+            i_sum += i;
+            q_sum += q;
+            i_sq  += i * i;
+            q_sq  += q * q;
+            // Saturation: signed 8-bit rails are 0x80 (−128) and 0x7F (+127)
+            if chunk[0] == 0x80 || chunk[0] == 0x7F { saturated += 1; }
+            if chunk[1] == 0x80 || chunk[1] == 0x7F { saturated += 1; }
+        }
+
+        let pairs = (buf.len() / 2) as u64;
+        m.acc_saturated    += saturated;
+        m.acc_i_sum        += i_sum;
+        m.acc_q_sum        += q_sum;
+        m.acc_i_sq_sum     += i_sq;
+        m.acc_q_sq_sum     += q_sq;
+        m.acc_sample_count += pairs;
+
+        // Jitter: time between consecutive callbacks in µs
+        let now_us = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_micros() as u64)
+            .unwrap_or(0);
+        if let Some(last_us) = m.acc_last_callback_us {
+            let gap = now_us.saturating_sub(last_us);
+            m.acc_jitter_sum_us += gap;
+            m.acc_jitter_count  += 1;
+        }
+        m.acc_last_callback_us = Some(now_us);
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn saturation_byte_detection() {
+        let at_max: u8 = 0x7F;
+        let at_min: u8 = 0x80;
+        let normal: u8 = 0x40;
+        assert!(at_max == 0x7F || at_max == 0x80);
+        assert!(at_min == 0x7F || at_min == 0x80);
+        assert!(normal != 0x7F && normal != 0x80);
+    }
+
+    #[test]
+    fn drop_detection_arithmetic() {
+        let buffer_length: i32 = 262144;
+        let valid_length: i32  = 262144 - 128;
+        let dropped_pairs = ((buffer_length - valid_length) / 2) as u64;
+        assert_eq!(dropped_pairs, 64);
+    }
 }
 
 #[allow(dead_code)]

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 pub struct Chunks {

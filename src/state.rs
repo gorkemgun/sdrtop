@@ -1,6 +1,12 @@
 use std::collections::VecDeque;
 
 pub const THROUGHPUT_HISTORY_LEN: usize = 64;
+
+#[derive(Clone, PartialEq)]
+pub enum InputMode {
+    Normal,
+    FrequencyInput,
+}
 pub const LOG_MAX_ENTRIES: usize = 100;
 
 pub const DEFAULT_LNA_GAIN: u32 = 16;
@@ -27,6 +33,38 @@ pub struct SdrMetrics {
     pub throughput_history: VecDeque<u64>,
     // In-app log messages (replaces eprintln! while TUI is active)
     pub log: VecDeque<String>,
+    pub input_mode: InputMode,
+    pub input_buf: String,
+
+    // --- Derived metrics (written by polling task, read by UI) ---
+    pub drops_per_sec: u64,
+    pub total_drops_session: u64,
+    pub drop_history: VecDeque<u64>,
+
+    pub adc_saturation_pct: f32,
+    pub adc_saturation_peak: f32,
+    pub saturation_history: VecDeque<f32>,
+
+    pub iq_imbalance_db: f32,
+    pub dc_offset_i: f32,
+    pub dc_offset_q: f32,
+
+    pub callback_jitter_us: u64,
+
+    pub process_cpu_pct: f32,
+    pub process_rss_mb: u64,
+
+    // --- Accumulators (written by rx_callback, reset by polling task) ---
+    pub acc_drops: u64,
+    pub acc_saturated: u64,
+    pub acc_i_sum: i64,
+    pub acc_q_sum: i64,
+    pub acc_i_sq_sum: i64,
+    pub acc_q_sq_sum: i64,
+    pub acc_sample_count: u64,
+    pub acc_jitter_sum_us: u64,
+    pub acc_jitter_count: u64,
+    pub acc_last_callback_us: Option<u64>,
 }
 
 impl SdrMetrics {

@@ -23,10 +23,10 @@ aims for future extensibility to other SDR platforms (e.g., RTL-SDR, LimeSDR, Ai
 | 2 — Telemetry polling & USB throughput                                 | ✅ Done     |
 | 3 — TUI dashboard (gauges, sparkline, log, shortcuts)                  | ✅ Done     |
 | 4 — Architecture refactor (modular layout)                             | ✅ Done     |
-| 5 — Interactive controls                                               | 🔲 Next    |
-| 6 — Dashboard engine (panel system, presets, layout config)            | 🔲 Planned |
-| 7 — Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | 🔲 Planned |
-| 8 — FFT spectrum analyzer                                              | 🔲 Planned |
+| 5 — Interactive controls                                               | ✅ Done     |
+| 6 — Dashboard engine (panel system, presets, layout config)            | ✅ Done     |
+| 7 — Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | ✅ Done     |
+| 8 — FFT spectrum analyzer                                              | 🔲 Next    |
 | 9 — Waterfall display                                                  | 🔲 Planned |
 | 10 — Configuration & persistence                                       | 🔲 Planned |
 | 11 — Multi-device support                                              | 🔲 Planned |
@@ -144,180 +144,64 @@ src/
 
 ---
 
-## Phase 5 — Interactive Controls 🔲 Next
+## Phase 5 — Interactive Controls ✅ Done
 
 **Goal:** Every parameter visible in the UI can be changed live from the keyboard.
 Hardware is called immediately; the display reflects the new value within one render frame.
 
-### Full keybinding table
+- Step-by-step execution guide: [Phase 5 - Interactive Controls - Steps](phases/Phase%205%20-%20Interactive%20Controls%20-%20Steps.md)
+- Implementation log (what was done, decisions made): [Phase 5 - Interactive Controls - Log](phases/Phase%205%20-%20Interactive%20Controls%20-%20Log.md)
 
-| Key | Action | HW call |
-|---|---|---|
-| `Space` | Toggle RX on/off | `start_rx` / `stop_rx` |
-| `f` | Enter frequency input mode | — |
-| `↑` / `↓` | LNA gain +8 / −8 dB | `set_lna_gain` |
-| `[` / `]` | VGA gain −2 / +2 dB | `set_vga_gain` |
-| `a` | Toggle AMP | `set_amp_enable` |
-| `r` | Reset all to defaults | all setters |
-| `?` | Toggle help overlay | — |
-| `q` | Quit | — |
+### Key outcomes
 
-### Steps
-
-**5.1 — Add `InputMode` to state**
-- [ ] In `state.rs`, define:
-  ```rust
-  #[derive(Clone, PartialEq)]
-  pub enum InputMode { Normal, FrequencyInput }
-  ```
-- [ ] Add `input_mode: InputMode` and `input_buf: String` to `SdrMetrics`
-
-**5.2 — LNA gain keys (`↑` / `↓`)**
-- [ ] In `app.rs`, match `KeyCode::Up` / `KeyCode::Down` in `Normal` mode
-- [ ] Clamp to 0–40 in steps of 8; call `device.set_lna_gain(new_gain)?`
-- [ ] On `Ok`: update `state.lna_gain`; push log entry
-- [ ] On `Err`: push error to log; do not update `state.lna_gain`
-
-**5.3 — VGA gain keys (`[` / `]`)**
-- [ ] Same pattern as LNA; clamp to 0–62 in steps of 2; call `set_vga_gain`
-
-**5.4 — AMP toggle (`a`)**
-- [ ] Toggle `state.amp_enabled`; call `device.set_amp_enable(state.amp_enabled)`
-
-**5.5 — Frequency input mode (`f`)**
-- [ ] `f` in `Normal` mode → set `input_mode = FrequencyInput`, clear `input_buf`
-- [ ] While in `FrequencyInput`:
-  - digits and `.` append to `input_buf`
-  - `Backspace` pops last char
-  - `Esc` → back to `Normal`, discard buffer
-  - `Enter` → parse `input_buf` as MHz, multiply × 1 000 000, call `set_frequency`
-    - on `Ok`: update `state.frequency`, back to `Normal`
-    - on parse error or `Err`: push log, stay in `FrequencyInput`
-
-**5.6 — Update footer widget for input mode**
-- [ ] In `ui/footer.rs`, check `input_mode`:
-  - `Normal`: render keybind hints as before
-  - `FrequencyInput`: render `" Frequency (MHz): [<buf>_] | Enter = confirm | Esc = cancel "`
-    with cursor represented as `_`
-
-**5.7 — Help overlay**
-- [ ] Create `src/ui/overlay.rs`:
-  ```rust
-  pub fn render_help(f: &mut Frame, all_keys: &[(key, description)])
-  ```
-  - centered `Clear` + bordered `Paragraph` listing every keybinding
-- [ ] In `App`, add `show_help: bool` field
-- [ ] Match `KeyCode::Char('?')` to toggle `show_help`
-- [ ] In `ui/mod.rs` `draw()`: if `show_help`, call `render_help` last (on top)
-- [ ] Manual test: press `?`, overlay appears; press again, disappears
-
-**5.8 — End-to-end validation**
-- [ ] Every key in the table above exercised manually
-- [ ] All hardware calls return `Ok`; any `Err` appears in the log panel, never crashes
-- [ ] `cargo clippy -- -D warnings` — zero findings
+- Full keyboard control of all radio parameters: LNA (±8 dB, 0–40), VGA (±2 dB, 0–62), AMP toggle, frequency input, reset — hardware called immediately on every keypress, display stays at last confirmed value on error
+- `InputMode` enum added to `SdrMetrics` drives a two-level event loop (`InputMode` → `KeyCode`) and context-aware footer rendering
+- Frequency input mode with three-outcome handling: parse failure stays in input mode, hardware failure stays in input mode so the user can retry, success returns to Normal and logs confirmation
+- Help overlay (`overlay.rs`) rendered last in `draw()` so it appears on top of all panels; `show_help` lives on `App` (not `SdrMetrics`) as UI-only state
+- Reset key now calls all five hardware setters before `reset_to_defaults()`; each error is logged individually, reset proceeds regardless
 
 ---
 
-## Phase 6 — Dashboard Engine 🔲 Planned
+## Phase 6 — Dashboard Engine ✅ Done
 
 **Goal:** Replace the fixed TUI layout with a modular panel system where every display
 element is a named, self-contained unit. The user controls which panels are shown and
 where, via preset switching and a config file.
 
-- Design spec: [2026-05-27-dashboard-engine-design.md](superpowers/specs/2026-05-27-dashboard-engine-design.md)
-- Implementation plan: [2026-05-27-dashboard-engine.md](superpowers/plans/2026-05-27-dashboard-engine.md)
+- Step-by-step execution guide: [Phase 6 - Dashboard Engine - Steps](phases/Phase%206%20-%20Dashboard%20Engine%20-%20Steps.md)
+- Implementation log (what was done, decisions made): [Phase 6 - Dashboard Engine - Log](phases/Phase%206%20-%20Dashboard%20Engine%20-%20Log.md)
 
-### Architecture
+### Key outcomes
 
-Every panel implements a `Panel` trait:
-
-```rust
-pub trait Panel: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn min_size(&self) -> (u16, u16);
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics);
-}
-```
-
-A `PanelRegistry` holds all registered panels by name. A `LayoutEngine` reads the
-active preset from `LayoutConfig` and dispatches rendering to the right panels.
-
-### Preset layouts
-
-| Preset | Panels |
-|---|---|
-| `minimal` | header, telemetry, gains, log, footer |
-| `monitoring` | header, hardware_health, iq_diagnostics, telemetry, system_resources, log, footer |
-
-Runtime switching: `p` cycles presets, `1`/`2` jump directly.
-
-### Steps
-
-**6.1** — Add `serde`, `toml` to `Cargo.toml`  
-**6.2** — Define `Panel` trait in `src/ui/panel.rs`  
-**6.3** — Implement `PanelRegistry` in `src/ui/registry.rs`  
-**6.4** — Define `LayoutConfig`, `PresetConfig`, `PanelSpec`, `Position` in `src/config.rs`  
-**6.5** — Migrate existing panels (`header`, `telemetry`, `gains`, `log`, `footer`) to `Panel` trait  
-**6.6** — Implement `LayoutEngine` in `src/ui/engine.rs`  
-**6.7** — Wire `LayoutEngine` into `App`; handle `p`/`1`/`2` preset keys  
-**6.8** — `cargo build --release` + `cargo clippy -- -D warnings` — zero findings
+- `Panel` trait (`name`, `min_size`, `render`) — every current and future display element implements it; adding a panel requires only the impl + one `registry.register()` call
+- `PanelRegistry` wraps `HashMap<&'static str, Box<dyn Panel>>`; panels not in the active preset are registered but never rendered, costing no CPU
+- `LayoutEngine` splits the terminal into top / body / bottom zones, then the body into left / center / right columns; column width is driven by `width_pct` of the first panel in each column (summing was the bug in the original plan)
+- `LayoutConfig` is serde-deserializable — presets will be loadable from `~/.config/sdrtop/config.toml` in Phase 10 without further changes to the engine
+- `show_help` and overlay rendering stay on `App`, outside the panel system — the engine knows nothing about help state
+- `board_name / fw_version / serial` removed from `App` struct; the values live inside `HeaderPanel` and `TelemetryPanel` where they are actually used
 
 ---
 
-## Phase 7 — Hardware Health Panels 🔲 Planned
+## Phase 7 — Hardware Health Panels ✅ Done
 
 **Goal:** Make sample drops, ADC saturation, IQ quality, and system resource usage
 visible in real time — the metrics that turn sdrtop from an SDR frontend into a
 genuine resource monitor. All three are new `Panel` plugins.
 
-- Design spec: [2026-05-27-dashboard-engine-design.md](superpowers/specs/2026-05-27-dashboard-engine-design.md)
-- Implementation plan: [2026-05-27-dashboard-engine.md](superpowers/plans/2026-05-27-dashboard-engine.md)
+- Step-by-step execution guide: [Phase 7 - Hardware Health Panels - Steps](phases/Phase%207%20-%20Hardware%20Health%20Panels%20-%20Steps.md)
+- Implementation log (what was done, decisions made): [Phase 7 - Hardware Health Panels - Log](phases/Phase%207%20-%20Hardware%20Health%20Panels%20-%20Log.md)
 
-### New metrics (added to `SdrMetrics`)
+### Key outcomes
 
-| Field | Source | Description |
-|---|---|---|
-| `drops_per_sec` + `drop_history` | `rx_callback` | Sample drop rate + 64-point sparkline |
-| `adc_saturation_pct` + `saturation_history` | `rx_callback` | ADC rail hits per callback + sparkline |
-| `adc_saturation_peak` | polling task | Session maximum saturation |
-| `iq_imbalance_db` | polling task | I vs Q channel power difference in dB |
-| `dc_offset_i` / `dc_offset_q` | polling task | Mean I/Q value (0 = no DC bias) |
-| `callback_jitter_us` | `rx_callback` | Rolling variance of callback timing |
-| `process_cpu_pct` | `/proc/self/stat` | Process CPU usage |
-| `process_rss_mb` | `/proc/self/status` | Process RSS memory in MB |
-
-### New panels
-
-| Panel | Content |
-|---|---|
-| `hardware_health` | Drop rate (value + sparkline + session total), ADC saturation (value + sparkline + session peak), callback jitter |
-| `iq_diagnostics` | DC offset I/Q bars, IQ imbalance in dB with directional hint |
-| `system_resources` | CPU% gauge, RAM gauge, USB throughput sparkline |
-
-### Color thresholds
-
-| Metric | Green | Yellow | Red |
-|---|---|---|---|
-| Drop rate | 0/s | 1–10/s | >10/s |
-| ADC saturation | <1% | 1–5% | >5% |
-| IQ imbalance | <1 dB | 1–3 dB | >3 dB |
-| Callback jitter | <500 µs | 500–2000 µs | >2000 µs |
-
-### Steps
-
-**7.1** — Add new fields to `SdrMetrics` in `src/state.rs`  
-**7.2** — Drop detection + ADC saturation + jitter measurement in `rx_callback`  
-**7.3** — Compute health metrics in polling task (drop rate, saturation%, IQ diagnostics)  
-**7.4** — System resource polling task reading `/proc/self/stat` and `/proc/self/status`  
-**7.5** — Implement `HardwareHealthPanel` in `src/ui/hardware_health.rs`  
-**7.6** — Implement `IqDiagnosticsPanel` in `src/ui/iq_diagnostics.rs`  
-**7.7** — Implement `SystemResourcesPanel` in `src/ui/system_resources.rs`  
-**7.8** — Register new panels; add `monitoring` preset to `LayoutConfig::default_config()`  
-**7.9** — `cargo build --release` + `cargo clippy -- -D warnings` — zero findings
+- Three new panels registered in the Phase 6 engine: `HardwareHealthPanel`, `IqDiagnosticsPanel`, `SystemResourcesPanel`
+- `monitoring` preset: two-column layout with health panels left, telemetry+resources right; `2` key switches to it, `1` returns to minimal
+- Accumulator pattern: `rx_callback` (C thread) accumulates integer sums only; polling task snapshots+resets+computes float metrics atomically in one lock acquisition
+- System resource task spawned independently from hardware task: reads `/proc/self/stat` (parsed with `rsplit_once(')')` to handle process names with spaces) and `/proc/self/status` every second
+- Clippy `-D warnings` clean: manual checked-division patterns converted to `checked_div`
 
 ---
 
-## Phase 8 — FFT Spectrum Analyzer 🔲 Planned
+## Phase 8 — FFT Spectrum Analyzer 🔲 Next
 
 **Goal:** A live, full-width spectrum display on a Braille canvas — the feature that
 makes `sdrtop` genuinely useful for RF work instead of just pretty.

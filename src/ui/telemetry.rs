@@ -40,3 +40,18 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, board_name: &str, seria
         .wrap(Wrap { trim: true });
     f.render_widget(panel, area);
 }
+
+use super::panel::Panel;
+
+pub struct TelemetryPanel {
+    pub board_name: String,
+    pub serial: String,
+}
+
+impl Panel for TelemetryPanel {
+    fn name(&self) -> &'static str { "telemetry" }
+    fn min_size(&self) -> (u16, u16) { (30, 10) }
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+        render(f, area, state, &self.board_name, &self.serial);
+    }
+}

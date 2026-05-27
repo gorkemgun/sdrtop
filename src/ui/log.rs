@@ -15,3 +15,15 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
         .wrap(Wrap { trim: true });
     f.render_widget(panel, area);
 }
+
+use super::panel::Panel;
+
+pub struct LogPanel;
+
+impl Panel for LogPanel {
+    fn name(&self) -> &'static str { "log" }
+    fn min_size(&self) -> (u16, u16) { (20, 7) }
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+        render(f, area, state);
+    }
+}

@@ -1,25 +1,27 @@
+pub mod engine;
 pub mod footer;
 pub mod gains;
+pub mod hardware_health;
 pub mod header;
+pub mod iq_diagnostics;
 pub mod layout;
 pub mod log;
-pub mod telemetry;
-
-// Stubs — populated in later phases
 pub mod overlay;
+pub mod panel;
+pub mod registry;
 pub mod sparkline;
 pub mod spectrum;
+pub mod system_resources;
+pub mod telemetry;
 pub mod waterfall;
 
-use ratatui::Frame;
-
-use crate::state::SdrMetrics;
-
-pub fn draw(f: &mut Frame, m: &SdrMetrics, board_name: &str, fw: &str, serial: &str) {
-    let chunks = layout::build(f.size());
-    header::render(f, chunks.header, board_name, fw, serial);
-    telemetry::render(f, chunks.body_left, m, board_name, serial);
-    gains::render(f, chunks.body_right, m);
-    log::render(f, chunks.log, m);
-    footer::render(f, chunks.footer);
-}
+pub use engine::LayoutEngine;
+pub use footer::FooterPanel;
+pub use gains::GainsPanel;
+pub use hardware_health::HardwareHealthPanel;
+pub use header::HeaderPanel;
+pub use iq_diagnostics::IqDiagnosticsPanel;
+pub use log::LogPanel;
+pub use registry::PanelRegistry;
+pub use system_resources::SystemResourcesPanel;
+pub use telemetry::TelemetryPanel;

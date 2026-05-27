@@ -1,0 +1,125 @@
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    Frame,
+};
+
+use crate::config::{LayoutConfig, Position};
+use crate::state::SdrMetrics;
+use super::registry::PanelRegistry;
+
+pub struct LayoutEngine {
+    pub config: LayoutConfig,
+    registry: PanelRegistry,
+}
+
+impl LayoutEngine {
+    pub fn new(config: LayoutConfig, registry: PanelRegistry) -> Self {
+        Self { config, registry }
+    }
+
+    pub fn active_preset(&self) -> &str {
+        &self.config.active_preset
+    }
+
+    pub fn cycle_preset(&mut self) {
+        let mut names: Vec<String> = self.config.presets.keys().cloned().collect();
+        names.sort();
+        let current = names.iter().position(|n| n == &self.config.active_preset).unwrap_or(0);
+        self.config.active_preset = names[(current + 1) % names.len()].clone();
+    }
+
+    pub fn set_preset(&mut self, name: &str) {
+        if self.config.presets.contains_key(name) {
+            self.config.active_preset = name.to_string();
+        }
+    }
+
+    pub fn draw(&self, f: &mut Frame, state: &SdrMetrics) {
+        let specs = self.config.active_panels();
+        let size = f.size();
+
+        let top_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Top).collect();
+        let bottom_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Bottom).collect();
+        let body_specs: Vec<_> = specs.iter().filter(|s| {
+            matches!(s.position, Position::Left | Position::Right | Position::Body)
+        }).collect();
+
+        let top_h: u16 = top_specs.iter().map(|s| s.height.unwrap_or(3)).sum();
+        let bot_h: u16 = bottom_specs.iter().map(|s| s.height.unwrap_or(3)).sum();
+
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(top_h),
+                Constraint::Min(0),
+                Constraint::Length(bot_h),
+            ])
+            .split(size);
+
+        // Top panels — stacked downward, each with its declared height
+        let mut y = outer[0].y;
+        for spec in &top_specs {
+            let h = spec.height.unwrap_or(3);
+            let area = Rect { x: outer[0].x, y, width: outer[0].width, height: h };
+            self.registry.render_panel(&spec.name, f, area, state);
+            y += h;
+        }
+
+        // Bottom panels — stacked downward, each with its declared height
+        let mut y = outer[2].y;
+        for spec in &bottom_specs {
+            let h = spec.height.unwrap_or(3);
+            let area = Rect { x: outer[2].x, y, width: outer[2].width, height: h };
+            self.registry.render_panel(&spec.name, f, area, state);
+            y += h;
+        }
+
+        // Body — split into left / center / right columns
+        if !body_specs.is_empty() {
+            let left_specs: Vec<_> = body_specs.iter()
+                .filter(|s| s.position == Position::Left).collect();
+            let right_specs: Vec<_> = body_specs.iter()
+                .filter(|s| s.position == Position::Right).collect();
+            let center_specs: Vec<_> = body_specs.iter()
+                .filter(|s| s.position == Position::Body).collect();
+
+            // Column width is determined by the FIRST panel in each column.
+            // Summing would give 100% for two 50%-wide panels in the same column.
+            let left_pct = left_specs.first()
+                .and_then(|s| s.width_pct).unwrap_or(0);
+            let right_pct = right_specs.first()
+                .and_then(|s| s.width_pct).unwrap_or(0);
+
+            let columns = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(left_pct),
+                    Constraint::Min(0),
+                    Constraint::Percentage(right_pct),
+                ])
+                .split(outer[1]);
+
+            render_column(f, &left_specs, columns[0], state, &self.registry);
+            render_column(f, &center_specs, columns[1], state, &self.registry);
+            render_column(f, &right_specs, columns[2], state, &self.registry);
+        }
+    }
+}
+
+fn render_column(
+    f: &mut Frame,
+    specs: &[&&crate::config::PanelSpec],
+    area: Rect,
+    state: &SdrMetrics,
+    registry: &PanelRegistry,
+) {
+    if specs.is_empty() { return; }
+    let constraints: Vec<Constraint> = specs.iter().map(|_| Constraint::Min(0)).collect();
+    let areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(area);
+    for (spec, area) in specs.iter().zip(areas.iter()) {
+        registry.render_panel(&spec.name, f, *area, state);
+    }
+}

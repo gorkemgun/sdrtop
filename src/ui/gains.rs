@@ -82,3 +82,15 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
         .style(Style::default().fg(Color::Green));
     f.render_widget(sparkline, chunks[3]);
 }
+
+use super::panel::Panel;
+
+pub struct GainsPanel;
+
+impl Panel for GainsPanel {
+    fn name(&self) -> &'static str { "gains" }
+    fn min_size(&self) -> (u16, u16) { (20, 12) }
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+        render(f, area, state);
+    }
+}
