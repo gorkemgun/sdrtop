@@ -1,3 +1,9 @@
+mod state;
+use state::{
+    SdrMetrics, DEFAULT_FREQUENCY, DEFAULT_LNA_GAIN, DEFAULT_SAMPLE_RATE, DEFAULT_VGA_GAIN,
+    THROUGHPUT_HISTORY_LEN,
+};
+
 use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -315,53 +321,6 @@ extern "C" fn rx_callback(transfer: *mut hackrf_ffi::hackrf_transfer) -> libc::c
     0
 }
 
-const THROUGHPUT_HISTORY_LEN: usize = 64;
-const LOG_MAX_ENTRIES: usize = 100;
-
-// Default gain/frequency values used on startup and on reset
-const DEFAULT_LNA_GAIN: u32 = 16;
-const DEFAULT_VGA_GAIN: u32 = 20;
-const DEFAULT_FREQUENCY: u64 = 2_400_000_000;
-const DEFAULT_SAMPLE_RATE: f64 = 10_000_000.0;
-
-#[derive(Clone)]
-struct SdrMetrics {
-    frequency: u64,
-    config_sample_rate: f64,
-    actual_sample_rate: u32,
-    lna_gain: u32,
-    vga_gain: u32,
-    amp_enabled: bool,
-    // User-desired RX state (toggled by Space); separate from hw_streaming
-    rx_enabled: bool,
-    // Actual hardware streaming state, updated by the polling task
-    hw_streaming: bool,
-    bytes_since_last_poll: u64,
-    last_poll_time: std::time::Instant,
-    current_throughput_bps: u64,
-    // Throughput history in KB/s for sparkline display
-    throughput_history: VecDeque<u64>,
-    // In-app log messages (replaces eprintln! while TUI is active)
-    log: VecDeque<String>,
-}
-
-impl SdrMetrics {
-    fn push_log(&mut self, msg: impl Into<String>) {
-        if self.log.len() >= LOG_MAX_ENTRIES {
-            self.log.pop_front();
-        }
-        self.log.push_back(msg.into());
-    }
-
-    fn reset_to_defaults(&mut self) {
-        self.lna_gain = DEFAULT_LNA_GAIN;
-        self.vga_gain = DEFAULT_VGA_GAIN;
-        self.amp_enabled = false;
-        self.frequency = DEFAULT_FREQUENCY;
-        self.config_sample_rate = DEFAULT_SAMPLE_RATE;
-        self.push_log("Settings reset to defaults");
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -78,8 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
     "id": "0aed780604ceb184",
@@ -186,9 +185,11 @@
   },
   "active": "936a47f4e484127d",
   "lastOpenFiles": [
+    "phase4.md",
+    "plan.md",
+    "phase4.md.tmp.18554.f80d632d2202",
     "plan.md.tmp.65053.07b35cb43aa7",
     "plan.md.tmp.55733.84e9c826cd7d",
-    "plan.md.tmp.55733.b6fc987518eb",
-    "plan.md"
+    "plan.md.tmp.55733.b6fc987518eb"
   ]
 }
