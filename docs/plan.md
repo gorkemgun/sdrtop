@@ -13,23 +13,23 @@ To create a high-performance, terminal-based resource monitor (TUI) specifically
 
 ### Phase 1: Environment & Hardware Discovery
 - [x] Set up the development environment (Rust toolchain + libhackrf-dev).
-- [ ] Implement robust device discovery:
+- [x] Implement robust device discovery:
     - [x] Enumerate all connected HackRF devices using the library context.
-    - [ ] Handle "No Device Found" and "Permission Denied" errors gracefully.
-    - [ ] Implement basic selection logic (auto-select if single, list if multiple).
-- [ ] Retrieve and display basic board information:
-    - [ ] Extract Serial Number and Board ID.
-    - [ ] Fetch current Firmware version.
-- [ ] **Goal:** A CLI tool that prints "HackRF Found: [Serial]" or lists available devices.
+    - [x] Handle "No Device Found" and "Permission Denied" errors gracefully.
+    - [x] Implement basic selection logic (auto-select if single, list if multiple).
+- [x] Retrieve and display basic board information:
+    - [x] Extract Serial Number and Board ID.
+    - [x] Fetch current Firmware version.
+- [x] **Goal:** A CLI tool that prints "HackRF Found: [Serial]" or lists available devices.
 
 ### Phase 2: Telemetry Data Collection
-- [ ] Implement a polling loop to fetch real-time metrics:
-    - [ ] Sample Rate (configured vs actual).
-    - [ ] Center Frequency.
-    - [ ] Gain Settings (LNA, VGA, AMP).
-    - [ ] Transmit/Receive status.
-- [ ] Measure USB throughput (bytes per second transferred).
-- [ ] **Goal:** Continuous console output of hardware status.
+- [x] Implement a polling loop to fetch real-time metrics:
+    - [x] Sample Rate (configured vs actual).
+    - [x] Center Frequency.
+    - [x] Gain Settings (LNA, VGA, AMP).
+    - [x] Transmit/Receive status.
+- [x] Measure USB throughput (bytes per second transferred).
+- [x] **Goal:** Continuous console output of hardware status.
 
 ### Phase 3: TUI Dashboard Implementation
 - [ ] Create the layout using `ratatui`:

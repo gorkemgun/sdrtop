@@ -1,1 +1,4 @@
 target/
+# Obsidian workspace state (window layout, open files) — machine-specific
+docs/.obsidian/workspace.json
+docs/.obsidian/workspace-mobile.json
