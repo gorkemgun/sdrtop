@@ -8,7 +8,8 @@ use ratatui::{backend::Backend, Terminal};
 
 use crate::config::LayoutConfig;
 use crate::event::{AppEvent, EventStream};
-use crate::hardware;
+use crate::fft::FftWorker;
+use crate::hardware::{self, RxContext};
 use crate::state::{
     InputMode, SdrMetrics, DEFAULT_FREQUENCY, DEFAULT_LNA_GAIN, DEFAULT_SAMPLE_RATE,
     DEFAULT_VGA_GAIN, THROUGHPUT_HISTORY_LEN,
@@ -20,6 +21,9 @@ pub struct App {
     // Kept alive to ensure Drop runs (closes device) when App is dropped
     #[allow(dead_code)]
     device: Arc<hardware::Device>,
+    // Kept alive so rx_callback's raw pointer remains valid for the lifetime of the app
+    #[allow(dead_code)]
+    rx_ctx: Arc<RxContext>,
     events: EventStream,
     show_help: bool,
     engine: ui::LayoutEngine,
@@ -67,6 +71,7 @@ impl App {
 
             process_cpu_pct: 0.0,
             process_rss_mb: 0,
+            last_fft_frame: None,
 
             acc_drops: 0,
             acc_saturated: 0,
@@ -86,6 +91,20 @@ impl App {
             m.push_log(format!("Firmware: {}", fw_version));
         }
 
+        let (sample_tx, sample_rx) = crossbeam_channel::bounded::<Vec<u8>>(4);
+
+        let rx_ctx = Arc::new(RxContext {
+            metrics: Arc::clone(&state),
+            sample_tx,
+        });
+
+        // FftWorker runs on a real OS thread — it's CPU-bound blocking work
+        let fft_state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            FftWorker::new(sample_rx, fft_state).run();
+        });
+
+        let rx_ctx_bg = Arc::clone(&rx_ctx);
         let state_bg = Arc::clone(&state);
         let device_bg = Arc::clone(&device);
         tokio::spawn(async move {
@@ -177,8 +196,8 @@ impl App {
 
                 let rx_enabled = state_bg.lock().unwrap().rx_enabled;
                 if rx_enabled && !hw_rx_active {
-                    let user_param = Arc::as_ptr(&state_bg) as *mut libc::c_void;
-                    match device_bg.start_rx(hardware::device::rx_callback, user_param) {
+                    let user_param = Arc::as_ptr(&rx_ctx_bg) as *mut libc::c_void;
+                    match device_bg.start_rx(hardware::rx_callback, user_param) {
                         Ok(()) => {
                             hw_rx_active = true;
                             state_bg.lock().unwrap().push_log("RX streaming started");
@@ -248,12 +267,14 @@ impl App {
         registry.register(ui::HardwareHealthPanel);
         registry.register(ui::IqDiagnosticsPanel);
         registry.register(ui::SystemResourcesPanel);
+        registry.register(ui::SpectrumPanel);
 
         let engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
 
         Ok(Self {
             state,
             device,
+            rx_ctx,
             events: EventStream::new(Duration::from_millis(100)),
             show_help: false,
             engine,
@@ -317,6 +338,10 @@ impl App {
                             KeyCode::Char('2') => {
                                 self.engine.set_preset("monitoring");
                                 self.state.lock().unwrap().push_log("Preset: monitoring");
+                            }
+                            KeyCode::Char('3') => {
+                                self.engine.set_preset("spectrum");
+                                self.state.lock().unwrap().push_log("Preset: spectrum");
                             }
                             KeyCode::Up => {
                                 let (gain, result) = {

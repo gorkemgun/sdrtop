@@ -1,6 +1,8 @@
 mod app;
 mod config;
+mod dsp;
 mod event;
+mod fft;
 mod hardware;
 mod state;
 mod ui;

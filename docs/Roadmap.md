@@ -26,8 +26,8 @@ aims for future extensibility to other SDR platforms (e.g., RTL-SDR, LimeSDR, Ai
 | 5 — Interactive controls                                               | ✅ Done     |
 | 6 — Dashboard engine (panel system, presets, layout config)            | ✅ Done     |
 | 7 — Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | ✅ Done     |
-| 8 — FFT spectrum analyzer                                              | 🔲 Next    |
-| 9 — Waterfall display                                                  | 🔲 Planned |
+| 8 — FFT spectrum analyzer                                              | ✅ Done     |
+| 9 — Waterfall display                                                  | 🔲 Next    |
 | 10 — Configuration & persistence                                       | 🔲 Planned |
 | 11 — Multi-device support                                              | 🔲 Planned |
 | 12 — PortaPack / Mayhem integration                                    | 🔲 Planned |
@@ -201,131 +201,27 @@ genuine resource monitor. All three are new `Panel` plugins.
 
 ---
 
-## Phase 8 — FFT Spectrum Analyzer 🔲 Next
+## Phase 8 — FFT Spectrum Analyzer ✅ Done
 
-**Goal:** A live, full-width spectrum display on a Braille canvas — the feature that
-makes `sdrtop` genuinely useful for RF work instead of just pretty.
+**Goal:** A live spectrum display on a Braille canvas — green bars, yellow peak-hold,
+gray noise floor, labeled frequency and dBFS axes. The feature that makes `sdrtop`
+genuinely useful for RF work.
 
-### Data pipeline
+- Phase 8a step-by-step guide: [Phase 8a - FFT Pipeline - Steps](phases/Phase%208a%20-%20FFT%20Pipeline%20-%20Steps.md)
+- Phase 8b step-by-step guide: [Phase 8b - Spectrum Display - Steps](phases/Phase%208b%20-%20Spectrum%20Display%20-%20Steps.md)
+- Implementation log (what was done, decisions made): [Phase 8 - FFT Spectrum Analyzer - Log](phases/Phase%208%20-%20FFT%20Spectrum%20Analyzer%20-%20Log.md)
 
-```
-RX callback (libhackrf thread)
-   │  raw IQ bytes pushed into crossbeam channel (bounded, drops oldest on full)
-   ▼
-FftWorker (tokio task)
-   │  reads N samples, applies window function, runs rustfft
-   │  converts magnitude to dBFS, runs EMA, computes peak-hold
-   │  sends FftFrame { bins: Vec<f32> } on a second bounded channel
-   ▼
-UI render loop
-   │  receives latest FftFrame (non-blocking, uses previous if none ready)
-   ▼
-SpectrumWidget → Canvas → Braille dots
-```
+### Key outcomes
 
-The UI never waits for FFT. If the FFT worker is behind, the UI re-renders
-the last good frame and shows a stale-frame indicator.
-
-### FftFrame spec
-
-```rust
-pub struct FftFrame {
-    pub bins_dbfs: Vec<f32>,   // length = fft_size, ordered low→high freq
-    pub peak_hold: Vec<f32>,   // same length, decaying peak
-    pub noise_floor: f32,      // running average of bottom 10% of bins
-    pub center_freq_hz: u64,
-    pub sample_rate: f64,
-    pub stale: bool,           // true if this frame is older than 500 ms
-}
-```
-
-### Steps
-
-**6.1 — Add dependencies**
-- [ ] Add to `Cargo.toml`:
-  ```toml
-  rustfft = "6"
-  crossbeam-channel = "0.5"
-  num-complex = "0.4"
-  ```
-- [ ] `cargo build` — must pass
-
-**6.2 — Sample ring buffer (`src/hardware/buffer.rs`)**
-- [ ] Define `SampleBuffer`:
-  - wraps a `crossbeam_channel::Sender<Vec<u8>>`
-  - channel bounded at 4 messages (≈ 4 × callback buffer, ~1 M samples)
-- [ ] `SampleBuffer::push(&self, data: &[u8])` — sends a clone; on full channel
-      pops the oldest by doing a non-blocking `recv` first, then `send`
-- [ ] `SampleBuffer::receiver() -> Receiver<Vec<u8>>` — returns the other half
-- [ ] Update `rx_callback` to call `SampleBuffer::push` instead of accumulating
-      in `SdrMetrics.bytes_since_last_poll` — throughput counting moves to
-      the FFT worker (it already has the byte count from the received Vec)
-
-**6.3 — FFT worker (`src/fft.rs`)**
-- [ ] Define `FftWorker` struct:
-  ```rust
-  pub struct FftWorker {
-      samples_rx: Receiver<Vec<u8>>,
-      frame_tx: Sender<FftFrame>,
-      fft_size: usize,
-      window: WindowFn,
-      ema_alpha: f32,
-  }
-  ```
-- [ ] Implement window functions in `src/dsp.rs`:
-  - `hann(size: usize) -> Vec<f32>`
-  - `hamming(size: usize) -> Vec<f32>`
-  - `blackman(size: usize) -> Vec<f32>`
-  - `pub enum WindowFn { Hann, Hamming, Blackman }`
-- [ ] Implement `FftWorker::run(self)` as an async loop:
-  1. accumulate raw bytes into a local `Vec<u8>` until `len >= fft_size * 2`
-  2. convert bytes to `Vec<Complex<f32>>`: `i = byte as f32 / 128.0 - 1.0`
-  3. apply window function element-wise
-  4. run `rustfft` in-place
-  5. compute magnitude: `20 * log10(|z| / fft_size)` → dBFS
-  6. shift output so DC is at index 0 → center of display (fftshift)
-  7. apply EMA: `bin = alpha * new + (1-alpha) * prev`
-  8. update peak-hold: `peak[i] = max(peak[i] - decay, bin[i])`
-  9. compute noise floor: mean of bottom 10% of bin values
-  10. send `FftFrame` on `frame_tx`; if channel full, drop frame (non-blocking `try_send`)
-
-**6.4 — Wire FftWorker into App**
-- [ ] In `App::new()`, create `SampleBuffer`, give `Sender` to `rx_callback` context,
-      give `Receiver` to `FftWorker`
-- [ ] Spawn `FftWorker::run()` as a `tokio::task`
-- [ ] Add `fft_rx: Receiver<FftFrame>` to `App`; store latest received frame in
-      `App.last_fft_frame: Option<FftFrame>`
-- [ ] In the render loop, do a non-blocking `fft_rx.try_recv()` before `draw()`;
-      update `last_fft_frame` if a new frame arrived
-
-**6.5 — Spectrum widget (`src/ui/spectrum.rs`)**
-- [ ] Implement `pub fn render(f, area, frame: Option<&FftFrame>, center_hz, sr)`
-- [ ] Use `ratatui::widgets::canvas::Canvas`:
-  - x range: 0.0 ..= 1.0 (normalized bin index)
-  - y range: `db_min ..= db_max` (configurable, default −120..0)
-  - draw a filled bar for each bin using Braille dots
-- [ ] Draw peak-hold as a separate line in a dimmer color
-- [ ] Draw noise floor as a dashed horizontal line
-- [ ] Render frequency axis: 5 equally-spaced labels in MHz below the canvas
-- [ ] Render dBFS axis: 5 labels on the left side
-- [ ] If `frame.stale`, tint the entire widget grey and add `[STALE]` to title
-- [ ] If `frame` is `None`, render an empty canvas with "Waiting for RX…" centered
-
-**6.6 — Integrate spectrum into layout**
-- [ ] Update `ui/layout.rs` to add a `spectrum` area above the existing body
-      (default height 14 rows, configurable)
-- [ ] Update `ui/mod.rs` `draw()` to call `spectrum::render`
-- [ ] Add `n` key to cycle FFT size: `[1024, 2048, 4096]`
-- [ ] Add `w` key to cycle window function: Hann → Hamming → Blackman → Hann
-
-**6.7 — Benchmark**
-- [ ] Run with a real HackRF at 20 Msps; verify FFT frame rate ≥ 10 fps
-- [ ] On Raspberry Pi 4 (if available): target ≥ 5 fps at 2048-point FFT
-- [ ] `cargo build --release` — profile build must pass clean
+- `RxContext` replaces bare `*const Mutex` pointer in `rx_callback` — bundles metrics Arc and crossbeam channel sender; lock released before IQ buffer allocation
+- `FftWorker` on `std::thread` (not tokio): accumulate → Hann window → rustfft → dBFS (normalized by fft_size) → fftshift → EMA (α=0.2) → peak-hold (0.5 dB/frame decay) → noise floor (mean of bottom 10% bins)
+- `SpectrumPanel` Canvas layout: left 6 cols dBFS labels, right canvas with `CanvasLine` bars (green) + `Points` peak-hold (yellow) + horizontal noise floor (gray), 1 row frequency axis below
+- `spectrum` preset (full-width Body); `3` key switches to it; `p` cycles all three presets
+- Stale detection: `frame.timestamp.elapsed() > 500 ms` → `[STALE]` in panel title
 
 ---
 
-## Phase 9 — Waterfall Display 🔲 Planned
+## Phase 9 — Waterfall Display 🔲 Next
 
 **Goal:** A scrolling 2D spectrum history below the spectrum plot.
 

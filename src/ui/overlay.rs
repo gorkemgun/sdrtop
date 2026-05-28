@@ -19,6 +19,7 @@ pub fn render_help(f: &mut Frame) {
  [P]        Cycle presets\n\
  [1]        Preset: minimal\n\
  [2]        Preset: monitoring\n\
+ [3]        Preset: spectrum\n\
  [?]        Toggle this help\n\
 \n\
  In frequency input mode:\n\

@@ -23,6 +23,9 @@
 | [Phase 6 - Dashboard Engine - Log](phases/Phase%206%20-%20Dashboard%20Engine%20-%20Log.md) | Phase 6 — Panel trait, LayoutEngine, left_pct bug fix |
 | [Phase 7 - Hardware Health Panels - Steps](phases/Phase%207%20-%20Hardware%20Health%20Panels%20-%20Steps.md) | Phase 7 — intended approach |
 | [Phase 7 - Hardware Health Panels - Log](phases/Phase%207%20-%20Hardware%20Health%20Panels%20-%20Log.md) | Phase 7 — accumulator pattern, clippy checked_div fix |
+| [Phase 8a - FFT Pipeline - Steps](phases/Phase%208a%20-%20FFT%20Pipeline%20-%20Steps.md) | Phase 8a — RxContext, crossbeam channel, DSP, FftWorker |
+| [Phase 8b - Spectrum Display - Steps](phases/Phase%208b%20-%20Spectrum%20Display%20-%20Steps.md) | Phase 8b — SpectrumPanel, Canvas rendering, spectrum preset |
+| [Phase 8 - FFT Spectrum Analyzer - Log](phases/Phase%208%20-%20FFT%20Spectrum%20Analyzer%20-%20Log.md) | Phase 8 — DSP pipeline, lock discipline, Canvas layout, deviations |
 
 ---
 
@@ -37,8 +40,8 @@
 | 5 | Interactive controls | ✅ Done |
 | 6 | Dashboard engine (panel system, presets, layout config) | ✅ Done |
 | 7 | Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | ✅ Done |
-| 8 | FFT spectrum analyzer | 🔲 Next |
-| 9 | Waterfall display | 🔲 Planned |
+| 8 | FFT spectrum analyzer | ✅ Done |
+| 9 | Waterfall display | 🔲 Next |
 | 10 | Configuration & persistence | 🔲 Planned |
 | 11 | Multi-device support | 🔲 Planned |
 | 12 | PortaPack / Mayhem integration | 🔲 Planned |

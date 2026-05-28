@@ -1,5 +1,19 @@
 use std::collections::VecDeque;
 
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct FftFrame {
+    /// fftshifted, EMA-smoothed magnitude spectrum in dBFS
+    pub bins_dbfs: Vec<f32>,
+    /// decaying peak hold, same length as bins_dbfs
+    pub peak_hold: Vec<f32>,
+    /// mean dBFS of the bottom 10% of bins (noise estimate)
+    pub noise_floor: f32,
+    pub center_freq_hz: u64,
+    pub sample_rate: f64,
+    pub timestamp: std::time::Instant,
+}
+
 pub const THROUGHPUT_HISTORY_LEN: usize = 64;
 
 #[derive(Clone, PartialEq)]
@@ -53,6 +67,7 @@ pub struct SdrMetrics {
 
     pub process_cpu_pct: f32,
     pub process_rss_mb: u64,
+    pub last_fft_frame: Option<FftFrame>,
 
     // --- Accumulators (written by rx_callback, reset by polling task) ---
     pub acc_drops: u64,

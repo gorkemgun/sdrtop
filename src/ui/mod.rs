@@ -23,5 +23,6 @@ pub use header::HeaderPanel;
 pub use iq_diagnostics::IqDiagnosticsPanel;
 pub use log::LogPanel;
 pub use registry::PanelRegistry;
+pub use spectrum::SpectrumPanel;
 pub use system_resources::SystemResourcesPanel;
 pub use telemetry::TelemetryPanel;
