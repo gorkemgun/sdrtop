@@ -7,12 +7,19 @@ use ratatui::{
 use crate::state::{InputMode, SdrMetrics};
 
 pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
-    let text = match m.input_mode {
-        InputMode::Normal => {
-            " [Q] Quit | [SPACE] RX | [↑↓] LNA | [[] VGA | [A] AMP | [F] Freq | [R] Reset | [?] Help ".to_string()
-        }
-        InputMode::FrequencyInput => {
-            format!(" Frequency (MHz): [{}▌] | [Enter] confirm | [Esc] cancel ", m.input_buf)
+    let text = if m.observer_mode {
+        " Observer Mode — Hardware controls disabled.  [Q] Quit  [?] Help ".to_string()
+    } else {
+        match m.input_mode {
+            InputMode::Normal => {
+                " [Q] Quit | [SPACE] RX | [↑↓] LNA | [[] VGA | [A] AMP | [F] Freq | [S] Rate | [R] Reset | [?] Help ".to_string()
+            }
+            InputMode::FrequencyInput => {
+                format!(" Frequency (MHz): [{}▌] | [Enter] confirm | [Esc] cancel ", m.input_buf)
+            }
+            InputMode::SampleRateInput => {
+                format!(" Sample rate (2–20 MHz): [{}▌] | [Enter] confirm | [Esc] cancel ", m.input_buf)
+            }
         }
     };
     let footer = Paragraph::new(text)

@@ -185,6 +185,15 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),           position: Bottom, height: Some(3), width_pct: None     },
             ],
         };
+        let observer = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header".into(),           position: Top,    height: Some(3), width_pct: None     },
+                PanelSpec { name: "observer".into(),         position: Left,   height: None,    width_pct: Some(60) },
+                PanelSpec { name: "system_resources".into(), position: Right,  height: None,    width_pct: Some(40) },
+                PanelSpec { name: "log".into(),              position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),           position: Bottom, height: Some(3), width_pct: None     },
+            ],
+        };
         let mut presets = HashMap::new();
         presets.insert("minimal".into(), minimal);
         presets.insert("monitoring".into(), monitoring);
@@ -192,6 +201,7 @@ impl LayoutConfig {
         presets.insert("waterfall".into(), waterfall);
         presets.insert("spectrum_waterfall".into(), spectrum_waterfall);
         presets.insert("lab".into(), lab);
+        presets.insert("observer".into(), observer);
         Self { active_preset: "minimal".into(), presets }
     }
 

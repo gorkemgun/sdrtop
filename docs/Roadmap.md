@@ -34,6 +34,7 @@ aims for future extensibility to other SDR platforms (e.g., RTL-SDR, LimeSDR, Ai
 | 13 — Multi-device support                                              | 🔲 Planned |
 | 14 — Polish & production readiness                                     | 🔲 Planned |
 | 15 — Distribution & community                                          | 🔲 Planned |
+| 16 — Advanced observer mode (daemon / shared IQ)                       | 💡 Idea    |
 
 ---
 
@@ -389,6 +390,35 @@ Detection: open `/dev/ttyACM*`, send `info\r`, check response for `"Mayhem"`.
 **15.3** — Nix flake  
 **15.4** — Homebrew formula  
 **15.5** — `README.md`, `CONTRIBUTING.md`, man page via `clap`
+
+---
+
+## Phase 16 — Advanced Observer Mode 💡 Idea
+
+> This is a rough concept, not a committed phase. It exists so the idea doesn't get lost.
+
+**Current observer mode is very alpha.** It reads what's available from sysfs and `/proc` — device identity, USB stats, owner process info — but it cannot touch the IQ stream or read the owner app's frequency/gain settings. That's a fundamental USB constraint: libhackrf uses exclusive access.
+
+### The gap
+
+| What we want | Why we can't have it now |
+|---|---|
+| Live IQ spectrum / waterfall | Exclusive USB — another app holds the device |
+| Current frequency & gain | Lives inside SDR++, not exposed anywhere |
+| Auto-recovery when device is freed | Not implemented — user must restart sdrtop |
+
+### Possible directions
+
+**Option A — `sdrtopd` daemon (most powerful)**  
+A background daemon opens the HackRF exclusively and re-exposes the IQ stream over a Unix socket or shared memory ring buffer. sdrtop becomes a client. SDR++ is replaced by the daemon as the device owner — other SDR apps would need to connect to the daemon instead of the USB device directly. Big compatibility problem.
+
+**Option B — `usbmon` passive capture (interesting, fragile)**  
+Linux's `usbmon` kernel module can capture USB traffic without holding the device. A privileged daemon reads `/dev/usbmon*`, parses HackRF's USB protocol (bulk transfer format), and reconstructs the IQ stream. No cooperation from SDR++ needed. Requires root, HackRF-specific USB parsing, and will break on protocol changes.
+
+**Option C — Auto-recovery only (minimal, practical)**  
+Keep the current sysfs-based observer, but add a watcher task: poll every 2 seconds for whether the device is still busy. When it becomes free, restart in normal mode without the user having to quit and relaunch. This is the most conservative improvement and the most likely to actually ship.
+
+**Recommendation:** Start with Option C (auto-recovery) as it fits naturally into the existing architecture. Options A and B are interesting research directions but involve significant new complexity.
 
 ---
 

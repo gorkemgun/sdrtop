@@ -44,6 +44,7 @@ pub const THROUGHPUT_HISTORY_LEN: usize = 64;
 pub enum InputMode {
     Normal,
     FrequencyInput,
+    SampleRateInput,
 }
 pub const LOG_MAX_ENTRIES: usize = 100;
 
@@ -109,6 +110,18 @@ pub struct SdrMetrics {
 
     // USB transfer errors (valid_length == 0 from libhackrf) — session total
     pub usb_errors_session: u64,
+
+    // --- Observer mode (device physically present but in use by another process) ---
+    pub observer_mode: bool,
+    pub observer_device: Option<String>,    // "HackRF One · Great Scott Gadgets"
+    pub observer_serial: Option<String>,
+    pub observer_usb: Option<String>,       // "High Speed (480 Mbit/s) · 500 mA · Bus 1, Port 3"
+    pub observer_connected: Option<String>, // "1h 23m 14s"
+    pub observer_owner: Option<String>,     // "sdrpp (PID 12345)"
+    pub observer_cmdline: Option<String>,
+    pub observer_owner_cpu_pct: f32,
+    pub observer_owner_ram_mb: u64,
+    pub observer_owner_uptime: Option<String>,
 
     // --- Accumulators (written by rx_callback, reset by polling task) ---
     pub acc_drops: u64,

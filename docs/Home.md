@@ -56,6 +56,18 @@
 | 13 | Multi-device support | 🔲 Planned |
 | 14 | Polish & production readiness | 🔲 Planned |
 | 15 | Distribution & community | 🔲 Planned |
+| 16 | Advanced observer mode (daemon / shared IQ) | 💡 Idea |
+
+---
+
+## Out-of-phase improvements
+
+Small additions made between planned phases — not bugs, not roadmap items, just things that needed doing.
+
+| ID | Title | Between phases |
+|---|---|---|
+| [IMP-001](improvements/imp-001-sample-rate-control.md) | Interactive sample rate control (`[S]` key) | 11 → 12 |
+| [IMP-002 Plan](improvements/imp-002-observer-mode.md) · [Log](improvements/imp-002-observer-mode-log.md) | Observer mode — monitor while another app uses the HackRF | 11 → 12 |
 
 ---
 

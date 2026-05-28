@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 pub fn render_help(f: &mut Frame) {
-    let area = centered_rect(52, 22, f.size());
+    let area = centered_rect(52, 23, f.size());
 
     let text = "\
  [Q]        Quit\n\
@@ -15,6 +15,7 @@ pub fn render_help(f: &mut Frame) {
  [[] []]    VGA gain  −2 / +2 dB  (0–62 dB)\n\
  [A]        Toggle AMP\n\
  [F]        Enter frequency (MHz)\n\
+ [S]        Enter sample rate (2–20 MHz)\n\
  [R]        Reset all to defaults\n\
  [P]        Cycle presets\n\
  [1]        Preset: minimal\n\
@@ -26,7 +27,7 @@ pub fn render_help(f: &mut Frame) {
  [W]        Pause / resume waterfall\n\
  [?]        Toggle this help\n\
 \n\
- In frequency input mode:\n\
+ In frequency / sample rate input mode:\n\
    digits / .    type value\n\
    Backspace     delete last char\n\
    Enter         confirm\n\
