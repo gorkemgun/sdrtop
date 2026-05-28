@@ -87,6 +87,24 @@ pub fn magnitude_to_color(db: f32, db_min: f32, db_max: f32, depth: ColorDepth) 
     }
 }
 
+/// Like `magnitude_to_color` but uses the theme's custom gradient for TrueColor.
+/// For Color256 and Color16 it falls back to the existing hardcoded palettes.
+pub fn magnitude_to_color_themed(
+    db: f32,
+    db_min: f32,
+    db_max: f32,
+    depth: ColorDepth,
+    theme: &crate::Theme,
+) -> Color {
+    let t = ((db - db_min) / (db_max - db_min)).clamp(0.0, 1.0);
+    match depth {
+        ColorDepth::TrueColor => theme.palette_color(t),
+        ColorDepth::Color256 | ColorDepth::Color16 => {
+            magnitude_to_color(db, db_min, db_max, depth)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +134,23 @@ mod tests {
         let hot  = magnitude_to_color(   0.0, -120.0, 0.0, ColorDepth::Color16);
         assert_eq!(cold, Color::DarkGray);
         assert_eq!(hot,  Color::White);
+    }
+
+    #[test]
+    fn themed_truecolor_uses_theme_palette() {
+        let theme = crate::Theme::sdr();
+        let cold = magnitude_to_color_themed(-120.0, -120.0, 0.0, ColorDepth::TrueColor, &theme);
+        let hot  = magnitude_to_color_themed(   0.0, -120.0, 0.0, ColorDepth::TrueColor, &theme);
+        // SDR palette cold end is (10, 10, 80), hot end is (255, 50, 20)
+        assert_eq!(cold, Color::Rgb(10, 10, 80));
+        assert_eq!(hot,  Color::Rgb(255, 50, 20));
+    }
+
+    #[test]
+    fn themed_256color_falls_back_to_existing() {
+        let theme = crate::Theme::sdr();
+        let result   = magnitude_to_color_themed(-60.0, -120.0, 0.0, ColorDepth::Color256, &theme);
+        let existing = magnitude_to_color(       -60.0, -120.0, 0.0, ColorDepth::Color256);
+        assert_eq!(result, existing);
     }
 }

@@ -30,11 +30,12 @@ aims for future extensibility to other SDR platforms (e.g., RTL-SDR, LimeSDR, Ai
 | 9 — Waterfall display                                                  | ✅ Done     |
 | 10 — Configuration & persistence                                       | ✅ Done     |
 | 11 — HackRF deep diagnostics                                           | ✅ Done     |
-| 12 — PortaPack / Mayhem integration                                    | 🔲 Next    |
-| 13 — Multi-device support                                              | 🔲 Planned |
-| 14 — Polish & production readiness                                     | 🔲 Planned |
-| 15 — Distribution & community                                          | 🔲 Planned |
-| 16 — Advanced observer mode (daemon / shared IQ)                       | 💡 Idea    |
+| 12 — UI/UX polish & theme system                                       | ✅ Done     |
+| 13 — PortaPack / Mayhem integration                                    | 🔲 Planned |
+| 14 — Multi-device support                                              | 🔲 Planned |
+| 15 — Polish & production readiness                                     | 🔲 Planned |
+| 16 — Distribution & community                                          | 🔲 Planned |
+| 17 — Advanced observer mode (daemon / shared IQ)                       | 💡 Idea    |
 
 ---
 
@@ -319,13 +320,44 @@ Six-panel layout: `rf_chain` + `iq_diagnostics` (left) | `signal_metrics` + `iq_
 
 ---
 
-## Phase 12 — PortaPack / Mayhem Integration 🔲 Next
+## Phase 12 — UI/UX Polish & Theme System ✅ Done
+
+**Goal:** Transform sdrtop's visual presentation from functional-but-plain into
+a polished, terminal-community-grade tool. A full theme system with built-in palettes
+(Nord, Dracula, Gruvbox, Catppuccin, Solarized, SDR), rounded borders everywhere,
+gradient spectrum bars, a redesigned status-bar header, a context-sensitive footer,
+and a panel focus system with per-panel keybindings.
+
+- Implementation log: [Phase 12 - UI/UX Polish & Theme System - Log](phases/Phase%2012%20-%20UI%20UX%20Polish%20Theme%20System%20-%20Log.md)
+- Steps: [12a — Theme Foundation](phases/Phase%2012a%20-%20Theme%20Foundation%20-%20Steps.md) · [12b — Panel Visual Updates](phases/Phase%2012b%20-%20Panel%20Visual%20Updates%20-%20Steps.md) · [12c — Header, Footer & Focus](phases/Phase%2012c%20-%20Header%20Footer%20Focus%20-%20Steps.md)
+
+### Key outcomes
+
+- `Theme` struct with 6 built-in palettes (`sdr`, `nord`, `dracula`, `gruvbox`, `catppuccin`, `solarized`) + TOML `[theme]` section with per-field `#rrggbb` overrides; `--theme <name>` CLI flag
+- All 13 panels switched to `BorderType::Rounded`; three border tiers (`border_accent` / `border_default` / `border_dim`) driven by panel role; stale/observer states get dedicated colors
+- Spectrum analyzer: per-bin gradient computed as `Vec<Color>` outside the Canvas closure (ratatui 0.26 `'static` constraint); cold→hot palette matches waterfall
+- `HeaderPanel` redesigned as stateless — reads `board_name`, `fw_version`, frequency, and streaming status live from `SdrMetrics`
+- `FooterPanel` redesigned with four context modes: observer / text-input / panel-focused / normal
+- Panel focus system: 7 panels register focus keys (`e o h c m i g`); `LayoutEngine` tracks `focused_panel`; focused border switches to `theme.border_focused`; `Esc` exits focus
+
+### Config schema addition
+
+```toml
+[theme]
+base = "nord"           # sdr · nord · dracula · gruvbox · catppuccin · solarized
+border_accent = "#88c0d0"   # optional per-field #rrggbb overrides
+value_hi      = "#ebcb8b"
+```
+
+---
+
+## Phase 13 — PortaPack / Mayhem Integration 🔲 Planned
 
 **Goal:** Detect a PortaPack Mayhem device and display live telemetry (firmware version,
 platform model, RTC clock) in a dedicated panel. Auto-detection on startup; reconnect on
 unplug/replug.
 
-- Step-by-step execution guide: [Phase 12 - PortaPack Mayhem Integration - Steps](phases/Phase%2012%20-%20PortaPack%20Mayhem%20Integration%20-%20Steps.md)
+- Step-by-step execution guide: [Phase 13 - PortaPack Mayhem Integration - Steps](phases/Phase%2013%20-%20PortaPack%20Mayhem%20Integration%20-%20Steps.md)
 
 ### Protocol
 
@@ -343,57 +375,56 @@ Detection: open `/dev/ttyACM*`, send `info\r`, check response for `"Mayhem"`.
 
 ### Steps
 
-**12.1** — `serialport = "4"` dep + `PortaPackState` in `state.rs` + 3 unit tests  
-**12.2** — `src/portapack.rs`: `find_portapack()`, `send_command()`, `PortaPackWorker` + 4 unit tests  
-**12.3** — `App` integration: spawn worker thread, add `'7'` preset key  
-**12.4** — `src/ui/portapack_panel.rs`: `PortaPackPanel` (connected/disconnected state)  
-**12.5** — Register panel, add `portapack` preset to `LayoutConfig`, update overlay
+**13.1** — `serialport = "4"` dep + `PortaPackState` in `state.rs` + 3 unit tests  
+**13.2** — `src/portapack.rs`: `find_portapack()`, `send_command()`, `PortaPackWorker` + 4 unit tests  
+**13.3** — `App` integration: spawn worker thread, add `'7'` preset key  
+**13.4** — `src/ui/portapack_panel.rs`: `PortaPackPanel` (connected/disconnected state)  
+**13.5** — Register panel, add `portapack` preset to `LayoutConfig`, update overlay
 
 ---
 
-## Phase 13 — Multi-Device Support 🔲 Planned
+## Phase 14 — Multi-Device Support 🔲 Planned
 
 **Goal:** Multiple HackRF devices monitored simultaneously; `Tab` switches focus.
 
 ### Steps
 
-**13.1** — Introduce `DeviceHandle` struct; refactor `App` to hold `Vec<DeviceHandle>`  
-**13.2** — Open all connected devices at startup; spawn one polling task + FFT worker per device  
-**13.3** — Device list panel (`src/ui/device_list.rs`); `d` key toggles; `Tab` changes focus  
-**13.4** — Disconnect detection; mark device offline, stop FFT worker  
-**13.5** — Reconnect detection via 2-second watcher task
+**14.1** — Introduce `DeviceHandle` struct; refactor `App` to hold `Vec<DeviceHandle>`  
+**14.2** — Open all connected devices at startup; spawn one polling task + FFT worker per device  
+**14.3** — Device list panel (`src/ui/device_list.rs`); `d` key toggles; `Tab` changes focus  
+**14.4** — Disconnect detection; mark device offline, stop FFT worker  
+**14.5** — Reconnect detection via 2-second watcher task
 
 ---
 
-## Phase 14 — Polish & Production Readiness 🔲 Planned
+## Phase 15 — Polish & Production Readiness 🔲 Planned
 
 **Steps**
 
-**14.1** — Startup UX: loading message, clean "no device" error  
-**14.2** — Terminal resize: forward `Event::Resize` as `AppEvent::Resize`  
-**14.3** — Mouse support: scroll over gauges, click device list  
-**14.4** — Themes: `default`, `gruvbox`, `nord`, `light`; `t` key cycles  
-**14.5** — Panic hook: restore terminal unconditionally before printing panic  
-**14.6** — Audit `unwrap()` calls; replace with `?` or `expect("reason")`  
-**14.7** — `--no-color` flag + `NO_COLOR` env var  
-**14.8** — Performance: flamegraph, ≥25 fps render, <30% CPU, <50 MB RSS  
-**14.9** — Integration test harness with `libhackrf_mock.so`
+**15.1** — Startup UX: loading message, clean "no device" error  
+**15.2** — Terminal resize: forward `Event::Resize` as `AppEvent::Resize`  
+**15.3** — Mouse support: scroll over gauges, click device list  
+**15.4** — Panic hook: restore terminal unconditionally before printing panic  
+**15.5** — Audit `unwrap()` calls; replace with `?` or `expect("reason")`  
+**15.6** — `--no-color` flag + `NO_COLOR` env var  
+**15.7** — Performance: flamegraph, ≥25 fps render, <30% CPU, <50 MB RSS  
+**15.8** — Integration test harness with `libhackrf_mock.so`
 
 ---
 
-## Phase 15 — Distribution & Community 🔲 Planned
+## Phase 16 — Distribution & Community 🔲 Planned
 
 **Steps**
 
-**15.1** — AUR packages (`sdrtop-git` and `sdrtop`)  
-**15.2** — GitHub Actions CI (lint + test) and release matrix (4 targets)  
-**15.3** — Nix flake  
-**15.4** — Homebrew formula  
-**15.5** — `README.md`, `CONTRIBUTING.md`, man page via `clap`
+**16.1** — AUR packages (`sdrtop-git` and `sdrtop`)  
+**16.2** — GitHub Actions CI (lint + test) and release matrix (4 targets)  
+**16.3** — Nix flake  
+**16.4** — Homebrew formula  
+**16.5** — `README.md`, `CONTRIBUTING.md`, man page via `clap`
 
 ---
 
-## Phase 16 — Advanced Observer Mode 💡 Idea
+## Phase 17 — Advanced Observer Mode 💡 Idea
 
 > This is a rough concept, not a committed phase. It exists so the idea doesn't get lost.
 

@@ -20,9 +20,13 @@ impl PanelRegistry {
         self.panels.get(name).map(|p| p.as_ref())
     }
 
-    pub fn render_panel(&self, name: &str, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+    pub fn panels_iter(&self) -> impl Iterator<Item = &Box<dyn Panel>> {
+        self.panels.values()
+    }
+
+    pub fn render_panel(&self, name: &str, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         if let Some(panel) = self.get(name) {
-            panel.render(f, area, state);
+            panel.render(f, area, state, theme, focused);
         }
     }
 }
@@ -37,7 +41,7 @@ mod tests {
     impl Panel for NamedPanel {
         fn name(&self) -> &'static str { self.0 }
         fn min_size(&self) -> (u16, u16) { (0, 0) }
-        fn render(&self, _f: &mut Frame, _area: Rect, _state: &SdrMetrics) {}
+        fn render(&self, _f: &mut Frame, _area: Rect, _state: &SdrMetrics, _theme: &crate::Theme, _focused: bool) {}
     }
 
     #[test]

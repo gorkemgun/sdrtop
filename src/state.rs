@@ -96,6 +96,10 @@ pub struct SdrMetrics {
     pub waterfall: WaterfallBuffer,
 
     // --- Hardware identity (read once at startup) ---
+    pub board_name: String,
+    #[allow(dead_code)]
+    pub serial: String,
+    pub fw_version: String,
     pub board_rev: u8,
     pub usb_api_version: u16,
     pub cpld_ok: Option<bool>,
@@ -122,6 +126,10 @@ pub struct SdrMetrics {
     pub observer_owner_cpu_pct: f32,
     pub observer_owner_ram_mb: u64,
     pub observer_owner_uptime: Option<String>,
+
+    // --- Panel focus (set by app event loop, read by footer) ---
+    pub focused_panel: Option<String>,
+    pub focused_panel_bindings: &'static [(&'static str, &'static str)],
 
     // --- Accumulators (written by rx_callback, reset by polling task) ---
     pub acc_drops: u64,

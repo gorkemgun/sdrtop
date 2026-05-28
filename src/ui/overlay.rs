@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 pub fn render_help(f: &mut Frame) {
-    let area = centered_rect(52, 23, f.size());
+    let area = centered_rect(62, 32, f.size());
 
     let text = "\
  [Q]        Quit\n\
@@ -26,6 +26,13 @@ pub fn render_help(f: &mut Frame) {
  [6]        Preset: lab\n\
  [W]        Pause / resume waterfall\n\
  [?]        Toggle this help\n\
+\n\
+ Panel focus:\n\
+   [E] Spectrum  [O] Waterfall  [H] Hardware Health\n\
+   [C] RF Chain  [M] Signal     [I] IQ Diag  [G] Gains\n\
+   Esc  Exit focus mode\n\
+\n\
+ --theme <name>:  sdr | nord | dracula | gruvbox | catppuccin | solarized\n\
 \n\
  In frequency / sample rate input mode:\n\
    digits / .    type value\n\

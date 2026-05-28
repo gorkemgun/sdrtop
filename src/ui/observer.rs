@@ -1,8 +1,8 @@
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -15,53 +15,59 @@ impl Panel for ObserverPanel {
     fn name(&self) -> &'static str { "observer" }
     fn min_size(&self) -> (u16, u16) { (40, 10) }
 
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
         let dash = "—";
-        let device   = state.observer_device.as_deref().unwrap_or(dash);
-        let serial   = state.observer_serial.as_deref().unwrap_or(dash);
-        let usb      = state.observer_usb.as_deref().unwrap_or(dash);
+        let device    = state.observer_device.as_deref().unwrap_or(dash);
+        let serial    = state.observer_serial.as_deref().unwrap_or(dash);
+        let usb       = state.observer_usb.as_deref().unwrap_or(dash);
         let connected = state.observer_connected.as_deref().unwrap_or(dash);
 
         let mut lines: Vec<Line> = vec![
             Line::from(vec![
-                Span::styled(" Observer Mode", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(" Observer Mode", Style::default().fg(theme.observer).add_modifier(Modifier::BOLD)),
             ]),
             Line::from(""),
-            Line::from(format!("  {}", device)),
-            Line::from(format!("  Serial: {}", serial)),
-            Line::from(format!("  USB {}", usb)),
-            Line::from(format!("  Connected: {}", connected)),
+            Line::from(Span::styled(format!("  {}", device),    Style::default().fg(theme.value_hi))),
+            Line::from(Span::styled(format!("  Serial: {}", serial), Style::default().fg(theme.value))),
+            Line::from(Span::styled(format!("  USB {}", usb),   Style::default().fg(theme.value))),
+            Line::from(Span::styled(format!("  Connected: {}", connected), Style::default().fg(theme.value))),
             Line::from(""),
         ];
 
         if let Some(owner) = &state.observer_owner {
-            lines.push(Line::from(format!("  In use by: {}", owner)));
+            lines.push(Line::from(Span::styled(
+                format!("  In use by: {}", owner),
+                Style::default().fg(theme.value),
+            )));
             if let Some(cmdline) = &state.observer_cmdline {
                 let truncated = if cmdline.len() > (area.width as usize).saturating_sub(4) {
                     format!("  {}…", &cmdline.chars().take((area.width as usize).saturating_sub(5)).collect::<String>())
                 } else {
                     format!("  {}", cmdline)
                 };
-                lines.push(Line::from(truncated));
+                lines.push(Line::from(Span::styled(truncated, Style::default().fg(theme.label))));
             }
             let uptime = state.observer_owner_uptime.as_deref().unwrap_or(dash);
-            lines.push(Line::from(format!(
-                "  CPU: {:.1}%  ·  RAM: {} MB  ·  Running: {}",
-                state.observer_owner_cpu_pct,
-                state.observer_owner_ram_mb,
-                uptime,
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "  CPU: {:.1}%  ·  RAM: {} MB  ·  Running: {}",
+                    state.observer_owner_cpu_pct,
+                    state.observer_owner_ram_mb,
+                    uptime,
+                ),
+                Style::default().fg(theme.value),
             )));
         } else {
             lines.push(Line::from(Span::styled(
                 "  Owner: unknown (different user or process ended)",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.label),
             )));
         }
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "  Hardware controls disabled.",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.label),
         )));
 
         let para = Paragraph::new(lines)
@@ -69,7 +75,8 @@ impl Panel for ObserverPanel {
                 Block::default()
                     .title(" Observer Mode ")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow)),
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(theme.observer)),
             );
         f.render_widget(para, area);
     }

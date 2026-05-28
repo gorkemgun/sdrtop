@@ -20,18 +20,10 @@ It runs entirely in the terminal. No GUI, no Electron, no browser. A real-time d
 
 ## What it actually shows
 
-```
-┌─ RF Chain ─────────┐  ┌─ Spectrum ─────────────────────────────────────┐
-│ Frequency  433.920 M│  │                  ░░░                           │
-│ Sample rate  10.0 M │  │             ░░░░████░░░                         │
-│ BB filter  10.0 MHz │  │        ░░░░░████████████░░░░                    │
-│ LNA gain     16 dB  │  └────────────────────────────────────────────────┘
-│ VGA gain     20 dB  │  ┌─ Hardware Health ──────────────────────────────┐
-│ AMP          OFF    │  │ Drops: 0/s  (session: 0)                       │
-│ Total gain   36 dB  │  │ ADC sat: 0.0%  (peak: 0.0%)                   │
-│ Board    HackRF r9  │  │ Jitter: 42 µs                                  │
-│ USB API   0x0102    │  │ USB errors: 0                                   │
-└────────────────────┘  └────────────────────────────────────────────────┘
+
+.
+
+
 ```
 
 - **Spectrum analyzer** — FFT with EMA smoothing and peak hold

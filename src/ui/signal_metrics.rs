@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -11,10 +11,10 @@ use crate::ui::panel::Panel;
 
 pub struct SignalMetricsPanel;
 
-fn snr_color(snr: f32) -> Color {
-    if snr >= 20.0      { Color::Green }
-    else if snr >= 10.0 { Color::Yellow }
-    else                { Color::Red }
+fn snr_color(snr: f32, theme: &crate::Theme) -> Color {
+    if snr >= 20.0      { theme.status_ok   }
+    else if snr >= 10.0 { theme.status_warn }
+    else                { theme.status_crit }
 }
 
 fn fmt_bw(hz: u64) -> String {
@@ -31,23 +31,30 @@ impl Panel for SignalMetricsPanel {
     fn name(&self) -> &'static str { "signal_metrics" }
     fn min_size(&self) -> (u16, u16) { (32, 6) }
 
-    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics) {
+    fn focus_key(&self) -> Option<char> { Some('m') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("Esc", "Exit focus")]
+    }
+
+    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let stale = state.last_fft_frame.as_ref()
             .map(|fr| fr.timestamp.elapsed().as_millis() > 500)
             .unwrap_or(true);
 
         let title = if stale { " Signal Metrics [STALE] " } else { " Signal Metrics " };
+        let border_color = if focused { theme.border_focused }
+            else if stale { theme.stale }
+            else { theme.border_default };
         let block = Block::default()
             .title(title)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(
-                if stale { Color::DarkGray } else { Color::Cyan }
-            ));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
-        let lbl = Style::default().fg(Color::DarkGray);
-        let val = Style::default().fg(Color::White);
+        let lbl = Style::default().fg(theme.label);
+        let val = Style::default().fg(theme.value);
 
         let noise_str = state.last_fft_frame.as_ref()
             .map(|fr| format!("{:.1} dBFS", fr.noise_floor))
@@ -58,7 +65,7 @@ impl Panel for SignalMetricsPanel {
                 Span::styled(format!("{:<15}", "SNR"), lbl),
                 Span::styled(
                     format!("{:.1} dB", state.snr_db),
-                    Style::default().fg(snr_color(state.snr_db)),
+                    Style::default().fg(snr_color(state.snr_db, theme)),
                 ),
             ]),
             Line::from(vec![

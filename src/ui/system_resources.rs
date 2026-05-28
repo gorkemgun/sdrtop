@@ -1,8 +1,8 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::Style,
     text::Span,
-    widgets::{Block, Borders, Gauge, Paragraph, Sparkline},
+    widgets::{Block, BorderType, Borders, Gauge, Paragraph, Sparkline},
     Frame,
 };
 
@@ -15,10 +15,12 @@ impl Panel for SystemResourcesPanel {
     fn name(&self) -> &'static str { "system_resources" }
     fn min_size(&self) -> (u16, u16) { (30, 10) }
 
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
         let block = Block::default()
             .title(" System Resources ")
-            .borders(Borders::ALL);
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border_dim));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -33,9 +35,9 @@ impl Panel for SystemResourcesPanel {
             .split(inner);
 
         let cpu = state.process_cpu_pct.clamp(0.0, 100.0);
-        let cpu_color = if cpu > 80.0       { Color::Red    }
-            else if cpu > 50.0              { Color::Yellow }
-            else                            { Color::Cyan   };
+        let cpu_color = if cpu > 80.0 { theme.status_crit }
+            else if cpu > 50.0       { theme.status_warn  }
+            else                     { theme.status_ok    };
         f.render_widget(
             Gauge::default()
                 .label(format!("CPU  {:.1}%", cpu))
@@ -46,7 +48,7 @@ impl Panel for SystemResourcesPanel {
 
         let rss = state.process_rss_mb;
         let rss_ratio = (rss as f64 / 512.0).min(1.0);
-        let rss_color = if rss_ratio > 0.8 { Color::Red } else { Color::Magenta };
+        let rss_color = if rss_ratio > 0.8 { theme.status_crit } else { theme.value };
         f.render_widget(
             Gauge::default()
                 .label(format!("RAM  {} MB", rss))
@@ -57,7 +59,10 @@ impl Panel for SystemResourcesPanel {
 
         let throughput_mb = state.current_throughput_bps as f64 / 1_000_000.0;
         f.render_widget(
-            Paragraph::new(Span::raw(format!("USB  {:.2} MB/s", throughput_mb))),
+            Paragraph::new(Span::styled(
+                format!("USB  {:.2} MB/s", throughput_mb),
+                Style::default().fg(theme.value),
+            )),
             rows[2],
         );
 
@@ -65,7 +70,7 @@ impl Panel for SystemResourcesPanel {
         f.render_widget(
             Sparkline::default()
                 .data(&sparkline_data)
-                .style(Style::default().fg(Color::Green)),
+                .style(Style::default().fg(theme.status_ok)),
             rows[3],
         );
     }

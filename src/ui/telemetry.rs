@@ -1,15 +1,15 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    style::Style,
+    widgets::{Block, BorderType, Borders, Paragraph, Wrap},
     Frame,
 };
 
 use crate::state::SdrMetrics;
 
-pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, board_name: &str, serial: &str) {
+pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, board_name: &str, serial: &str, theme: &crate::Theme) {
     let status_text = if m.hw_streaming { "STREAMING" } else { "IDLE" };
-    let status_color = if m.hw_streaming { Color::Green } else { Color::Yellow };
+    let status_color = if m.hw_streaming { theme.status_ok } else { theme.status_warn };
 
     let info_text = format!(
         "Model:       {}\n\
@@ -34,6 +34,7 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, board_name: &str, seria
             Block::default()
                 .title(" Telemetry ")
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(status_color)),
         )
         .alignment(Alignment::Left)
@@ -51,7 +52,7 @@ pub struct TelemetryPanel {
 impl Panel for TelemetryPanel {
     fn name(&self) -> &'static str { "telemetry" }
     fn min_size(&self) -> (u16, u16) { (30, 10) }
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
-        render(f, area, state, &self.board_name, &self.serial);
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
+        render(f, area, state, &self.board_name, &self.serial, theme);
     }
 }

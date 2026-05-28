@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::Span,
-    widgets::{Block, Borders, Paragraph, Sparkline},
+    widgets::{Block, BorderType, Borders, Paragraph, Sparkline},
     Frame,
 };
 
@@ -11,20 +11,28 @@ use crate::ui::panel::Panel;
 
 pub struct HardwareHealthPanel;
 
-fn threshold_color(value: f64, warn: f64, crit: f64) -> Color {
-    if value >= crit      { Color::Red    }
-    else if value >= warn { Color::Yellow }
-    else                  { Color::Green  }
+fn threshold_color(value: f64, warn: f64, crit: f64, theme: &crate::Theme) -> Color {
+    if value >= crit      { theme.status_crit }
+    else if value >= warn { theme.status_warn }
+    else                  { theme.status_ok   }
 }
 
 impl Panel for HardwareHealthPanel {
     fn name(&self) -> &'static str { "hardware_health" }
     fn min_size(&self) -> (u16, u16) { (30, 12) }
 
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+    fn focus_key(&self) -> Option<char> { Some('h') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("Esc", "Exit focus")]
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
+        let border_color = if focused { theme.border_focused } else { theme.border_default };
         let block = Block::default()
             .title(" Hardware Health ")
-            .borders(Borders::ALL);
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -41,7 +49,7 @@ impl Panel for HardwareHealthPanel {
             ])
             .split(inner);
 
-        let drop_color = threshold_color(state.drops_per_sec as f64, 1.0, 10.0);
+        let drop_color = threshold_color(state.drops_per_sec as f64, 1.0, 10.0, theme);
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!(
@@ -60,7 +68,7 @@ impl Panel for HardwareHealthPanel {
             rows[1],
         );
 
-        let sat_color = threshold_color(state.adc_saturation_pct as f64, 1.0, 5.0);
+        let sat_color = threshold_color(state.adc_saturation_pct as f64, 1.0, 5.0, theme);
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!(
@@ -81,7 +89,7 @@ impl Panel for HardwareHealthPanel {
             rows[3],
         );
 
-        let jitter_color = threshold_color(state.callback_jitter_us as f64, 500.0, 2000.0);
+        let jitter_color = threshold_color(state.callback_jitter_us as f64, 500.0, 2000.0, theme);
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!("Jitter: {} µs (inter-callback mean)", state.callback_jitter_us),
@@ -90,7 +98,7 @@ impl Panel for HardwareHealthPanel {
             rows[4],
         );
 
-        let usb_color = if state.usb_errors_session > 0 { Color::Red } else { Color::Green };
+        let usb_color = if state.usb_errors_session > 0 { theme.status_crit } else { theme.status_ok };
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!("USB errors: {} (session)", state.usb_errors_session),

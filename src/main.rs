@@ -1,5 +1,7 @@
 mod app;
 mod config;
+mod theme;
+pub use theme::Theme;
 mod dsp;
 mod event;
 mod fft;
@@ -39,6 +41,10 @@ struct Cli {
     /// VGA gain in dB, 0–62 step 2 (overrides config)
     #[arg(long)]
     vga: Option<u32>,
+
+    /// Color theme (sdr, nord, dracula, gruvbox, catppuccin, solarized)
+    #[arg(long, value_name = "THEME")]
+    theme: Option<String>,
 }
 
 fn default_config_path() -> Option<PathBuf> {
@@ -59,6 +65,7 @@ async fn main() -> Result<()> {
     if let Some(f) = cli.frequency { app_cfg.radio.frequency_hz = f; }
     if let Some(l) = cli.lna       { app_cfg.radio.lna_gain = l.min(40); }
     if let Some(v) = cli.vga       { app_cfg.radio.vga_gain = v.min(62); }
+    if let Some(t) = cli.theme     { app_cfg.theme.base = t; }
 
     let mut app = match App::new(app_cfg, config_path) {
         Ok(a) => a,

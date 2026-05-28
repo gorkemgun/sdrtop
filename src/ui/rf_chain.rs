@@ -1,8 +1,8 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -25,11 +25,18 @@ impl Panel for RfChainPanel {
     fn name(&self) -> &'static str { "rf_chain" }
     fn min_size(&self) -> (u16, u16) { (32, 11) }
 
-    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics) {
+    fn focus_key(&self) -> Option<char> { Some('c') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("Esc", "Exit focus")]
+    }
+
+    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
+        let border_color = if focused { theme.border_focused } else { theme.border_default };
         let block = Block::default()
             .title(" RF Chain ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -39,14 +46,14 @@ impl Panel for RfChainPanel {
             + if state.amp_enabled { 14 } else { 0 };
 
         let cpld_span = match state.cpld_ok {
-            Some(true)  => Span::styled("OK",          Style::default().fg(Color::Green)),
-            Some(false) => Span::styled("MISMATCH",    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            None        => Span::styled("n/a",         Style::default().fg(Color::DarkGray)),
+            Some(true)  => Span::styled("OK",       Style::default().fg(theme.status_ok)),
+            Some(false) => Span::styled("MISMATCH", Style::default().fg(theme.status_crit).add_modifier(Modifier::BOLD)),
+            None        => Span::styled("n/a",      Style::default().fg(theme.label)),
         };
 
-        let lbl = Style::default().fg(Color::DarkGray);
-        let val = Style::default().fg(Color::White);
-        let hi  = Style::default().fg(Color::Cyan);
+        let lbl = Style::default().fg(theme.label);
+        let val = Style::default().fg(theme.value);
+        let hi  = Style::default().fg(theme.value_hi);
 
         let rows: &[Line] = &[
             Line::from(vec![
@@ -73,7 +80,7 @@ impl Panel for RfChainPanel {
                 Span::styled(format!("{:<12}", "AMP"), lbl),
                 Span::styled(
                     if state.amp_enabled { "ON  (+14 dB)" } else { "OFF" },
-                    if state.amp_enabled { Style::default().fg(Color::Yellow) } else { val },
+                    if state.amp_enabled { Style::default().fg(theme.status_warn) } else { val },
                 ),
             ]),
             Line::from(vec![

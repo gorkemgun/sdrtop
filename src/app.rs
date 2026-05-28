@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,6 +27,8 @@ pub struct App {
     events: EventStream,
     show_help: bool,
     engine: ui::LayoutEngine,
+    theme: crate::Theme,
+    focus_keys: HashMap<char, &'static str>,
 }
 
 impl App {
@@ -58,6 +60,8 @@ impl App {
         let board_rev       = device.board_rev().unwrap_or(0xFE);
         let usb_api_version = device.usb_api_version().unwrap_or(0);
         let cpld_ok: Option<bool> = None;
+
+        let theme = cfg.build_theme();
 
         let startup_results = [
             device.set_frequency(cfg.radio.frequency_hz),
@@ -103,6 +107,9 @@ impl App {
             last_fft_frame: None,
             waterfall: crate::state::WaterfallBuffer::new(cfg.display.waterfall_max_rows),
 
+            board_name: board_name.clone(),
+            serial: serial.clone(),
+            fw_version: fw_version.clone(),
             board_rev,
             usb_api_version,
             cpld_ok,
@@ -123,6 +130,9 @@ impl App {
             observer_owner_cpu_pct: 0.0,
             observer_owner_ram_mb: 0,
             observer_owner_uptime: None,
+
+            focused_panel: None,
+            focused_panel_bindings: &[],
 
             acc_drops: 0,
             acc_saturated: 0,
@@ -294,11 +304,7 @@ impl App {
         spawn_sys_resource_task(Arc::clone(&state));
 
         let mut registry = ui::PanelRegistry::new();
-        registry.register(ui::HeaderPanel {
-            board_name: board_name.clone(),
-            fw_version: fw_version.clone(),
-            serial: serial.clone(),
-        });
+        registry.register(ui::HeaderPanel);
         registry.register(ui::TelemetryPanel {
             board_name: board_name.clone(),
             serial: serial.clone(),
@@ -316,6 +322,13 @@ impl App {
         registry.register(ui::IqHistogramPanel);
         registry.register(ui::ObserverPanel);
 
+        let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
+        for panel in registry.panels_iter() {
+            if let Some(key) = panel.focus_key() {
+                focus_keys.insert(key, panel.name());
+            }
+        }
+
         let mut engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
         engine.set_preset(&cfg.display.active_preset);
 
@@ -327,6 +340,8 @@ impl App {
             events: EventStream::new(Duration::from_millis(100)),
             show_help: false,
             engine,
+            theme,
+            focus_keys,
         })
     }
 
@@ -345,6 +360,7 @@ impl App {
             sysinfo.speed_mbits, sysinfo.max_power, sysinfo.bus, sysinfo.dev
         ));
         let observer_connected = sysinfo.connected_secs.map(fmt_duration);
+        let theme = cfg.build_theme();
 
         let state = Arc::new(Mutex::new(SdrMetrics {
             frequency: cfg.radio.frequency_hz,
@@ -382,6 +398,9 @@ impl App {
             last_fft_frame: None,
             waterfall: crate::state::WaterfallBuffer::new(cfg.display.waterfall_max_rows),
 
+            board_name: board_name.clone(),
+            serial: serial.clone(),
+            fw_version: "Observer Mode".to_string(),
             board_rev: 0xFE,
             usb_api_version: 0,
             cpld_ok: None,
@@ -402,6 +421,9 @@ impl App {
             observer_owner_cpu_pct: 0.0,
             observer_owner_ram_mb: 0,
             observer_owner_uptime: None,
+
+            focused_panel: None,
+            focused_panel_bindings: &[],
 
             acc_drops: 0,
             acc_saturated: 0,
@@ -476,11 +498,7 @@ impl App {
         spawn_sys_resource_task(Arc::clone(&state));
 
         let mut registry = ui::PanelRegistry::new();
-        registry.register(ui::HeaderPanel {
-            board_name: board_name.clone(),
-            fw_version: "Observer Mode".to_string(),
-            serial: serial.clone(),
-        });
+        registry.register(ui::HeaderPanel);
         registry.register(ui::TelemetryPanel {
             board_name: board_name.clone(),
             serial: serial.clone(),
@@ -498,6 +516,13 @@ impl App {
         registry.register(ui::IqHistogramPanel);
         registry.register(ui::ObserverPanel);
 
+        let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
+        for panel in registry.panels_iter() {
+            if let Some(key) = panel.focus_key() {
+                focus_keys.insert(key, panel.name());
+            }
+        }
+
         let mut engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
         engine.set_preset("observer");
 
@@ -509,6 +534,8 @@ impl App {
             events: EventStream::new(Duration::from_millis(100)),
             show_help: false,
             engine,
+            theme,
+            focus_keys,
         })
     }
 
@@ -532,6 +559,10 @@ impl App {
                 active_preset:      self.engine.active_preset().to_string(),
                 waterfall_max_rows: wf_rows,
             },
+            theme: crate::config::ThemeConfig {
+                base: self.theme.name.to_string(),
+                ..Default::default()
+            },
         };
         let _ = cfg.save(path);
     }
@@ -540,7 +571,7 @@ impl App {
         loop {
             let m = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
             terminal.draw(|f| {
-                self.engine.draw(f, &m);
+                self.engine.draw(f, &m, &self.theme);
                 if self.show_help {
                     ui::overlay::render_help(f);
                 }
@@ -551,6 +582,14 @@ impl App {
                     let input_mode = self.state.lock().unwrap_or_else(|e| e.into_inner()).input_mode.clone();
                     match input_mode {
                         InputMode::Normal => match key.code {
+                            KeyCode::Esc => {
+                                if self.engine.focused_panel_name().is_some() {
+                                    self.engine.clear_focus();
+                                    let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                    m.focused_panel = None;
+                                    m.focused_panel_bindings = &[];
+                                }
+                            }
                             KeyCode::Char('q') => {
                                 self.save_config();
                                 return Ok(());
@@ -720,7 +759,19 @@ impl App {
                                     }
                                 }
                             }
-                            _ => {}
+                            _ => {
+                                if let KeyCode::Char(c) = key.code {
+                                    if let Some(&panel_name) = self.focus_keys.get(&c) {
+                                        if self.engine.is_panel_visible(panel_name) {
+                                            self.engine.focus(panel_name);
+                                            let bindings = self.engine.get_panel_bindings(panel_name);
+                                            let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                            m.focused_panel = Some(panel_name.to_string());
+                                            m.focused_panel_bindings = bindings;
+                                        }
+                                    }
+                                }
+                            }
                         },
                         InputMode::FrequencyInput => match key.code {
                             KeyCode::Esc => {

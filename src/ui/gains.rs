@@ -1,13 +1,13 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Gauge, Sparkline},
+    style::{Modifier, Style},
+    widgets::{Block, BorderType, Borders, Gauge, Sparkline},
     Frame,
 };
 
 use crate::state::SdrMetrics;
 
-pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
+pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, theme: &crate::Theme, focused: bool) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -18,19 +18,21 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
         ])
         .split(area);
 
+    let border_style = Style::default().fg(if focused { theme.border_focused } else { theme.border_dim });
+
     let lna_gauge = Gauge::default()
         .block(
             Block::default()
                 .title(format!(" LNA Gain: {} dB ", m.lna_gain))
-                .borders(Borders::ALL),
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style),
         )
         .gauge_style(
             Style::default()
-                .fg(Color::Cyan)
-                .bg(Color::Black)
+                .fg(theme.value_hi)
                 .add_modifier(Modifier::ITALIC),
         )
-        // LNA valid range: 0–40 dB in 8 dB steps
         .percent(((m.lna_gain as f32 / 40.0) * 100.0) as u16);
     f.render_widget(lna_gauge, chunks[0]);
 
@@ -38,15 +40,15 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
         .block(
             Block::default()
                 .title(format!(" VGA Gain: {} dB ", m.vga_gain))
-                .borders(Borders::ALL),
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style),
         )
         .gauge_style(
             Style::default()
-                .fg(Color::Magenta)
-                .bg(Color::Black)
+                .fg(theme.value)
                 .add_modifier(Modifier::ITALIC),
         )
-        // VGA valid range: 0–62 dB in 2 dB steps
         .percent(((m.vga_gain as f32 / 62.0) * 100.0) as u16);
     f.render_widget(vga_gauge, chunks[1]);
 
@@ -57,15 +59,15 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
                     " Sample Rate: {:.1} Msps ",
                     m.actual_sample_rate as f64 / 1_000_000.0
                 ))
-                .borders(Borders::ALL),
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style),
         )
         .gauge_style(
             Style::default()
-                .fg(Color::Yellow)
-                .bg(Color::Black)
+                .fg(theme.status_ok)
                 .add_modifier(Modifier::ITALIC),
         )
-        // HackRF One max: 20 Msps
         .percent(((m.actual_sample_rate as f32 / 20_000_000.0) * 100.0).min(100.0) as u16);
     f.render_widget(sr_gauge, chunks[2]);
 
@@ -75,11 +77,13 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics) {
         .block(
             Block::default()
                 .title(format!(" USB Throughput (KB/s, peak: {}) ", sparkline_max))
-                .borders(Borders::ALL),
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(border_style),
         )
         .data(&sparkline_data)
         .max(sparkline_max)
-        .style(Style::default().fg(Color::Green));
+        .style(Style::default().fg(theme.status_ok));
     f.render_widget(sparkline, chunks[3]);
 }
 
@@ -90,7 +94,11 @@ pub struct GainsPanel;
 impl Panel for GainsPanel {
     fn name(&self) -> &'static str { "gains" }
     fn min_size(&self) -> (u16, u16) { (20, 12) }
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
-        render(f, area, state);
+    fn focus_key(&self) -> Option<char> { Some('g') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("↑/↓", "LNA gain"), ("[/]", "VGA gain"), ("A", "AMP toggle"), ("Esc", "Exit focus")]
+    }
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
+        render(f, area, state, theme, focused);
     }
 }

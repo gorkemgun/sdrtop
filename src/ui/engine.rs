@@ -10,11 +10,12 @@ use super::registry::PanelRegistry;
 pub struct LayoutEngine {
     pub config: LayoutConfig,
     registry: PanelRegistry,
+    focused_panel: Option<String>,
 }
 
 impl LayoutEngine {
     pub fn new(config: LayoutConfig, registry: PanelRegistry) -> Self {
-        Self { config, registry }
+        Self { config, registry, focused_panel: None }
     }
 
     pub fn active_preset(&self) -> &str {
@@ -34,9 +35,37 @@ impl LayoutEngine {
         }
     }
 
-    pub fn draw(&self, f: &mut Frame, state: &SdrMetrics) {
+    pub fn focus(&mut self, name: &str) {
+        self.focused_panel = Some(name.to_string());
+    }
+
+    pub fn clear_focus(&mut self) {
+        self.focused_panel = None;
+    }
+
+    #[allow(dead_code)]
+    pub fn is_focused(&self, name: &str) -> bool {
+        self.focused_panel.as_deref() == Some(name)
+    }
+
+    pub fn focused_panel_name(&self) -> Option<&str> {
+        self.focused_panel.as_deref()
+    }
+
+    pub fn is_panel_visible(&self, name: &str) -> bool {
+        self.config.active_panels().iter().any(|s| s.name == name)
+    }
+
+    pub fn get_panel_bindings(&self, name: &str) -> &'static [(&'static str, &'static str)] {
+        self.registry.get(name)
+            .map(|p| p.focus_bindings())
+            .unwrap_or(&[])
+    }
+
+    pub fn draw(&self, f: &mut Frame, state: &SdrMetrics, theme: &crate::Theme) {
         let specs = self.config.active_panels();
         let size = f.size();
+        let focused = self.focused_panel.as_deref();
 
         let top_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Top).collect();
         let bottom_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Bottom).collect();
@@ -61,7 +90,7 @@ impl LayoutEngine {
         for spec in &top_specs {
             let h = spec.height.unwrap_or(3);
             let area = Rect { x: outer[0].x, y, width: outer[0].width, height: h };
-            self.registry.render_panel(&spec.name, f, area, state);
+            self.registry.render_panel(&spec.name, f, area, state, theme, focused == Some(spec.name.as_str()));
             y += h;
         }
 
@@ -70,7 +99,7 @@ impl LayoutEngine {
         for spec in &bottom_specs {
             let h = spec.height.unwrap_or(3);
             let area = Rect { x: outer[2].x, y, width: outer[2].width, height: h };
-            self.registry.render_panel(&spec.name, f, area, state);
+            self.registry.render_panel(&spec.name, f, area, state, theme, focused == Some(spec.name.as_str()));
             y += h;
         }
 
@@ -84,7 +113,6 @@ impl LayoutEngine {
                 .filter(|s| s.position == Position::Body).collect();
 
             // Column width is determined by the FIRST panel in each column.
-            // Summing would give 100% for two 50%-wide panels in the same column.
             let left_pct = left_specs.first()
                 .and_then(|s| s.width_pct).unwrap_or(0);
             let right_pct = right_specs.first()
@@ -99,9 +127,9 @@ impl LayoutEngine {
                 ])
                 .split(outer[1]);
 
-            render_column(f, &left_specs, columns[0], state, &self.registry);
-            render_column(f, &center_specs, columns[1], state, &self.registry);
-            render_column(f, &right_specs, columns[2], state, &self.registry);
+            render_column(f, &left_specs, columns[0], state, &self.registry, theme, focused);
+            render_column(f, &center_specs, columns[1], state, &self.registry, theme, focused);
+            render_column(f, &right_specs, columns[2], state, &self.registry, theme, focused);
         }
     }
 }
@@ -112,6 +140,8 @@ fn render_column(
     area: Rect,
     state: &SdrMetrics,
     registry: &PanelRegistry,
+    theme: &crate::Theme,
+    focused_panel: Option<&str>,
 ) {
     if specs.is_empty() { return; }
     let constraints: Vec<Constraint> = specs.iter().map(|_| Constraint::Min(0)).collect();
@@ -120,6 +150,7 @@ fn render_column(
         .constraints(constraints)
         .split(area);
     for (spec, area) in specs.iter().zip(areas.iter()) {
-        registry.render_panel(&spec.name, f, *area, state);
+        let focused = focused_panel == Some(spec.name.as_str());
+        registry.render_panel(&spec.name, f, *area, state, theme, focused);
     }
 }

@@ -1,8 +1,8 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::Style,
     text::Span,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -15,11 +15,12 @@ impl Panel for IqHistogramPanel {
     fn name(&self) -> &'static str { "iq_histogram" }
     fn min_size(&self) -> (u16, u16) { (36, 6) }
 
-    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics) {
+    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
         let block = Block::default()
             .title(" IQ Amplitude Distribution ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border_default));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -59,15 +60,12 @@ impl Panel for IqHistogramPanel {
             }
         }
 
-        // Render chart rows — color by the dominant bin range in each column
-        // For simplicity render whole chart with a mixed color approach:
-        // split chart area into 3 horizontal segments: low/mid/high amplitude
+        // Split chart into 3 horizontal segments: low/mid/high amplitude
         let low_cols  = (n_bins * 8 / 32).min(chart_area.width as usize);
         let high_cols = (n_bins * 4 / 32).min(chart_area.width as usize);
         let mid_cols  = n_bins.saturating_sub(low_cols + high_cols);
 
-        // Build colored column groups — split by character index, not byte index,
-        // because '█' is 3 bytes in UTF-8 and byte-slicing would panic mid-char.
+        // Build colored column groups using chars() to avoid UTF-8 byte-slice panics
         let low_rows:  Vec<String> = rows.iter()
             .map(|r| r.chars().take(low_cols).collect())
             .collect();
@@ -78,7 +76,6 @@ impl Panel for IqHistogramPanel {
             .map(|r| r.chars().skip(low_cols + mid_cols).collect())
             .collect();
 
-        // Render as 3 vertical strips with different fg colors
         let h_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -89,15 +86,15 @@ impl Panel for IqHistogramPanel {
             .split(chart_area);
 
         f.render_widget(
-            Paragraph::new(low_rows.join("\n")).style(Style::default().fg(Color::DarkGray)),
+            Paragraph::new(low_rows.join("\n")).style(Style::default().fg(theme.label)),
             h_layout[0],
         );
         f.render_widget(
-            Paragraph::new(mid_rows.join("\n")).style(Style::default().fg(Color::Green)),
+            Paragraph::new(mid_rows.join("\n")).style(Style::default().fg(theme.status_ok)),
             h_layout[1],
         );
         f.render_widget(
-            Paragraph::new(high_rows.join("\n")).style(Style::default().fg(Color::Red)),
+            Paragraph::new(high_rows.join("\n")).style(Style::default().fg(theme.status_crit)),
             h_layout[2],
         );
 
@@ -105,13 +102,13 @@ impl Panel for IqHistogramPanel {
         let high_count: u64 = hist[28..32].iter().sum();
         let low_count:  u64 = hist[..8].iter().sum();
         let label = if total == 0 {
-            Span::styled("No samples yet", Style::default().fg(Color::DarkGray))
+            Span::styled("No samples yet", Style::default().fg(theme.label))
         } else if high_count > total / 10 {
-            Span::styled("▲ clipping risk", Style::default().fg(Color::Red))
+            Span::styled("▲ clipping risk", Style::default().fg(theme.status_crit))
         } else if total > 0 && low_count > total * 9 / 10 {
-            Span::styled("▼ weak signal — ADC under-utilised", Style::default().fg(Color::Yellow))
+            Span::styled("▼ weak signal — ADC under-utilised", Style::default().fg(theme.status_warn))
         } else {
-            Span::styled("Dynamic range OK", Style::default().fg(Color::Green))
+            Span::styled("Dynamic range OK", Style::default().fg(theme.status_ok))
         };
         f.render_widget(Paragraph::new(label), label_area);
     }

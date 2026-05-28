@@ -54,12 +54,39 @@ impl Default for DisplayConfig {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ThemeConfig {
+    #[serde(default = "ThemeConfig::default_base")]
+    pub base: String,
+    // Per-field overrides. "#rrggbb" strings. None = use theme default.
+    pub border_accent:  Option<String>,
+    pub border_dim:     Option<String>,
+    pub border_default: Option<String>,
+    pub border_focused: Option<String>,
+    pub label:          Option<String>,
+    pub value:          Option<String>,
+    pub value_hi:       Option<String>,
+    pub status_ok:      Option<String>,
+    pub status_warn:    Option<String>,
+    pub status_crit:    Option<String>,
+    pub peak_hold:      Option<String>,
+    pub noise_floor:    Option<String>,
+    pub stale:          Option<String>,
+    pub observer:       Option<String>,
+}
+
+impl ThemeConfig {
+    fn default_base() -> String { "sdr".into() }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct AppConfig {
     #[serde(default)]
     pub radio: RadioConfig,
     #[serde(default)]
     pub display: DisplayConfig,
+    #[serde(default)]
+    pub theme: ThemeConfig,
 }
 
 impl AppConfig {
@@ -75,6 +102,35 @@ impl AppConfig {
                 Self::default()
             }
         }
+    }
+
+    pub fn build_theme(&self) -> crate::Theme {
+        let mut t = crate::Theme::by_name(&self.theme.base);
+        let tc = &self.theme;
+        macro_rules! apply {
+            ($field:ident) => {
+                if let Some(ref s) = tc.$field {
+                    if let Some(c) = crate::Theme::parse_hex(s) {
+                        t.$field = c;
+                    }
+                }
+            };
+        }
+        apply!(border_accent);
+        apply!(border_dim);
+        apply!(border_default);
+        apply!(border_focused);
+        apply!(label);
+        apply!(value);
+        apply!(value_hi);
+        apply!(status_ok);
+        apply!(status_warn);
+        apply!(status_crit);
+        apply!(peak_hold);
+        apply!(noise_floor);
+        apply!(stale);
+        apply!(observer);
+        t
     }
 
     pub fn save(&self, path: &Path) -> anyhow::Result<()> {
@@ -276,5 +332,35 @@ mod tests {
         let restored: AppConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(restored.radio.lna_gain, 24);
         assert_eq!(restored.display.active_preset, "spectrum");
+    }
+
+    #[test]
+    fn build_theme_default_is_sdr() {
+        let cfg = AppConfig::load_or_default(Path::new("/nonexistent/sdrtop/config.toml"));
+        let t = cfg.build_theme();
+        assert_eq!(t.name, "sdr");
+    }
+
+    #[test]
+    fn build_theme_unknown_base_falls_back_to_sdr() {
+        let toml = "[theme]\nbase = \"nonexistent\"\n";
+        let cfg: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(cfg.build_theme().name, "sdr");
+    }
+
+    #[test]
+    fn build_theme_override_applies_hex_color() {
+        let toml = "[theme]\nbase = \"nord\"\nborder_accent = \"#ff0000\"\n";
+        let cfg: AppConfig = toml::from_str(toml).unwrap();
+        let t = cfg.build_theme();
+        assert_eq!(t.border_accent, ratatui::style::Color::Rgb(255, 0, 0));
+    }
+
+    #[test]
+    fn build_theme_invalid_hex_override_ignored() {
+        let toml = "[theme]\nbase = \"nord\"\nborder_accent = \"notahex\"\n";
+        let cfg: AppConfig = toml::from_str(toml).unwrap();
+        let t = cfg.build_theme();
+        assert_eq!(t.name, "nord");
     }
 }

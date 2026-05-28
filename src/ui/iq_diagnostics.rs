@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::Span,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -11,26 +11,34 @@ use crate::ui::panel::Panel;
 
 pub struct IqDiagnosticsPanel;
 
-fn offset_color(abs_val: f32) -> Color {
-    if abs_val > 0.02       { Color::Red    }
-    else if abs_val > 0.005 { Color::Yellow }
-    else                    { Color::Green  }
+fn offset_color(abs_val: f32, theme: &crate::Theme) -> Color {
+    if abs_val > 0.02       { theme.status_crit }
+    else if abs_val > 0.005 { theme.status_warn }
+    else                    { theme.status_ok   }
 }
 
-fn imbalance_color(abs_db: f32) -> Color {
-    if abs_db > 3.0      { Color::Red    }
-    else if abs_db > 1.0 { Color::Yellow }
-    else                 { Color::Green  }
+fn imbalance_color(abs_db: f32, theme: &crate::Theme) -> Color {
+    if abs_db > 3.0      { theme.status_crit }
+    else if abs_db > 1.0 { theme.status_warn }
+    else                 { theme.status_ok   }
 }
 
 impl Panel for IqDiagnosticsPanel {
     fn name(&self) -> &'static str { "iq_diagnostics" }
     fn min_size(&self) -> (u16, u16) { (30, 6) }
 
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics) {
+    fn focus_key(&self) -> Option<char> { Some('i') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("Esc", "Exit focus")]
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
+        let border_color = if focused { theme.border_focused } else { theme.border_default };
         let block = Block::default()
             .title(" IQ Diagnostics ")
-            .borders(Borders::ALL);
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         f.render_widget(block, area);
 
@@ -51,7 +59,7 @@ impl Panel for IqDiagnosticsPanel {
                     "DC offset  I: {:+.4}  Q: {:+.4}",
                     state.dc_offset_i, state.dc_offset_q
                 ),
-                Style::default().fg(offset_color(max_offset)),
+                Style::default().fg(offset_color(max_offset, theme)),
             )),
             rows[0],
         );
@@ -60,7 +68,7 @@ impl Panel for IqDiagnosticsPanel {
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!("IQ imbalance: {:+.2} dB", state.iq_imbalance_db),
-                Style::default().fg(imbalance_color(abs_imbalance)),
+                Style::default().fg(imbalance_color(abs_imbalance, theme)),
             )),
             rows[1],
         );
@@ -71,7 +79,7 @@ impl Panel for IqDiagnosticsPanel {
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!("  \u{2192} {}", hint),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.label),
             )),
             rows[2],
         );
