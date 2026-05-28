@@ -27,12 +27,13 @@ aims for future extensibility to other SDR platforms (e.g., RTL-SDR, LimeSDR, Ai
 | 6 — Dashboard engine (panel system, presets, layout config)            | ✅ Done     |
 | 7 — Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | ✅ Done     |
 | 8 — FFT spectrum analyzer                                              | ✅ Done     |
-| 9 — Waterfall display                                                  | 🔲 Next    |
-| 10 — Configuration & persistence                                       | 🔲 Planned |
-| 11 — Multi-device support                                              | 🔲 Planned |
-| 12 — PortaPack / Mayhem integration                                    | 🔲 Planned |
-| 13 — Polish & production readiness                                     | 🔲 Planned |
-| 14 — Distribution & community                                          | 🔲 Planned |
+| 9 — Waterfall display                                                  | ✅ Done     |
+| 10 — Configuration & persistence                                       | ✅ Done     |
+| 11 — HackRF deep diagnostics                                           | ✅ Done     |
+| 12 — PortaPack / Mayhem integration                                    | 🔲 Next    |
+| 13 — Multi-device support                                              | 🔲 Planned |
+| 14 — Polish & production readiness                                     | 🔲 Planned |
+| 15 — Distribution & community                                          | 🔲 Planned |
 
 ---
 
@@ -221,147 +222,173 @@ genuinely useful for RF work.
 
 ---
 
-## Phase 9 — Waterfall Display 🔲 Next
+## Phase 9 — Waterfall Display ✅ Done
 
-**Goal:** A scrolling 2D spectrum history below the spectrum plot.
+**Goal:** A scrolling 2D spectrum history rendered as rows of background-colored
+terminal cells — color encodes signal strength. Two new presets: `waterfall`
+(standalone) and `spectrum_waterfall` (spectrum above, waterfall below).
 
-### Color palette
+- Step-by-step execution guide: [Phase 9 - Waterfall Display - Steps](phases/Phase%209%20-%20Waterfall%20Display%20-%20Steps.md)
+- Implementation log (what was done, decisions made): [Phase 9 - Waterfall Display - Log](phases/Phase%209%20-%20Waterfall%20Display%20-%20Log.md)
 
-| Terminal capability | Palette used |
-|---|---|
-| Truecolor (`COLORTERM=truecolor`) | 24-bit RGB gradient: `#000080` → `#00ff00` → `#ffff00` → `#ff0000` |
-| 256-color | pre-computed 32-entry lookup into xterm-256 palette |
-| 16-color fallback | 4 levels: black, dark blue, cyan, white |
+### Key outcomes
 
-### Steps
-
-**7.1 — WaterfallBuffer**
-- [ ] In `state.rs`, add `WaterfallBuffer` struct with `push`, `paused`, `max_rows`
-- [ ] Add `waterfall: WaterfallBuffer` to `SdrMetrics`
-- [ ] Update FFT frame consumer in `app.rs`
-
-**7.2 — Color palette (`src/palette.rs`)**
-- [ ] `ColorDepth` enum + `detect()` (reads `COLORTERM` env var)
-- [ ] `magnitude_to_color(db, db_min, db_max, depth) -> Color`
-
-**7.3 — WaterfallWidget (`src/ui/waterfall.rs`)**
-- [ ] `pub fn render(f, area, buf, db_min, db_max, depth)`
-- [ ] Canvas with solid colored blocks (1 col × 1 row per cell)
-
-**7.4 — Layout integration**
-- [ ] `show_waterfall: bool` and `waterfall_height: u16` in `SdrMetrics`
-- [ ] Conditional spectrum/waterfall split in `ui/layout.rs`
-
-**7.5 — Keyboard controls**
-- [ ] `w` cycles display mode: Spectrum → Both → Waterfall only
-- [ ] `p` toggles `waterfall.paused`
-
-**7.6 — Validation**
-- [ ] At 80×24, 2048-point FFT, `Both` mode: render stays ≥ 10 fps
-- [ ] Palette degrades correctly with `COLORTERM` unset
+- `WaterfallBuffer` (VecDeque, newest row at front, max 64 rows) pushed by FftWorker in the same lock as `FftFrame` — spectrum and waterfall always in sync
+- `src/palette.rs`: `ColorDepth` detected once at startup; truecolor piecewise gradient (6 stops, dark blue → red), 16-step xterm-256 lookup, 4-level 16-color fallback
+- `WaterfallPanel` renders background-colored space characters (`Span::styled(" ", Style::bg(color))`) — no Canvas widget needed
+- `spectrum_waterfall` preset: two `Position::Body` panels split equally by the existing `render_column` — no engine changes needed
+- `4` → waterfall, `5` → spectrum+waterfall, `w` → pause/resume; `p` cycles all five presets
 
 ---
 
-## Phase 10 — Configuration & Persistence 🔲 Planned
+## Phase 10 — Configuration & Persistence ✅ Done
 
-**Goal:** Settings survive restarts.
+**Goal:** Radio settings and display state survive restarts. Read from
+`~/.config/sdrtop/config.toml` at startup; written back on clean exit (`q`).
+CLI flags override config file values.
 
-### Config schema (`~/.config/sdrtop/config.toml`)
+- Step-by-step execution guide: [Phase 10 - Configuration & Persistence - Steps](phases/Phase%2010%20-%20Configuration%20%26%20Persistence%20-%20Steps.md)
+- Implementation log (what was done, decisions made): [Phase 10 - Configuration & Persistence - Log](phases/Phase%2010%20-%20Configuration%20%26%20Persistence%20-%20Log.md)
+
+### Config schema
 
 ```toml
-[device]
-serial = ""
-
 [radio]
 frequency_hz = 2400000000
 sample_rate  = 10000000.0
 lna_gain     = 16
 vga_gain     = 20
 amp_enabled  = false
-fft_size     = 2048
-fft_window   = "hann"
 
 [display]
-spectrum_height  = 14
-waterfall_rows   = 20
-spectrum_db_min  = -120
-spectrum_db_max  = 0
-theme            = "default"
-show_waterfall   = true
+active_preset      = "minimal"
+waterfall_max_rows = 64
 ```
 
-### Steps
+### Key outcomes
 
-**8.1** — Add `serde`, `toml`, `clap` to `Cargo.toml`  
-**8.2** — Define `Config` struct (`src/config.rs`) with nested sections  
-**8.3** — `Config::load_or_default(path)` — missing file returns default, parse error logs warning  
-**8.4** — `Config::save(&self, path)` — atomic write via `.tmp` + rename  
-**8.5** — CLI args via `clap` (`--config`, `--frequency`, `--lna`, `--vga`, `--serial`)  
-**8.6** — Apply config to initial `SdrMetrics` in `App::new()`  
-**8.7** — Save on `q` exit; best-effort save via `std::panic::set_hook`
+- `AppConfig` with `RadioConfig` + `DisplayConfig`; partial TOML handled via per-field `#[serde(default = "fn")]` annotations (not just section-level `#[serde(default)]`)
+- `load_or_default`: missing file → silent default; parse error → warning on stderr + default; app always starts
+- Atomic save: write `.tmp` then `rename` — previous config intact if crash mid-write
+- Merge order: `Default` → config file → CLI args (`--frequency`, `--lna`, `--vga`)
+- `save_config()` extracts values from `SdrMetrics` while holding the mutex, drops the guard, then writes to disk — file I/O never blocks the render loop
+- Hardware settings applied at startup (best-effort); startup errors logged in-app, streaming doesn't begin until Space is pressed
+- `clap 4` derive: `--config`, `--frequency`, `--lna`, `--vga`; `$HOME` env var for default path, no new crate
 
 ---
 
-## Phase 11 — Multi-Device Support 🔲 Planned
+## Phase 11 — HackRF Deep Diagnostics ✅ Done
+
+**Goal:** Surface every hardware metric the HackRF exposes but is not yet shown, and
+add DSP-derived RF quality metrics. After this phase sdrtop gives a complete lab-grade
+picture of the hardware and signal chain.
+
+- Step-by-step execution guide: [Phase 11 - HackRF Deep Diagnostics - Steps](phases/Phase%2011%20-%20HackRF%20Deep%20Diagnostics%20-%20Steps.md)
+
+### New data sources
+
+| Source | Data | How |
+|---|---|---|
+| `hackrf_board_rev_read` | Board revision (r6/r7/r8/r9/r10) | libhackrf at startup |
+| `hackrf_usb_api_version_read` | USB API protocol version | libhackrf at startup |
+| `hackrf_cpld_checksum` | CPLD CRC integrity | libhackrf at startup |
+| Computed from state | Baseband filter BW, total gain (LNA+VGA+AMP) | pure function in panel |
+| Extended FftWorker | SNR, channel power (dBFS), occupied BW (99%) | per FFT frame |
+| Extended rx_callback accumulator | IQ amplitude histogram (32 bins) | per sample batch |
+
+### New panels
+
+- **`RfChainPanel`** — complete gain chain + board revision + CPLD status + BB filter BW
+- **`SignalMetricsPanel`** — SNR, channel power, 99% occupied BW, noise floor (all live)
+- **`IqHistogramPanel`** — amplitude distribution bar chart; shows dynamic range utilisation and clipping
+
+### New preset: `lab`
+
+Six-panel layout: `rf_chain` + `iq_diagnostics` (left) | `signal_metrics` + `iq_histogram` (right) | `hardware_health` + `system_resources` (right). Key `6`.
+
+### Steps
+
+**11.1** — New `SdrMetrics` fields + FftFrame extensions + IQ histogram accumulator fields + 5 unit tests  
+**11.2** — New FFI declarations + `Device` methods (`board_rev`, `usb_api_version`, `cpld_checksum`) + unit tests  
+**11.3** — `App::new()` reads board rev / USB API version / CPLD checksum at startup  
+**11.4** — Extended `rx_callback` accumulator: 32-bin IQ amplitude histogram  
+**11.5** — Extended `FftWorker`: SNR, channel power, occupied BW computed per frame  
+**11.6** — `RfChainPanel` + `SignalMetricsPanel` + `IqHistogramPanel`  
+**11.7** — Register panels, `lab` preset, key `6`, overlay update
+
+---
+
+## Phase 12 — PortaPack / Mayhem Integration 🔲 Next
+
+**Goal:** Detect a PortaPack Mayhem device and display live telemetry (firmware version,
+platform model, RTC clock) in a dedicated panel. Auto-detection on startup; reconnect on
+unplug/replug.
+
+- Step-by-step execution guide: [Phase 12 - PortaPack Mayhem Integration - Steps](phases/Phase%2012%20-%20PortaPack%20Mayhem%20Integration%20-%20Steps.md)
+
+### Protocol
+
+PortaPack Mayhem exposes a USB CDC/ACM serial interface (`/dev/ttyACM*` on Linux)
+running a text shell, independent of the HackRF RF interface already held by libhackrf.
+
+```
+host → device:   info\r
+device → host:   Mayhem: 2.1.0\r\n
+                 Platform: PortaPack H2\r\n
+                 ok\r\n
+```
+
+Detection: open `/dev/ttyACM*`, send `info\r`, check response for `"Mayhem"`.
+
+### Steps
+
+**12.1** — `serialport = "4"` dep + `PortaPackState` in `state.rs` + 3 unit tests  
+**12.2** — `src/portapack.rs`: `find_portapack()`, `send_command()`, `PortaPackWorker` + 4 unit tests  
+**12.3** — `App` integration: spawn worker thread, add `'7'` preset key  
+**12.4** — `src/ui/portapack_panel.rs`: `PortaPackPanel` (connected/disconnected state)  
+**12.5** — Register panel, add `portapack` preset to `LayoutConfig`, update overlay
+
+---
+
+## Phase 13 — Multi-Device Support 🔲 Planned
 
 **Goal:** Multiple HackRF devices monitored simultaneously; `Tab` switches focus.
 
 ### Steps
 
-**9.1** — Introduce `DeviceHandle` struct; refactor `App` to hold `Vec<DeviceHandle>`  
-**9.2** — Open all connected devices at startup; spawn one polling task + FFT worker per device  
-**9.3** — Device list panel (`src/ui/device_list.rs`); `d` key toggles; `Tab` changes focus  
-**9.4** — Disconnect detection; mark device offline, stop FFT worker  
-**9.5** — Reconnect detection via 2-second watcher task
+**13.1** — Introduce `DeviceHandle` struct; refactor `App` to hold `Vec<DeviceHandle>`  
+**13.2** — Open all connected devices at startup; spawn one polling task + FFT worker per device  
+**13.3** — Device list panel (`src/ui/device_list.rs`); `d` key toggles; `Tab` changes focus  
+**13.4** — Disconnect detection; mark device offline, stop FFT worker  
+**13.5** — Reconnect detection via 2-second watcher task
 
 ---
 
-## Phase 12 — PortaPack / Mayhem Integration 🔲 Planned
-
-**Goal:** Show Mayhem-specific telemetry when a PortaPack is connected.
-
-### Known telemetry (USB vendor control transfers)
-
-| Data | bRequest |
-|---|---|
-| Battery voltage (mV) | 0x10 |
-| Active application | 0x11 |
-| GPS fix + coordinates | 0x12 |
-
-### Steps
-
-**10.1** — USB product string detection (`"PortaPack"` → `device.is_portapack = true`)  
-**10.2** — `Device::vendor_read(request, buf)` helper  
-**10.3** — PortaPack telemetry polling in the background task  
-**10.4** — PortaPack panel (`src/ui/portapack.rs`), hidden if `!is_portapack`
-
----
-
-## Phase 13 — Polish & Production Readiness 🔲 Planned
+## Phase 14 — Polish & Production Readiness 🔲 Planned
 
 **Steps**
 
-**11.1** — Startup UX: loading message, clean "no device" error  
-**11.2** — Terminal resize: forward `Event::Resize` as `AppEvent::Resize`  
-**11.3** — Mouse support: scroll over gauges, click device list  
-**11.4** — Themes: `default`, `gruvbox`, `nord`, `light`; `t` key cycles  
-**11.5** — Panic hook: restore terminal unconditionally before printing panic  
-**11.6** — Audit `unwrap()` calls; replace with `?` or `expect("reason")`  
-**11.7** — `--no-color` flag + `NO_COLOR` env var  
-**11.8** — Performance: flamegraph, ≥25 fps render, <30% CPU, <50 MB RSS  
-**11.9** — Integration test harness with `libhackrf_mock.so`
+**14.1** — Startup UX: loading message, clean "no device" error  
+**14.2** — Terminal resize: forward `Event::Resize` as `AppEvent::Resize`  
+**14.3** — Mouse support: scroll over gauges, click device list  
+**14.4** — Themes: `default`, `gruvbox`, `nord`, `light`; `t` key cycles  
+**14.5** — Panic hook: restore terminal unconditionally before printing panic  
+**14.6** — Audit `unwrap()` calls; replace with `?` or `expect("reason")`  
+**14.7** — `--no-color` flag + `NO_COLOR` env var  
+**14.8** — Performance: flamegraph, ≥25 fps render, <30% CPU, <50 MB RSS  
+**14.9** — Integration test harness with `libhackrf_mock.so`
 
 ---
 
-## Phase 14 — Distribution & Community 🔲 Planned
+## Phase 15 — Distribution & Community 🔲 Planned
 
 **Steps**
 
-**12.1** — AUR packages (`sdrtop-git` and `sdrtop`)  
-**12.2** — GitHub Actions CI (lint + test) and release matrix (4 targets)  
-**12.3** — Nix flake  
-**12.4** — Homebrew formula  
-**12.5** — `README.md`, `CONTRIBUTING.md`, man page via `clap`
+**15.1** — AUR packages (`sdrtop-git` and `sdrtop`)  
+**15.2** — GitHub Actions CI (lint + test) and release matrix (4 targets)  
+**15.3** — Nix flake  
+**15.4** — Homebrew formula  
+**15.5** — `README.md`, `CONTRIBUTING.md`, man page via `clap`
 
 ---
 
@@ -374,4 +401,4 @@ show_waterfall   = true
 | Terminal lacks Braille / truecolor | broken display | `ColorDepth::detect()` at startup; ASCII fallback |
 | USB disconnect mid-session | crash or hang | polling task catches error, recovers on reconnect |
 | `main.rs` grows again | development friction | no file over 200 lines; clippy as CI gate |
-| Mutex poisoning under panic | terminal in raw mode | `std::panic::set_hook` restores terminal (Phase 13.5) |
+| Mutex poisoning under panic | terminal in raw mode | `std::panic::set_hook` restores terminal (Phase 14.5) |

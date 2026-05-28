@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 pub fn render_help(f: &mut Frame) {
-    let area = centered_rect(52, 18, f.size());
+    let area = centered_rect(52, 22, f.size());
 
     let text = "\
  [Q]        Quit\n\
@@ -20,6 +20,10 @@ pub fn render_help(f: &mut Frame) {
  [1]        Preset: minimal\n\
  [2]        Preset: monitoring\n\
  [3]        Preset: spectrum\n\
+ [4]        Preset: waterfall\n\
+ [5]        Preset: spectrum+waterfall\n\
+ [6]        Preset: lab\n\
+ [W]        Pause / resume waterfall\n\
  [?]        Toggle this help\n\
 \n\
  In frequency input mode:\n\

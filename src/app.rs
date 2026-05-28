@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 use crossterm::event::KeyCode;
 use ratatui::{backend::Backend, Terminal};
 
-use crate::config::LayoutConfig;
+use std::path::PathBuf;
+
+use crate::config::{AppConfig, DisplayConfig, LayoutConfig, RadioConfig};
 use crate::event::{AppEvent, EventStream};
 use crate::fft::FftWorker;
 use crate::hardware::{self, RxContext};
@@ -18,33 +20,43 @@ use crate::ui;
 
 pub struct App {
     state: Arc<Mutex<SdrMetrics>>,
-    // Kept alive to ensure Drop runs (closes device) when App is dropped
     #[allow(dead_code)]
     device: Arc<hardware::Device>,
-    // Kept alive so rx_callback's raw pointer remains valid for the lifetime of the app
     #[allow(dead_code)]
     rx_ctx: Arc<RxContext>,
+    config_path: Option<PathBuf>,
     events: EventStream,
     show_help: bool,
     engine: ui::LayoutEngine,
 }
 
 impl App {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(cfg: AppConfig, config_path: Option<PathBuf>) -> anyhow::Result<Self> {
         let device = Arc::new(hardware::Device::open()?);
 
         let board_id = device.board_id()?;
         let board_name = device.board_name(board_id);
         let fw_version = device.version()?;
         let serial = device.serial_number()?;
+        let board_rev       = device.board_rev().unwrap_or(0xFE);
+        let usb_api_version = device.usb_api_version().unwrap_or(0);
+        let cpld_ok: Option<bool> = None; // hackrf_cpld_checksum not in this libhackrf version
+
+        let startup_results = [
+            device.set_frequency(cfg.radio.frequency_hz),
+            device.set_sample_rate(cfg.radio.sample_rate),
+            device.set_lna_gain(cfg.radio.lna_gain),
+            device.set_vga_gain(cfg.radio.vga_gain),
+            device.set_amp_enable(cfg.radio.amp_enabled),
+        ];
 
         let state = Arc::new(Mutex::new(SdrMetrics {
-            frequency: DEFAULT_FREQUENCY,
-            config_sample_rate: DEFAULT_SAMPLE_RATE,
+            frequency: cfg.radio.frequency_hz,
+            config_sample_rate: cfg.radio.sample_rate,
             actual_sample_rate: 0,
-            lna_gain: DEFAULT_LNA_GAIN,
-            vga_gain: DEFAULT_VGA_GAIN,
-            amp_enabled: false,
+            lna_gain: cfg.radio.lna_gain,
+            vga_gain: cfg.radio.vga_gain,
+            amp_enabled: cfg.radio.amp_enabled,
             rx_enabled: false,
             hw_streaming: false,
             bytes_since_last_poll: 0,
@@ -72,6 +84,15 @@ impl App {
             process_cpu_pct: 0.0,
             process_rss_mb: 0,
             last_fft_frame: None,
+            waterfall: crate::state::WaterfallBuffer::new(cfg.display.waterfall_max_rows),
+
+            board_rev,
+            usb_api_version,
+            cpld_ok,
+            snr_db:             0.0,
+            channel_power_dbfs: f32::NEG_INFINITY,
+            occupied_bw_hz:     0,
+            iq_amplitude_hist:  [0u64; 32],
 
             acc_drops: 0,
             acc_saturated: 0,
@@ -83,12 +104,24 @@ impl App {
             acc_jitter_sum_us: 0,
             acc_jitter_count: 0,
             acc_last_callback_us: None,
+            acc_iq_hist:          [0u64; 32],
         }));
 
         {
             let mut m = state.lock().unwrap();
             m.push_log(format!("Connected: {} | Serial: {}", board_name, serial));
             m.push_log(format!("Firmware: {}", fw_version));
+            m.push_log(format!("Board: {} | USB API: {:#06x}",
+                hardware::Device::board_rev_name(board_rev), usb_api_version));
+            if cpld_ok == Some(false) {
+                m.push_log("WARNING: CPLD checksum mismatch!");
+            }
+            let names = ["frequency", "sample rate", "LNA gain", "VGA gain", "amp"];
+            for (result, name) in startup_results.iter().zip(names.iter()) {
+                if let Err(e) = result {
+                    m.push_log(format!("Startup: failed to set {}: {}", name, e));
+                }
+            }
         }
 
         let (sample_tx, sample_rx) = crossbeam_channel::bounded::<Vec<u8>>(4);
@@ -158,6 +191,10 @@ impl App {
                     m.acc_sample_count    = 0;
                     m.acc_jitter_sum_us   = 0;
                     m.acc_jitter_count    = 0;
+
+                    // IQ amplitude histogram snapshot
+                    m.iq_amplitude_hist = m.acc_iq_hist;
+                    m.acc_iq_hist = [0u64; 32];
 
                     // ADC saturation % — each IQ pair has 2 bytes that can saturate
                     let saturable = acc_samples * 2;
@@ -268,17 +305,46 @@ impl App {
         registry.register(ui::IqDiagnosticsPanel);
         registry.register(ui::SystemResourcesPanel);
         registry.register(ui::SpectrumPanel);
+        registry.register(ui::WaterfallPanel::new());
+        registry.register(ui::RfChainPanel);
+        registry.register(ui::SignalMetricsPanel);
+        registry.register(ui::IqHistogramPanel);
 
-        let engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
+        let mut engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
+        engine.set_preset(&cfg.display.active_preset);
 
         Ok(Self {
             state,
             device,
             rx_ctx,
+            config_path,
             events: EventStream::new(Duration::from_millis(100)),
             show_help: false,
             engine,
         })
+    }
+
+    fn save_config(&self) {
+        let Some(path) = &self.config_path else { return };
+        let (freq, rate, lna, vga, amp, wf_rows) = {
+            let m = self.state.lock().unwrap();
+            (m.frequency, m.config_sample_rate, m.lna_gain,
+             m.vga_gain, m.amp_enabled, m.waterfall.max_rows)
+        };
+        let cfg = AppConfig {
+            radio: RadioConfig {
+                frequency_hz: freq,
+                sample_rate:  rate,
+                lna_gain:     lna,
+                vga_gain:     vga,
+                amp_enabled:  amp,
+            },
+            display: DisplayConfig {
+                active_preset:      self.engine.active_preset().to_string(),
+                waterfall_max_rows: wf_rows,
+            },
+        };
+        let _ = cfg.save(path);
     }
 
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
@@ -296,7 +362,10 @@ impl App {
                     let input_mode = self.state.lock().unwrap().input_mode.clone();
                     match input_mode {
                         InputMode::Normal => match key.code {
-                            KeyCode::Char('q') => return Ok(()),
+                            KeyCode::Char('q') => {
+                                self.save_config();
+                                return Ok(());
+                            }
                             KeyCode::Char(' ') => {
                                 let mut m = self.state.lock().unwrap();
                                 m.rx_enabled = !m.rx_enabled;
@@ -342,6 +411,24 @@ impl App {
                             KeyCode::Char('3') => {
                                 self.engine.set_preset("spectrum");
                                 self.state.lock().unwrap().push_log("Preset: spectrum");
+                            }
+                            KeyCode::Char('4') => {
+                                self.engine.set_preset("waterfall");
+                                self.state.lock().unwrap().push_log("Preset: waterfall");
+                            }
+                            KeyCode::Char('5') => {
+                                self.engine.set_preset("spectrum_waterfall");
+                                self.state.lock().unwrap().push_log("Preset: spectrum+waterfall");
+                            }
+                            KeyCode::Char('6') => {
+                                self.engine.set_preset("lab");
+                                self.state.lock().unwrap().push_log("Preset: lab");
+                            }
+                            KeyCode::Char('w') => {
+                                let mut m = self.state.lock().unwrap();
+                                m.waterfall.paused = !m.waterfall.paused;
+                                let s = if m.waterfall.paused { "paused" } else { "resumed" };
+                                m.push_log(format!("Waterfall {}", s));
                             }
                             KeyCode::Up => {
                                 let (gain, result) = {

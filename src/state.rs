@@ -1,6 +1,27 @@
 use std::collections::VecDeque;
 
 #[derive(Clone)]
+pub struct WaterfallBuffer {
+    pub rows: VecDeque<Vec<f32>>,
+    pub max_rows: usize,
+    pub paused: bool,
+}
+
+impl WaterfallBuffer {
+    pub fn new(max_rows: usize) -> Self {
+        Self { rows: VecDeque::new(), max_rows, paused: false }
+    }
+
+    pub fn push(&mut self, bins: Vec<f32>) {
+        if self.paused { return; }
+        if self.rows.len() >= self.max_rows {
+            self.rows.pop_back();
+        }
+        self.rows.push_front(bins);
+    }
+}
+
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct FftFrame {
     /// fftshifted, EMA-smoothed magnitude spectrum in dBFS
@@ -12,6 +33,9 @@ pub struct FftFrame {
     pub center_freq_hz: u64,
     pub sample_rate: f64,
     pub timestamp: std::time::Instant,
+    pub snr_db: f32,
+    pub channel_power_dbfs: f32,
+    pub occupied_bw_hz: u64,
 }
 
 pub const THROUGHPUT_HISTORY_LEN: usize = 64;
@@ -68,6 +92,20 @@ pub struct SdrMetrics {
     pub process_cpu_pct: f32,
     pub process_rss_mb: u64,
     pub last_fft_frame: Option<FftFrame>,
+    pub waterfall: WaterfallBuffer,
+
+    // --- Hardware identity (read once at startup) ---
+    pub board_rev: u8,
+    pub usb_api_version: u16,
+    pub cpld_ok: Option<bool>,
+
+    // --- Signal quality (written by FftWorker per frame) ---
+    pub snr_db: f32,
+    pub channel_power_dbfs: f32,
+    pub occupied_bw_hz: u64,
+
+    // --- IQ amplitude histogram (snapshot from accumulator, read by UI) ---
+    pub iq_amplitude_hist: [u64; 32],
 
     // --- Accumulators (written by rx_callback, reset by polling task) ---
     pub acc_drops: u64,
@@ -80,6 +118,7 @@ pub struct SdrMetrics {
     pub acc_jitter_sum_us: u64,
     pub acc_jitter_count: u64,
     pub acc_last_callback_us: Option<u64>,
+    pub acc_iq_hist: [u64; 32],
 }
 
 impl SdrMetrics {
@@ -97,5 +136,36 @@ impl SdrMetrics {
         self.frequency = DEFAULT_FREQUENCY;
         self.config_sample_rate = DEFAULT_SAMPLE_RATE;
         self.push_log("Settings reset to defaults");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_adds_newest_row_first() {
+        let mut buf = WaterfallBuffer::new(4);
+        buf.push(vec![1.0, 2.0]);
+        buf.push(vec![3.0, 4.0]);
+        assert_eq!(buf.rows[0], vec![3.0, 4.0], "newest row should be at index 0");
+        assert_eq!(buf.rows[1], vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn push_respects_max_rows() {
+        let mut buf = WaterfallBuffer::new(3);
+        for i in 0..5u32 {
+            buf.push(vec![i as f32]);
+        }
+        assert_eq!(buf.rows.len(), 3, "should not exceed max_rows");
+    }
+
+    #[test]
+    fn paused_ignores_push() {
+        let mut buf = WaterfallBuffer::new(4);
+        buf.paused = true;
+        buf.push(vec![1.0, 2.0]);
+        assert!(buf.rows.is_empty(), "paused buffer should not accept new rows");
     }
 }

@@ -64,4 +64,6 @@ extern "C" {
     pub fn hackrf_board_id_read(device: *mut c_void, value: *mut u8) -> c_int;
     pub fn hackrf_board_id_name(id: u8) -> *const c_char;
     pub fn hackrf_error_name(errcode: c_int) -> *const c_char;
+    pub fn hackrf_board_rev_read(device: *mut c_void, value: *mut u8) -> c_int;
+    pub fn hackrf_usb_api_version_read(device: *mut c_void, version: *mut u16) -> c_int;
 }

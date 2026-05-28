@@ -47,14 +47,19 @@ pub extern "C" fn rx_callback(transfer: *mut hackrf_transfer) -> c_int {
             let mut q_sq: i64 = 0;
 
             for chunk in buf.chunks_exact(2) {
-                let i = chunk[0] as i8 as i64;
-                let q = chunk[1] as i8 as i64;
+                let i_byte = chunk[0] as i8;
+                let q_byte = chunk[1] as i8;
+                let i = i_byte as i64;
+                let q = q_byte as i64;
                 i_sum += i;
                 q_sum += q;
                 i_sq  += i * i;
                 q_sq  += q * q;
                 if chunk[0] == 0x80 || chunk[0] == 0x7F { saturated += 1; }
                 if chunk[1] == 0x80 || chunk[1] == 0x7F { saturated += 1; }
+                // IQ amplitude histogram: Chebyshev distance, 32 bins of width 4
+                let amp = i_byte.unsigned_abs().max(q_byte.unsigned_abs());
+                m.acc_iq_hist[(amp / 4) as usize] += 1;
             }
 
             let pairs = (buf.len() / 2) as u64;
@@ -100,6 +105,49 @@ mod tests {
         let valid_length: i32  = 262144 - 128;
         let dropped_pairs = ((buffer_length - valid_length) / 2) as u64;
         assert_eq!(dropped_pairs, 64);
+    }
+
+    #[test]
+    fn board_rev_name_known_revisions() {
+        assert_eq!(super::Device::board_rev_name(9),    "HackRF One r9");
+        assert_eq!(super::Device::board_rev_name(0xFF), "Unrecognized");
+        assert_eq!(super::Device::board_rev_name(0xFE), "Undetected");
+        assert_eq!(super::Device::board_rev_name(0),    "HackRF One (old)");
+    }
+
+    #[test]
+    fn bb_filter_bw_exact_match() {
+        assert_eq!(super::compute_bb_filter_bw(10_000_000.0), 10_000_000);
+        assert_eq!(super::compute_bb_filter_bw(20_000_000.0), 20_000_000);
+        assert_eq!(super::compute_bb_filter_bw(28_000_000.0), 28_000_000);
+    }
+
+    #[test]
+    fn bb_filter_bw_rounds_to_nearest() {
+        // 11.5 MHz → nearest is 12 MHz (distance 0.5 M) vs 10 MHz (distance 1.5 M)
+        assert_eq!(super::compute_bb_filter_bw(11_500_000.0), 12_000_000);
+        // 4 MHz → nearest is 3.5 MHz (distance 0.5 M) vs 5 MHz (distance 1 M)
+        assert_eq!(super::compute_bb_filter_bw(4_000_000.0), 3_500_000);
+    }
+
+    #[test]
+    fn bb_filter_bw_clamps_to_valid_range() {
+        assert_eq!(super::compute_bb_filter_bw(500_000.0),    1_750_000);
+        assert_eq!(super::compute_bb_filter_bw(30_000_000.0), 28_000_000);
+    }
+
+    #[test]
+    fn histogram_bin_for_max_amplitude() {
+        let amp: u8 = 127;
+        let bin = (amp / 4) as usize;
+        assert_eq!(bin, 31);
+    }
+
+    #[test]
+    fn histogram_bin_for_zero_amplitude() {
+        let amp: u8 = 0;
+        let bin = (amp / 4) as usize;
+        assert_eq!(bin, 0);
     }
 }
 
@@ -297,6 +345,52 @@ impl Device {
             ))
         }
     }
+    pub fn board_rev(&self) -> anyhow::Result<u8> {
+        let mut rev = 0u8;
+        unsafe {
+            if hackrf_board_rev_read(self.0, &mut rev) != 0 {
+                anyhow::bail!("Failed to read board revision");
+            }
+        }
+        Ok(rev)
+    }
+
+    pub fn board_rev_name(rev: u8) -> &'static str {
+        match rev {
+            0    => "HackRF One (old)",
+            6    => "HackRF One r6",
+            7    => "HackRF One r7",
+            8    => "HackRF One r8",
+            9    => "HackRF One r9",
+            10   => "HackRF One r10",
+            0xFE => "Undetected",
+            0xFF => "Unrecognized",
+            _    => "Unknown",
+        }
+    }
+
+    pub fn usb_api_version(&self) -> anyhow::Result<u16> {
+        let mut ver = 0u16;
+        unsafe {
+            if hackrf_usb_api_version_read(self.0, &mut ver) != 0 {
+                anyhow::bail!("Failed to read USB API version");
+            }
+        }
+        Ok(ver)
+    }
+}
+
+pub fn compute_bb_filter_bw(sample_rate_hz: f64) -> u32 {
+    const STEPS: &[u32] = &[
+        1_750_000, 2_500_000, 3_500_000, 5_000_000, 5_500_000, 6_000_000,
+        7_000_000, 8_000_000, 9_000_000, 10_000_000, 12_000_000, 14_000_000,
+        15_000_000, 20_000_000, 24_000_000, 28_000_000,
+    ];
+    let target = sample_rate_hz as u32;
+    STEPS.iter()
+        .copied()
+        .min_by_key(|&bw| (bw as i64 - target as i64).unsigned_abs())
+        .unwrap_or(10_000_000)
 }
 
 impl Drop for Device {

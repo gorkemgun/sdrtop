@@ -26,6 +26,13 @@
 | [Phase 8a - FFT Pipeline - Steps](phases/Phase%208a%20-%20FFT%20Pipeline%20-%20Steps.md) | Phase 8a — RxContext, crossbeam channel, DSP, FftWorker |
 | [Phase 8b - Spectrum Display - Steps](phases/Phase%208b%20-%20Spectrum%20Display%20-%20Steps.md) | Phase 8b — SpectrumPanel, Canvas rendering, spectrum preset |
 | [Phase 8 - FFT Spectrum Analyzer - Log](phases/Phase%208%20-%20FFT%20Spectrum%20Analyzer%20-%20Log.md) | Phase 8 — DSP pipeline, lock discipline, Canvas layout, deviations |
+| [Phase 9 - Waterfall Display - Steps](phases/Phase%209%20-%20Waterfall%20Display%20-%20Steps.md) | Phase 9 — WaterfallBuffer, palette, span rendering, spectrum_waterfall preset |
+| [Phase 9 - Waterfall Display - Log](phases/Phase%209%20-%20Waterfall%20Display%20-%20Log.md) | Phase 9 — ring buffer design, palette tiers, span rendering, overlay fix |
+| [Phase 10 - Configuration & Persistence - Steps](phases/Phase%2010%20-%20Configuration%20%26%20Persistence%20-%20Steps.md) | Phase 10 — AppConfig, load/save, clap CLI, App::new() wiring |
+| [Phase 10 - Configuration & Persistence - Log](phases/Phase%2010%20-%20Configuration%20%26%20Persistence%20-%20Log.md) | Phase 10 — per-field serde defaults, lock discipline, scope decisions |
+| [Phase 11 - HackRF Deep Diagnostics - Steps](phases/Phase%2011%20-%20HackRF%20Deep%20Diagnostics%20-%20Steps.md) | Phase 11 — board rev, CPLD, SNR, channel power, OBW, IQ histogram |
+| [Phase 11 - HackRF Deep Diagnostics - Log](phases/Phase%2011%20-%20HackRF%20Deep%20Diagnostics%20-%20Log.md) | Phase 11 — CPLD not in libhackrf, computed BB BW, histogram accumulator |
+| [Phase 12 - PortaPack Mayhem Integration - Steps](phases/Phase%2012%20-%20PortaPack%20Mayhem%20Integration%20-%20Steps.md) | Phase 12 — USB CDC/ACM protocol, PortaPackWorker, panel, preset |
 
 ---
 
@@ -41,12 +48,13 @@
 | 6 | Dashboard engine (panel system, presets, layout config) | ✅ Done |
 | 7 | Hardware health panels (drop rate, ADC saturation, IQ diagnostics) | ✅ Done |
 | 8 | FFT spectrum analyzer | ✅ Done |
-| 9 | Waterfall display | 🔲 Next |
-| 10 | Configuration & persistence | 🔲 Planned |
-| 11 | Multi-device support | 🔲 Planned |
+| 9 | Waterfall display | ✅ Done |
+| 10 | Configuration & persistence | ✅ Done |
+| 11 | HackRF deep diagnostics | ✅ Done |
 | 12 | PortaPack / Mayhem integration | 🔲 Planned |
-| 13 | Polish & production readiness | 🔲 Planned |
-| 14 | Distribution & community | 🔲 Planned |
+| 13 | Multi-device support | 🔲 Planned |
+| 14 | Polish & production readiness | 🔲 Planned |
+| 15 | Distribution & community | 🔲 Planned |
 
 ---
 
