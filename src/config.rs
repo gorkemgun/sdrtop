@@ -8,7 +8,7 @@ fn default_frequency_hz() -> u64     { DEFAULT_FREQUENCY }
 fn default_sample_rate()  -> f64     { DEFAULT_SAMPLE_RATE }
 fn default_lna_gain()     -> u32     { DEFAULT_LNA_GAIN }
 fn default_vga_gain()     -> u32     { DEFAULT_VGA_GAIN }
-fn default_active_preset() -> String { "minimal".into() }
+fn default_active_preset() -> String { "spectrum_waterfall".into() }
 fn default_waterfall_max_rows() -> usize { 64 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -48,7 +48,7 @@ pub struct DisplayConfig {
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
-            active_preset:      "minimal".into(),
+            active_preset:      "spectrum_waterfall".into(),
             waterfall_max_rows: 64,
         }
     }
@@ -183,15 +183,6 @@ pub struct LayoutConfig {
 impl LayoutConfig {
     pub fn default_config() -> Self {
         use Position::*;
-        let minimal = PresetConfig {
-            panels: vec![
-                PanelSpec { name: "header".into(),    position: Top,    height: Some(5), width_pct: None },
-                PanelSpec { name: "telemetry".into(), position: Body,   height: None,    width_pct: None },
-                PanelSpec { name: "gains".into(),     position: Right,  height: None,    width_pct: Some(50) },
-                PanelSpec { name: "log".into(),       position: Bottom, height: Some(9), width_pct: None },
-                PanelSpec { name: "footer".into(),    position: Bottom, height: Some(3), width_pct: None },
-            ],
-        };
         let monitoring = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),           position: Top,    height: Some(5), width_pct: None     },
@@ -250,15 +241,25 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),           position: Bottom, height: Some(3), width_pct: None     },
             ],
         };
+        let main = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header".into(),       position: Top,    height: Some(5), width_pct: None },
+                PanelSpec { name: "spectrum".into(),      position: Body,   height: None,    width_pct: None },
+                PanelSpec { name: "waterfall".into(),     position: Body,   height: None,    width_pct: None },
+                PanelSpec { name: "signal_strip".into(),  position: Bottom, height: Some(3), width_pct: None },
+                PanelSpec { name: "usb_sr".into(),        position: Bottom, height: Some(5), width_pct: None },
+                PanelSpec { name: "footer".into(),        position: Bottom, height: Some(3), width_pct: None },
+            ],
+        };
         let mut presets = HashMap::new();
-        presets.insert("minimal".into(), minimal);
         presets.insert("monitoring".into(), monitoring);
         presets.insert("spectrum".into(), spectrum);
         presets.insert("waterfall".into(), waterfall);
         presets.insert("spectrum_waterfall".into(), spectrum_waterfall);
         presets.insert("lab".into(), lab);
         presets.insert("observer".into(), observer);
-        Self { active_preset: "minimal".into(), presets }
+        presets.insert("main".into(), main);
+        Self { active_preset: "spectrum_waterfall".into(), presets }
     }
 
     pub fn active_panels(&self) -> &[PanelSpec] {
@@ -276,7 +277,7 @@ mod tests {
     #[test]
     fn default_config_has_minimal_preset() {
         let cfg = LayoutConfig::default_config();
-        assert_eq!(cfg.active_preset, "minimal");
+        assert_eq!(cfg.active_preset, "spectrum_waterfall");
         assert!(!cfg.active_panels().is_empty());
     }
 
@@ -286,7 +287,8 @@ mod tests {
         let names: Vec<&str> = cfg.active_panels().iter().map(|p| p.name.as_str()).collect();
         assert!(names.contains(&"header"));
         assert!(names.contains(&"footer"));
-        assert!(names.contains(&"telemetry"));
+        assert!(names.contains(&"spectrum"));
+        assert!(names.contains(&"waterfall"));
     }
 
     #[test]
@@ -320,7 +322,7 @@ mod tests {
         let toml_str = "[radio]\nfrequency_hz = 433_000_000\n";
         let cfg: AppConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.radio.frequency_hz, 433_000_000);
-        assert_eq!(cfg.display.active_preset, "minimal");
+        assert_eq!(cfg.display.active_preset, "spectrum_waterfall");
     }
 
     #[test]

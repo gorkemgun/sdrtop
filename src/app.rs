@@ -84,6 +84,7 @@ impl App {
             last_poll_time: Instant::now(),
             current_throughput_bps: 0,
             throughput_history: VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
+            sample_rate_history: VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
             log: VecDeque::new(),
             input_mode: InputMode::Normal,
             input_buf: String::new(),
@@ -211,6 +212,11 @@ impl App {
                             m.throughput_history.pop_front();
                         }
                         m.throughput_history.push_back(throughput_kb);
+                        let actual_sr = m.actual_sample_rate as u64;
+                        if m.sample_rate_history.len() >= THROUGHPUT_HISTORY_LEN {
+                            m.sample_rate_history.pop_front();
+                        }
+                        m.sample_rate_history.push_back(actual_sr);
                     }
                     if let Some(dps) = (m.acc_drops * 1000).checked_div(elapsed_ms) {
                         m.drops_per_sec = dps;
@@ -310,6 +316,10 @@ impl App {
             serial: serial.clone(),
         });
         registry.register(ui::GainsPanel);
+        registry.register(ui::ThroughputPanel);
+        registry.register(ui::SampleRatePanel);
+        registry.register(ui::SignalStripPanel);
+        registry.register(ui::UsbSrPanel);
         registry.register(ui::LogPanel);
         registry.register(ui::FooterPanel);
         registry.register(ui::HardwareHealthPanel);
@@ -375,6 +385,7 @@ impl App {
             last_poll_time: Instant::now(),
             current_throughput_bps: 0,
             throughput_history: VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
+            sample_rate_history: VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
             log: VecDeque::new(),
             input_mode: InputMode::Normal,
             input_buf: String::new(),
@@ -504,6 +515,10 @@ impl App {
             serial: serial.clone(),
         });
         registry.register(ui::GainsPanel);
+        registry.register(ui::ThroughputPanel);
+        registry.register(ui::SampleRatePanel);
+        registry.register(ui::SignalStripPanel);
+        registry.register(ui::UsbSrPanel);
         registry.register(ui::LogPanel);
         registry.register(ui::FooterPanel);
         registry.register(ui::HardwareHealthPanel);
@@ -637,8 +652,8 @@ impl App {
                                 self.state.lock().unwrap_or_else(|e| e.into_inner()).push_log(format!("Preset: {}", name));
                             }
                             KeyCode::Char('1') => {
-                                self.engine.set_preset("minimal");
-                                self.state.lock().unwrap_or_else(|e| e.into_inner()).push_log("Preset: minimal");
+                                self.engine.set_preset("main");
+                                self.state.lock().unwrap_or_else(|e| e.into_inner()).push_log("Preset: main (spectrum+waterfall+metrics)");
                             }
                             KeyCode::Char('2') => {
                                 self.engine.set_preset("monitoring");

@@ -70,6 +70,8 @@ pub struct SdrMetrics {
     pub current_throughput_bps: u64,
     // Throughput history in KB/s for sparkline display
     pub throughput_history: VecDeque<u64>,
+    // actual_sample_rate (samples/sec) per poll tick
+    pub sample_rate_history: VecDeque<u64>,
     // In-app log messages (replaces eprintln! while TUI is active)
     pub log: VecDeque<String>,
     pub input_mode: InputMode,

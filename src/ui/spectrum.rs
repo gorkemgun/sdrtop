@@ -88,7 +88,7 @@ impl Panel for SpectrumPanel {
                         .block(
                             Block::default()
                                 .title(Span::styled(title, Style::default()))
-                                .borders(Borders::TOP | Borders::RIGHT | Borders::BOTTOM)
+                                .borders(Borders::TOP | Borders::RIGHT | Borders::LEFT)
                                 .border_type(BorderType::Rounded)
                                 .border_style(Style::default().fg(border_color)),
                         )
