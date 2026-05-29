@@ -85,14 +85,27 @@ impl Panel for SpectrumPanel {
 
                 let n = frame.bins_dbfs.len() as f64;
 
-                // Precompute per-bin colors outside the Canvas closure (avoids lifetime issue)
+                // Dynamic y-range: 15 dB headroom above signal peak, 50 dB below peak.
+                // This auto-zooms so signals fill the canvas rather than hugging the bottom.
+                let sig_peak = frame.bins_dbfs.iter()
+                    .cloned()
+                    .filter(|v| v.is_finite())
+                    .fold(DB_MIN, f32::max)
+                    .clamp(DB_MIN, DB_MAX);
+                let y_max_f = (sig_peak + 15.0).min(DB_MAX);
+                let y_min_f = (sig_peak - 50.0).max(DB_MIN);
+                let y_max = y_max_f as f64;
+                let y_min = y_min_f as f64;
+
+                // Precompute per-bin colors outside the Canvas closure (avoids lifetime issue).
+                // Colors map to the visible range so the spectrum line uses the full palette.
                 let depth = ColorDepth::detect();
                 let bins = frame.bins_dbfs.clone();
                 let peaks = frame.peak_hold.clone();
                 let noise_floor = frame.noise_floor;
 
                 let bin_colors: Vec<ratatui::style::Color> = bins.iter()
-                    .map(|&db| magnitude_to_color_themed(db, DB_MIN, DB_MAX, depth, theme))
+                    .map(|&db| magnitude_to_color_themed(db, y_min_f, y_max_f, depth, theme))
                     .collect();
                 let peak_hold_color  = theme.peak_hold;
                 let noise_floor_color = theme.noise_floor;
@@ -101,12 +114,12 @@ impl Panel for SpectrumPanel {
                 f.render_widget(
                     Canvas::default()
                         .x_bounds([0.0, n])
-                        .y_bounds([DB_MIN as f64, DB_MAX as f64])
+                        .y_bounds([y_min, y_max])
                         .paint(move |ctx| {
                             // Spectrum outline: polyline connecting adjacent bin tops
                             for i in 1..bins.len() {
-                                let y0 = bins[i - 1].clamp(DB_MIN, DB_MAX) as f64;
-                                let y1 = bins[i].clamp(DB_MIN, DB_MAX) as f64;
+                                let y0 = bins[i - 1].clamp(y_min_f, y_max_f) as f64;
+                                let y1 = bins[i].clamp(y_min_f, y_max_f) as f64;
                                 ctx.draw(&CanvasLine {
                                     x1: (i - 1) as f64, y1: y0,
                                     x2: i as f64,       y2: y1,
@@ -115,14 +128,14 @@ impl Panel for SpectrumPanel {
                             }
                             // Peak hold markers
                             for (i, &db) in peaks.iter().enumerate() {
-                                let y = db.clamp(DB_MIN, DB_MAX) as f64;
+                                let y = db.clamp(y_min_f, y_max_f) as f64;
                                 ctx.draw(&Points {
                                     coords: &[(i as f64, y)],
                                     color: peak_hold_color,
                                 });
                             }
                             // Noise floor
-                            let nf = noise_floor.clamp(DB_MIN, DB_MAX) as f64;
+                            let nf = noise_floor.clamp(y_min_f, y_max_f) as f64;
                             ctx.draw(&CanvasLine {
                                 x1: 0.0, y1: nf,
                                 x2: n,   y2: nf,
@@ -148,14 +161,14 @@ impl Panel for SpectrumPanel {
                         freq_labels[2], freq_labels[3], freq_labels[4],
                         w = seg
                     )))
-                    .style(Style::default().fg(theme.label)),
+                    .style(Style::default().fg(theme.value)),
                     freq_area,
                 );
 
-                // dBFS labels — right-border acts as divider between labels and canvas
+                // dBFS labels — dynamic range, right-border as divider
                 let db_text: String = (0..=4)
                     .map(|i| {
-                        let db = DB_MAX - (DB_MAX - DB_MIN) * i as f32 / 4.0;
+                        let db = y_max_f - (y_max_f - y_min_f) * i as f32 / 4.0;
                         format!("{:+4.0}\n", db)
                     })
                     .collect();
@@ -166,7 +179,7 @@ impl Panel for SpectrumPanel {
                                 .borders(Borders::RIGHT)
                                 .border_style(Style::default().fg(border_color)),
                         )
-                        .style(Style::default().fg(theme.label)),
+                        .style(Style::default().fg(theme.value)),
                     db_rows[0],
                 );
             }

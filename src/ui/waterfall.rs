@@ -109,7 +109,7 @@ impl Panel for WaterfallPanel {
                 };
                 legend.push(Line::from(vec![
                     Span::styled("█", Style::default().fg(bar_color)),
-                    Span::styled(label, Style::default().fg(theme.label)),
+                    Span::styled(label, Style::default().fg(theme.value)),
                 ]));
             }
             f.render_widget(Paragraph::new(legend), legend_area);

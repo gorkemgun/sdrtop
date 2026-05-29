@@ -44,7 +44,7 @@ impl Theme {
             border_default: rgb(60, 120, 145),
             border_accent:  rgb(0, 215, 255),
             border_focused: rgb(255, 255, 255),
-            label:          rgb(90, 100, 115),
+            label:          rgb(145, 160, 180),
             value:          rgb(195, 210, 220),
             value_hi:       rgb(255, 175, 0),
             status_ok:      rgb(0, 210, 130),
@@ -59,7 +59,7 @@ impl Theme {
                 (1.00, 255,  50,  20),
             ],
             peak_hold:   rgb(255, 215, 0),
-            noise_floor: rgb(55, 65, 80),
+            noise_floor: rgb(80, 95, 120),
             stale:       rgb(60, 65, 75),
             observer:    rgb(100, 150, 255),
         }
