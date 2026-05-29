@@ -1,34 +1,21 @@
 # sdrtop
 
-**A terminal monitor for HackRF One — built in Rust, inspired by btop.**
+Real-time HackRF One monitor for the terminal. Built in Rust, inspired by btop.
 
-If you've ever wanted to know what your radio is actually doing — not just "it's receiving" but *how much* signal is dropping, whether your ADC is saturating, what your IQ imbalance looks like, what's happening in the spectrum right now — sdrtop is for that.
-
-It runs entirely in the terminal. No GUI, no Electron, no browser. A real-time dashboard you can `ssh` into, run on a Raspberry Pi taped to a cyberdeck, or keep open in a tmux pane next to your SDR pipeline.
+If you've ever wanted to see what your radio is actually doing not just "it's receiving" but *how much* signal is dropping, whether the ADC is saturating, what the spectrum looks like right now this is the tool for that. It runs entirely in the terminal, works over SSH, and fits in a tmux pane next to your SDR pipeline.
 
 ---
 
-## Who it's for
+## What it shows
 
-**SDR tinkerers and RF engineers** who want more than `hackrf_info` but less than a full GUI app. You're capturing IQ, scanning frequencies, doing signal analysis — and you want to see what the hardware is doing while you do it.
-
-**Cyberdeck and embedded Linux users** who live in the terminal. sdrtop is the kind of tool that feels at home next to `htop`, `iotop`, and `bmon` in a tiled terminal layout. No X required.
-
-**People who run SDR++ or another app** alongside their HackRF — sdrtop has an observer mode that shows you device info, USB stats, and which process is holding the radio, even when you can't open it yourself.
-
----
-
-## What it actually shows
-
-.
-
-- **Spectrum analyzer** — FFT with EMA smoothing and peak hold
-- **Waterfall** — scrolling spectrogram history (truecolor, 256-color, or 16-color)
-- **Hardware health** — sample drops, ADC saturation, IQ imbalance, DC offset, USB errors
+- **Spectrum analyzer** — FFT with EMA smoothing, peak hold, noise floor, dBFS axis
+- **Waterfall** — scrolling spectrogram with truecolor / 256-color / 16-color support
 - **Signal metrics** — SNR, channel power (dBFS), 99% occupied bandwidth
-- **RF chain** — baseband filter BW, board revision, total gain chain
-- **IQ histogram** — amplitude distribution with saturation and weak-signal warnings
-- **Observer mode** — shows device info and owner process when HackRF is in use by another app
+- **Hardware health** — sample drop rate, ADC saturation, IQ imbalance, DC offset
+- **RF chain** — board revision, baseband filter BW, full gain chain
+- **IQ histogram** — amplitude distribution; flags saturation and dynamic range issues
+- **Observer mode** — device identity and owner process when another app holds the radio
+- **Six themes** — `sdr` · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
 - **Six layout presets** — switch on the fly with number keys
 
 ---
@@ -37,10 +24,16 @@ It runs entirely in the terminal. No GUI, no Electron, no browser. A real-time d
 
 - Linux
 - HackRF One
-- `libhackrf` + `pkg-config`:
-  - Arch: `sudo pacman -S hackrf pkgconf`
-  - Debian/Ubuntu: `sudo apt install libhackrf-dev pkg-config`
+- `libhackrf` + `pkg-config`
 - Rust stable
+
+```sh
+# Arch
+sudo pacman -S hackrf pkgconf
+
+# Debian / Ubuntu
+sudo apt install libhackrf-dev pkg-config
+```
 
 ---
 
@@ -52,13 +45,12 @@ cargo build --release
 ```
 
 ```sh
-# Useful flags
-sdrtop --frequency 433920000   # center frequency in Hz
-sdrtop --lna 24 --vga 30       # starting gain
-sdrtop --config ~/my.toml      # custom config path
+# Common options
+sdrtop --frequency 92800000     # center frequency in Hz
+sdrtop --lna 24 --vga 30        # initial gain settings
+sdrtop --theme nord              # built-in theme (see list below)
+sdrtop --config ~/my.toml       # custom config path
 ```
-
-Config saves automatically to `~/.config/sdrtop/config.toml` on quit.
 
 ---
 
@@ -69,26 +61,53 @@ Config saves automatically to `~/.config/sdrtop/config.toml` on quit.
 | `Space` | Start / stop RX |
 | `↑` / `↓` | LNA gain ±8 dB |
 | `[` / `]` | VGA gain ±2 dB |
-| `a` | Toggle RF amp |
+| `a` | Toggle RF amplifier |
 | `f` | Enter frequency (MHz) |
 | `s` | Enter sample rate (2–20 MHz) |
-| `r` | Reset to defaults |
+| `r` | Reset all settings to defaults |
 | `w` | Pause / resume waterfall |
-| `1`–`6` | Switch preset |
+| `e` | Focus spectrum panel |
+| `o` | Focus waterfall panel |
+| `1`–`6` | Switch layout preset |
 | `p` | Cycle presets |
 | `?` | Help overlay |
-| `q` | Quit |
+| `q` | Quit and save config |
+
+---
+
+## Config
+
+Saved automatically to `~/.config/sdrtop/config.toml` on quit. Hand-editing is safe.
+
+```toml
+[radio]
+frequency_hz = 92800000
+sample_rate  = 2000000.0
+lna_gain     = 24
+vga_gain     = 30
+amp_enabled  = false
+
+[display]
+active_preset      = "main"
+waterfall_max_rows = 64
+
+[theme]
+base = "nord"
+# optional per-field overrides
+# border_accent = "#88c0d0"
+# value_hi      = "#ebcb8b"
+```
+
+Available themes: `sdr` (default) · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
 
 ---
 
 ## Status
 
-Phases 1–11 done. Working on real hardware. PortaPack / Mayhem integration is next.
+Phase 12 of 17 complete. Running on real hardware. Next: PortaPack / Mayhem integration.
 
-→ [Roadmap](docs/Roadmap.md) · [Bug tracker](docs/bugs/README.md) · [Docs home](docs/Home.md)
+→ [Roadmap](docs/Roadmap.md) · [Changelog](docs/CHANGELOG.md) · [Docs](docs/Home.md)
 
 ---
 
-## Built with Claude
-
-Written by MusiThang and [Claude](https://claude.ai).
+*Written by mustang6139 and [Claude](https://claude.ai).*
