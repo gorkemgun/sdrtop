@@ -40,7 +40,7 @@ impl Theme {
     pub fn sdr() -> Self {
         Self {
             name: "sdr",
-            border_dim:     rgb(45, 50, 65),
+            border_dim:     rgb(87, 96, 122),
             border_default: rgb(60, 120, 145),
             border_accent:  rgb(0, 215, 255),
             border_focused: rgb(255, 255, 255),

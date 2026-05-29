@@ -20,6 +20,14 @@ If you've ever wanted to see what your radio is actually doing not just "it's re
 
 ---
 
+## Pics
+
+| ![](/docs/pics/main.png)      | ![](/docs/pics/spectrum.png)  |
+| ----------------------------- | ----------------------------- |
+| ![](/docs/pics/waterfall.png) | ![](/docs/pics/spec_watf.png) |
+
+---
+
 ## Requirements
 
 - Linux
