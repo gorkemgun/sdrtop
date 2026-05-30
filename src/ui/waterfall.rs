@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
+use crate::ui::band_plan::BAND_PLAN;
 use crate::ui::panel::Panel;
 
 const DB_MAX: f32 = 0.0;
@@ -164,6 +165,31 @@ impl Panel for WaterfallPanel {
         }
 
         f.render_widget(Paragraph::new(lines), wf_area);
+
+        // ── Band plan overlay (dim labels on the top row of the waterfall) ─
+        if wf_area.height >= 2 && wf_area.width > 4 {
+            let cw = wf_area.width as f64;
+            let right_hz = left_hz + bw;
+            let mut next_free_col: i32 = -1;
+            for &(band_s, band_e, label) in BAND_PLAN {
+                let bs = band_s as f64;
+                let be = band_e as f64;
+                if bs >= right_hz || be <= left_hz { continue; }
+                let vis_s  = bs.max(left_hz);
+                let vis_e  = be.min(right_hz);
+                let center = (vis_s + vis_e) / 2.0;
+                let frac   = (center - left_hz) / bw;
+                let col    = (frac * cw) as u16;
+                let lw     = label.len() as u16;
+                let col    = col.min(wf_area.width.saturating_sub(lw));
+                if col as i32 <= next_free_col { continue; }
+                next_free_col = col as i32 + lw as i32 + 1;
+                f.render_widget(
+                    Paragraph::new(Span::styled(label, Style::default().fg(theme.label))),
+                    Rect { x: wf_area.x + col, y: wf_area.y, width: lw, height: 1 },
+                );
+            }
+        }
 
         // dBFS colour scale legend — tracks dynamic db_min
         let legend_area = Rect {
