@@ -32,6 +32,16 @@ fn next_spectrum_step(current: u64) -> u64 {
     SPECTRUM_STEPS[(idx + 1).min(SPECTRUM_STEPS.len() - 1)]
 }
 
+const WF_STRIDES: &[usize] = &[1, 2, 4, 8, 16, 32, 64];
+
+fn prev_wf_stride(current: usize) -> usize {
+    WF_STRIDES.iter().rev().find(|&&s| s < current).copied().unwrap_or(1)
+}
+
+fn next_wf_stride(current: usize) -> usize {
+    WF_STRIDES.iter().find(|&&s| s > current).copied().unwrap_or(64)
+}
+
 pub fn fmt_spectrum_step(hz: u64) -> String {
     if hz >= 1_000_000 { format!("{} MHz", hz / 1_000_000) }
     else { format!("{} kHz", hz / 1_000) }
@@ -164,6 +174,7 @@ impl App {
 
             waterfall_db_min:        -120.0,
             waterfall_scroll_offset: 0,
+            waterfall_cursor_freq:   None,
 
             acc_drops: 0,
             acc_saturated: 0,
@@ -476,6 +487,7 @@ impl App {
 
             waterfall_db_min:        -120.0,
             waterfall_scroll_offset: 0,
+            waterfall_cursor_freq:   None,
 
             acc_drops: 0,
             acc_saturated: 0,
@@ -654,6 +666,7 @@ impl App {
                                     m.focused_panel_bindings = &[];
                                     m.spectrum_cursor_freq = None;
                                     m.waterfall_scroll_offset = 0;
+                                    m.waterfall_cursor_freq = None;
                                 }
                             }
                             KeyCode::Char('q') => {
@@ -821,6 +834,45 @@ impl App {
                                 let new_min = (m.waterfall_db_min - 10.0).max(-120.0);
                                 m.waterfall_db_min = new_min;
                                 m.push_log(format!("Waterfall zoom: {:.0}…0 dBFS", new_min));
+                            }
+                            // Waterfall focus: [ ] stride control
+                            KeyCode::Char('[') if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                let new_stride = prev_wf_stride(m.waterfall.row_stride);
+                                m.waterfall.set_row_stride(new_stride);
+                                m.push_log(format!("Waterfall: ×{} frames/row", new_stride));
+                            }
+                            KeyCode::Char(']') if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                let new_stride = next_wf_stride(m.waterfall.row_stride);
+                                m.waterfall.set_row_stride(new_stride);
+                                m.push_log(format!("Waterfall: ×{} frames/row", new_stride));
+                            }
+                            // Waterfall focus: M cursor toggle
+                            KeyCode::Char('m') if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                if m.waterfall_cursor_freq.is_some() {
+                                    m.waterfall_cursor_freq = None;
+                                } else {
+                                    m.waterfall_cursor_freq = Some(m.frequency);
+                                }
+                            }
+                            // Waterfall focus: ← → cursor column movement
+                            KeyCode::Left if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                if let Some(cf) = m.waterfall_cursor_freq {
+                                    m.waterfall_cursor_freq = Some(
+                                        cf.saturating_sub(m.spectrum_step_hz).max(1_000_000)
+                                    );
+                                }
+                            }
+                            KeyCode::Right if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                if let Some(cf) = m.waterfall_cursor_freq {
+                                    m.waterfall_cursor_freq = Some(
+                                        (cf + m.spectrum_step_hz).min(6_000_000_000)
+                                    );
+                                }
                             }
                             // Cursor: J = left, K = right (by step_hz)
                             KeyCode::Char('j') if self.engine.focused_panel_name() == Some("spectrum") => {

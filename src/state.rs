@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpectrumMarker {
@@ -10,22 +11,57 @@ pub struct SpectrumMarker {
 
 #[derive(Clone)]
 pub struct WaterfallBuffer {
-    pub rows: VecDeque<Arc<Vec<f32>>>,
+    /// Each row: (push timestamp, averaged bins). Newest row first.
+    pub rows: VecDeque<(Instant, Arc<Vec<f32>>)>,
     pub max_rows: usize,
     pub paused: bool,
+    /// Number of FFT frames averaged into one waterfall row (1 = no averaging).
+    pub row_stride: usize,
+    // Accumulator for in-progress row — not part of the public API.
+    acc_bins: Vec<f32>,
+    acc_count: usize,
 }
 
 impl WaterfallBuffer {
     pub fn new(max_rows: usize) -> Self {
-        Self { rows: VecDeque::new(), max_rows, paused: false }
+        Self {
+            rows: VecDeque::new(),
+            max_rows,
+            paused: false,
+            row_stride: 1,
+            acc_bins: Vec::new(),
+            acc_count: 0,
+        }
     }
 
     pub fn push(&mut self, bins: Arc<Vec<f32>>) {
         if self.paused || self.max_rows == 0 { return; }
-        if self.rows.len() >= self.max_rows {
-            self.rows.pop_back();
+
+        // Accumulate frames — simple dBFS average (good enough for display)
+        if self.acc_count == 0 || self.acc_bins.len() != bins.len() {
+            self.acc_bins = (*bins).clone();
+        } else {
+            for (a, &b) in self.acc_bins.iter_mut().zip(bins.iter()) {
+                *a += b;
+            }
         }
-        self.rows.push_front(bins);
+        self.acc_count += 1;
+
+        if self.acc_count >= self.row_stride {
+            let inv = 1.0 / self.acc_count as f32;
+            for a in self.acc_bins.iter_mut() { *a *= inv; }
+            let averaged = Arc::new(std::mem::take(&mut self.acc_bins));
+            if self.rows.len() >= self.max_rows { self.rows.pop_back(); }
+            self.rows.push_front((Instant::now(), averaged));
+            self.acc_count = 0;
+        }
+    }
+
+    /// Change the row stride, resetting any partial accumulation.
+    pub fn set_row_stride(&mut self, stride: usize) {
+        self.row_stride = stride.max(1);
+        self.acc_bins.clear();
+        self.acc_count = 0;
     }
 }
 
@@ -154,6 +190,7 @@ pub struct SdrMetrics {
     // --- Waterfall focus controls ---
     pub waterfall_db_min:        f32,
     pub waterfall_scroll_offset: usize,
+    pub waterfall_cursor_freq:   Option<u64>,
 
     // --- Accumulators (written by rx_callback, reset by polling task) ---
     pub acc_drops: u64,
@@ -196,8 +233,8 @@ mod tests {
         let mut buf = WaterfallBuffer::new(4);
         buf.push(Arc::new(vec![1.0, 2.0]));
         buf.push(Arc::new(vec![3.0, 4.0]));
-        assert_eq!(*buf.rows[0], vec![3.0, 4.0], "newest row should be at index 0");
-        assert_eq!(*buf.rows[1], vec![1.0, 2.0]);
+        assert_eq!(*buf.rows[0].1, vec![3.0, 4.0], "newest row should be at index 0");
+        assert_eq!(*buf.rows[1].1, vec![1.0, 2.0]);
     }
 
     #[test]
@@ -215,5 +252,27 @@ mod tests {
         buf.paused = true;
         buf.push(Arc::new(vec![1.0, 2.0]));
         assert!(buf.rows.is_empty(), "paused buffer should not accept new rows");
+    }
+
+    #[test]
+    fn stride_averages_frames() {
+        let mut buf = WaterfallBuffer::new(4);
+        buf.set_row_stride(2);
+        buf.push(Arc::new(vec![10.0, 20.0]));
+        assert!(buf.rows.is_empty(), "first frame should not push yet");
+        buf.push(Arc::new(vec![20.0, 40.0]));
+        assert_eq!(buf.rows.len(), 1, "second frame should push averaged row");
+        assert_eq!(*buf.rows[0].1, vec![15.0, 30.0]);
+    }
+
+    #[test]
+    fn stride_reset_clears_accumulator() {
+        let mut buf = WaterfallBuffer::new(4);
+        buf.set_row_stride(3);
+        buf.push(Arc::new(vec![10.0]));  // partial frame
+        buf.set_row_stride(1);           // reset mid-accumulation
+        buf.push(Arc::new(vec![5.0]));
+        assert_eq!(buf.rows.len(), 1);
+        assert_eq!(*buf.rows[0].1, vec![5.0]);
     }
 }

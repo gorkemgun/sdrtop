@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
@@ -26,15 +26,18 @@ impl Panel for WaterfallPanel {
         &[
             ("↑ ↓", "Zoom colour scale"),
             ("J K",  "Scroll history"),
-            ("W",    "Pause/resume"),
+            ("[ ]",  "Row stride (speed)"),
+            ("M",    "Place/remove cursor"),
+            ("← →",  "Move cursor"),
             ("Esc",  "Exit focus"),
         ]
     }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let buf = &state.waterfall;
-        let db_min = state.waterfall_db_min;
-        let scroll = state.waterfall_scroll_offset;
+        let db_min  = state.waterfall_db_min;
+        let scroll  = state.waterfall_scroll_offset;
+        let stride  = buf.row_stride;
 
         let stale = state.last_fft_frame.as_ref()
             .map(|fr| fr.timestamp.elapsed() > std::time::Duration::from_millis(500))
@@ -55,9 +58,15 @@ impl Panel for WaterfallPanel {
         } else if stale {
             title_spans.push(Span::raw(" [STALE]"));
         }
+        if stride > 1 {
+            title_spans.push(Span::styled(
+                format!(" [×{}]", stride),
+                Style::default().fg(theme.label),
+            ));
+        }
         if scroll > 0 {
             title_spans.push(Span::styled(
-                format!(" [↑ {}]", scroll),
+                format!(" [↑{}]", scroll),
                 Style::default().fg(theme.value_hi),
             ));
         }
@@ -89,26 +98,52 @@ impl Panel for WaterfallPanel {
         let inner = block.inner(area);
         f.render_widget(block, area);
 
+        // When focused, reserve one row for the indicator line (like spectrum panel)
+        let (content_area, indicator_area) = if focused && inner.height > 2 {
+            let split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(1), Constraint::Length(1)])
+                .split(inner);
+            (split[0], Some(split[1]))
+        } else {
+            (inner, None)
+        };
+
         // Offset matches spectrum panel's dB-label column so both panels share the same x-axis
         const DB_COL: u16 = 6;
         let wf_area = Rect {
-            x: inner.x + DB_COL,
-            y: inner.y,
-            width: inner.width.saturating_sub(DB_COL),
-            height: inner.height,
+            x: content_area.x + DB_COL,
+            y: content_area.y,
+            width: content_area.width.saturating_sub(DB_COL),
+            height: content_area.height,
         };
         let cols = wf_area.width as usize;
         if cols == 0 { return; }
 
+        // Frequency bounds from last FFT frame (for cursor mapping)
+        let (left_hz, bw) = state.last_fft_frame.as_ref()
+            .map(|fr| (fr.center_freq_hz as f64 - fr.sample_rate / 2.0, fr.sample_rate))
+            .unwrap_or((0.0, 1.0));
+
+        // Cursor column in display space
+        let cursor_col: Option<usize> = state.waterfall_cursor_freq.and_then(|cf| {
+            let frac = (cf as f64 - left_hz) / bw;
+            if (0.0..=1.0).contains(&frac) {
+                Some(((frac * cols as f64) as usize).min(cols - 1))
+            } else {
+                None
+            }
+        });
+
         let rows_to_show = wf_area.height as usize;
-        // Clamp scroll so we never skip past the last available row
         let max_scroll = buf.rows.len().saturating_sub(rows_to_show);
         let skip = scroll.min(max_scroll);
 
         let depth = ColorDepth::detect();
+        let cursor_style = Style::default().fg(theme.value_hi);
         let mut lines: Vec<Line> = Vec::with_capacity(rows_to_show);
 
-        for row_data in buf.rows.iter().skip(skip).take(rows_to_show) {
+        for (_ts, row_data) in buf.rows.iter().skip(skip).take(rows_to_show) {
             let n = row_data.len();
             let mut spans: Vec<Span> = Vec::with_capacity(cols);
             for col in 0..cols {
@@ -118,8 +153,12 @@ impl Panel for WaterfallPanel {
                     .iter()
                     .cloned()
                     .fold(f32::NEG_INFINITY, f32::max);
-                let color = magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme);
-                spans.push(Span::styled(" ", Style::default().bg(color)));
+                let bg = magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme);
+                if Some(col) == cursor_col {
+                    spans.push(Span::styled("│", cursor_style.bg(bg)));
+                } else {
+                    spans.push(Span::styled(" ", Style::default().bg(bg)));
+                }
             }
             lines.push(Line::from(spans));
         }
@@ -127,7 +166,12 @@ impl Panel for WaterfallPanel {
         f.render_widget(Paragraph::new(lines), wf_area);
 
         // dBFS colour scale legend — tracks dynamic db_min
-        let legend_area = Rect { x: inner.x, y: inner.y, width: DB_COL, height: inner.height };
+        let legend_area = Rect {
+            x: content_area.x,
+            y: content_area.y,
+            width: DB_COL,
+            height: content_area.height,
+        };
         let h = legend_area.height as usize;
         if h > 0 {
             let mut legend: Vec<Line> = Vec::with_capacity(h);
@@ -147,6 +191,41 @@ impl Panel for WaterfallPanel {
                 ]));
             }
             f.render_widget(Paragraph::new(legend), legend_area);
+        }
+
+        // ── Indicator row (focus only) ─────────────────────────────────
+        if let Some(ind_area) = indicator_area {
+            let right_info: String = if let Some(cf) = state.waterfall_cursor_freq {
+                // Cursor active: show freq, dBFS at top visible row, time ago
+                let freq_mhz = cf as f64 / 1_000_000.0;
+                let (db_at_cursor, secs_ago) = buf.rows.iter().skip(skip).next()
+                    .and_then(|(ts, row)| {
+                        let frac = (cf as f64 - left_hz) / bw;
+                        if !(0.0..=1.0).contains(&frac) { return None; }
+                        let col = ((frac * cols as f64) as usize).min(cols - 1);
+                        let n = row.len();
+                        let lo = col * n / cols;
+                        let hi = ((col + 1) * n / cols).max(lo + 1).min(n);
+                        let db = row[lo..hi].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                        Some((db, ts.elapsed().as_secs()))
+                    })
+                    .unwrap_or((f32::NEG_INFINITY, 0));
+                if db_at_cursor.is_finite() {
+                    format!("  cur: {:.3} MHz  {:.1} dBFS  {}s ago  ← →  M", freq_mhz, db_at_cursor, secs_ago)
+                } else {
+                    format!("  cur: {:.3} MHz  ← →  M", freq_mhz)
+                }
+            } else {
+                let step_str = crate::app::fmt_spectrum_step(state.spectrum_step_hz);
+                format!("  ×{}  frames/row  [ ]  M cursor  step {}  ↑↓ zoom  J/K scroll", stride, step_str)
+            };
+
+            let dashes = (ind_area.width as usize).saturating_sub(right_info.len());
+            let line = Line::from(vec![
+                Span::styled("─".repeat(dashes), Style::default().fg(theme.border_dim)),
+                Span::styled(right_info, Style::default().fg(theme.label)),
+            ]);
+            f.render_widget(Paragraph::new(line), ind_area);
         }
     }
 }
