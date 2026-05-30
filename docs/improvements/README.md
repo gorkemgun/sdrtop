@@ -16,6 +16,7 @@ Not bugs, not roadmap items — just polish, missing features, and practical gap
 | [IMP-003](imp-003-spectrum-waterfall-ui-fixes.md) | Spectrum & waterfall UI fixes (border, freq labels, axis alignment, dBFS legend) | 12→13 | 2026-05-29 | ✅ Done |
 | [IMP-004](imp-004-spectrum-display-overhaul.md) | Spectrum display overhaul — fixed y-range, filled columns, focus key highlight, preset reorder | 12→13 | 2026-05-30 | ✅ Done |
 | [IMP-005](imp-005-spectrum-focus-tuning.md) | Spectrum focus tuning — ←→ frequency navigation, step control, tuning indicator | 12→13 | 2026-05-30 | ✅ Done |
+| [IMP-006](imp-006-spectrum-analysis-tools.md) | Spectrum analysis tools — band plan, zoom, hold, cursor, named markers | 12→13 | 2026-05-30 | ✅ Done |
 
 ---
 

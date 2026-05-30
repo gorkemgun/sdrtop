@@ -44,6 +44,15 @@ Full details are in the linked phase logs and improvement files.
 - **Step control:** `[`/`]` cycles through 9 step presets (1 kHz → 10 MHz) in focus mode, overriding global VGA keys
 - **Tuning indicator:** `────◀  92.800 MHz  ▶────  step 100 kHz  [/]` appears as one row at canvas bottom in focus mode; absent otherwise
 
+### IMP-006 — Spectrum analysis tools
+→ [details](improvements/imp-006-spectrum-analysis-tools.md)
+
+- **Band plan overlay:** 14 built-in bands (FM, AIR, 2m, 70cm, Marine, ISM, GPS, CELL…) rendered as dim labels at the top of the canvas when in the visible range
+- **Zoom** (`↑`/`↓` focus): adjusts `y_min` in 10 dB steps; dBFS axis tracks the current range dynamically
+- **Hold** (`H` global): snapshots the current FFT frame as a dim ghost polyline behind the live spectrum; `[HOLD]` shown in title
+- **Cursor** (`J`/`K` focus): vertical line across the spectrum; indicator row shows cursor frequency and power in dBFS
+- **Named markers** (`M` focus): places a named vertical marker at cursor or signal peak; footer opens name input (`Enter` = confirm, empty = auto-label `M1/M2/…`); markers persist in `~/.config/sdrtop/config.toml`
+
 ---
 
 ## 2026-05-29
