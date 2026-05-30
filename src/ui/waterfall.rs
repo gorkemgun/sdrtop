@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
@@ -10,7 +10,6 @@ use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::panel::Panel;
 
-const DB_MIN: f32 = -120.0;
 const DB_MAX: f32 = 0.0;
 
 pub struct WaterfallPanel;
@@ -22,24 +21,55 @@ impl WaterfallPanel {
 impl Panel for WaterfallPanel {
     fn name(&self) -> &'static str { "waterfall" }
     fn min_size(&self) -> (u16, u16) { (40, 5) }
+    fn focus_key(&self) -> Option<char> { Some('l') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[
+            ("↑ ↓", "Zoom colour scale"),
+            ("J K",  "Scroll history"),
+            ("W",    "Pause/resume"),
+            ("Esc",  "Exit focus"),
+        ]
+    }
+
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let buf = &state.waterfall;
+        let db_min = state.waterfall_db_min;
+        let scroll = state.waterfall_scroll_offset;
+
         let stale = state.last_fft_frame.as_ref()
             .map(|fr| fr.timestamp.elapsed() > std::time::Duration::from_millis(500))
             .unwrap_or(false);
-        let title = if buf.paused { " Waterfall [PAUSED] " }
-            else if stale { " Waterfall [STALE] " }
-            else { " Waterfall " };
         let border_color = if focused { theme.border_focused }
             else if buf.paused || stale { theme.stale }
             else { theme.border_accent };
+
+        // Title: second 'l' in "Waterfall" highlighted as focus key indicator
+        let key_style = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
+        let mut title_spans = vec![
+            Span::raw(" Waterfa"),
+            Span::styled("l", key_style),
+            Span::raw("l"),
+        ];
+        if buf.paused {
+            title_spans.push(Span::styled(" [PAUSED]", Style::default().fg(theme.status_warn)));
+        } else if stale {
+            title_spans.push(Span::raw(" [STALE]"));
+        }
+        if scroll > 0 {
+            title_spans.push(Span::styled(
+                format!(" [↑ {}]", scroll),
+                Style::default().fg(theme.value_hi),
+            ));
+        }
+        title_spans.push(Span::raw(" "));
+        let title_line = Line::from(title_spans);
 
         if buf.rows.is_empty() {
             f.render_widget(
                 Paragraph::new("Waiting for RX\u{2026}")
                     .block(
                         Block::default()
-                            .title(title)
+                            .title(title_line)
                             .borders(Borders::ALL)
                             .border_type(BorderType::Rounded)
                             .border_style(Style::default().fg(border_color)),
@@ -52,7 +82,7 @@ impl Panel for WaterfallPanel {
         }
 
         let block = Block::default()
-            .title(title)
+            .title(title_line)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color));
@@ -71,10 +101,14 @@ impl Panel for WaterfallPanel {
         if cols == 0 { return; }
 
         let rows_to_show = wf_area.height as usize;
+        // Clamp scroll so we never skip past the last available row
+        let max_scroll = buf.rows.len().saturating_sub(rows_to_show);
+        let skip = scroll.min(max_scroll);
+
         let depth = ColorDepth::detect();
         let mut lines: Vec<Line> = Vec::with_capacity(rows_to_show);
 
-        for row_data in buf.rows.iter().take(rows_to_show) {
+        for row_data in buf.rows.iter().skip(skip).take(rows_to_show) {
             let n = row_data.len();
             let mut spans: Vec<Span> = Vec::with_capacity(cols);
             for col in 0..cols {
@@ -84,7 +118,7 @@ impl Panel for WaterfallPanel {
                     .iter()
                     .cloned()
                     .fold(f32::NEG_INFINITY, f32::max);
-                let color = magnitude_to_color_themed(db, DB_MIN, DB_MAX, depth, theme);
+                let color = magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme);
                 spans.push(Span::styled(" ", Style::default().bg(color)));
             }
             lines.push(Line::from(spans));
@@ -92,19 +126,19 @@ impl Panel for WaterfallPanel {
 
         f.render_widget(Paragraph::new(lines), wf_area);
 
-        // dBFS color scale legend in the left column
+        // dBFS colour scale legend — tracks dynamic db_min
         let legend_area = Rect { x: inner.x, y: inner.y, width: DB_COL, height: inner.height };
         let h = legend_area.height as usize;
         if h > 0 {
             let mut legend: Vec<Line> = Vec::with_capacity(h);
             for row in 0..h {
                 let t = row as f32 / (h.saturating_sub(1)).max(1) as f32;
-                let db = DB_MAX + (DB_MIN - DB_MAX) * t;
-                let bar_color = magnitude_to_color_themed(db, DB_MIN, DB_MAX, depth, theme);
+                let db = DB_MAX + (db_min - DB_MAX) * t;
+                let bar_color = magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme);
                 let label = match row {
                     0 => format!("{:>+4} ", DB_MAX as i32),
-                    r if r == h.saturating_sub(1) => format!("{:>+4} ", DB_MIN as i32),
-                    r if r == h / 2 => format!("{:>+4} ", ((DB_MAX + DB_MIN) / 2.0) as i32),
+                    r if r == h.saturating_sub(1) => format!("{:>4} ", db_min as i32),
+                    r if r == h / 2 => format!("{:>4} ", ((DB_MAX + db_min) / 2.0) as i32),
                     _ => "     ".to_string(),
                 };
                 legend.push(Line::from(vec![

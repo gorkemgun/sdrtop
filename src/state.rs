@@ -151,6 +151,10 @@ pub struct SdrMetrics {
     pub spectrum_cursor_freq:  Option<u64>,
     pub spectrum_markers:      Vec<SpectrumMarker>,
 
+    // --- Waterfall focus controls ---
+    pub waterfall_db_min:        f32,
+    pub waterfall_scroll_offset: usize,
+
     // --- Accumulators (written by rx_callback, reset by polling task) ---
     pub acc_drops: u64,
     pub acc_saturated: u64,

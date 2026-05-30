@@ -162,6 +162,9 @@ impl App {
             spectrum_markers:     cfg.display.spectrum_markers.clone(),
             pending_marker_freq:  None,
 
+            waterfall_db_min:        -120.0,
+            waterfall_scroll_offset: 0,
+
             acc_drops: 0,
             acc_saturated: 0,
             acc_i_sum: 0,
@@ -471,6 +474,9 @@ impl App {
             spectrum_markers:     vec![],
             pending_marker_freq:  None,
 
+            waterfall_db_min:        -120.0,
+            waterfall_scroll_offset: 0,
+
             acc_drops: 0,
             acc_saturated: 0,
             acc_i_sum: 0,
@@ -647,6 +653,7 @@ impl App {
                                     m.focused_panel = None;
                                     m.focused_panel_bindings = &[];
                                     m.spectrum_cursor_freq = None;
+                                    m.waterfall_scroll_offset = 0;
                                 }
                             }
                             KeyCode::Char('q') => {
@@ -802,6 +809,19 @@ impl App {
                                 let ymax = m.spectrum_y_max;
                                 m.push_log(format!("Zoom: {:.0}…{:.0} dBFS", new_min, ymax));
                             }
+                            // Waterfall focus: ↑/↓ colour scale zoom
+                            KeyCode::Up if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                let new_min = (m.waterfall_db_min + 10.0).min(-20.0);
+                                m.waterfall_db_min = new_min;
+                                m.push_log(format!("Waterfall zoom: {:.0}…0 dBFS", new_min));
+                            }
+                            KeyCode::Down if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                let new_min = (m.waterfall_db_min - 10.0).max(-120.0);
+                                m.waterfall_db_min = new_min;
+                                m.push_log(format!("Waterfall zoom: {:.0}…0 dBFS", new_min));
+                            }
                             // Cursor: J = left, K = right (by step_hz)
                             KeyCode::Char('j') if self.engine.focused_panel_name() == Some("spectrum") => {
                                 let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -818,6 +838,15 @@ impl App {
                                     Some(f) => (f + step).min(6_000_000_000),
                                     None    => m.frequency,
                                 });
+                            }
+                            // Waterfall focus: J = scroll older, K = scroll newer
+                            KeyCode::Char('j') if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                m.waterfall_scroll_offset += 1;
+                            }
+                            KeyCode::Char('k') if self.engine.focused_panel_name() == Some("waterfall") => {
+                                let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                                m.waterfall_scroll_offset = m.waterfall_scroll_offset.saturating_sub(1);
                             }
                             // Marker: M — if existing at position, remove it; otherwise open name input
                             KeyCode::Char('m') if self.engine.focused_panel_name() == Some("spectrum") => {
