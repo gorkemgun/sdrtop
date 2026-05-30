@@ -199,4 +199,4 @@ No pressure, but if this scratches an itch for you, this is where it goes.
 
 Phase 11 complete · Phase 12 in progress. Running on real hardware. Next: finish UI polish, then hardware abstraction layer.
 
-→ [Roadmap](docs/Roadmap.md) · [Changelog](docs/CHANGELOG.md) · [Docs](docs/Home.md)
+→ [Roadmap](docs/Roadmap.md) · [Changelog](docs/CHANGELOG.md) · [Docs](docs/Home.md) · [Credits](CREDITS.md)
