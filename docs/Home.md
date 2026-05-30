@@ -3,7 +3,7 @@
 > btop-inspired universal SDR terminal monitor, written in Rust.
 
 **Stack:** Rust · ratatui · libhackrf FFI · tokio · rustfft · crossbeam  
-**Progress:** Phase 11 complete · Phase 12 in progress · 6 bugs tracked · 6 improvements logged
+**Progress:** Phase 11 complete · Phase 12 in progress · 6 bugs tracked · 8 improvements logged
 
 ---
 
@@ -57,6 +57,11 @@ Additions made between planned phases — not bugs, not roadmap items.
 | [IMP-001](improvements/imp-001-sample-rate-control.md) | Interactive sample rate control (`[S]` key) | 11→12 | ✅ Done |
 | [IMP-002](improvements/imp-002-observer-mode.md) · [log](improvements/imp-002-observer-mode-log.md) | Observer mode — monitor while another app holds the HackRF | 11→12 | ✅ Done |
 | [IMP-003](improvements/imp-003-spectrum-waterfall-ui-fixes.md) | Spectrum & waterfall UI fixes (border, freq labels, axis alignment, dBFS legend) | 12→13 | ✅ Done |
+| [IMP-004](improvements/imp-004-spectrum-display-overhaul.md) | Spectrum display overhaul — fixed y-range, filled columns, focus key, preset reorder | 12→13 | ✅ Done |
+| [IMP-005](improvements/imp-005-spectrum-focus-tuning.md) | Spectrum focus tuning — ←→ frequency navigation, step control, tuning indicator | 12→13 | ✅ Done |
+| [IMP-006](improvements/imp-006-spectrum-analysis-tools.md) | Spectrum analysis tools — band plan, zoom, hold, cursor, named markers | 12→13 | ✅ Done |
+| [IMP-007](improvements/imp-007-spectrum-panel-ux-fixes.md) | Spectrum panel UX fixes — tuning indicator centering, frame rate cap | 12→13 | ✅ Done |
+| [IMP-008](improvements/imp-008-performance-overhaul.md) | Performance overhaul — Arc shared buffers, FFT scratch pre-alloc, canvas downsampling | 12→13 | ✅ Done |
 
 ---
 

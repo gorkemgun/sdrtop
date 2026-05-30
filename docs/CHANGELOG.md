@@ -53,6 +53,23 @@ Full details are in the linked phase logs and improvement files.
 - **Cursor** (`J`/`K` focus): vertical line across the spectrum; indicator row shows cursor frequency and power in dBFS
 - **Named markers** (`M` focus): places a named vertical marker at cursor or signal peak; footer opens name input (`Enter` = confirm, empty = auto-label `M1/M2/…`); markers persist in `~/.config/sdrtop/config.toml`
 
+### IMP-007 — Spectrum panel UX fixes
+→ [details](improvements/imp-007-spectrum-panel-ux-fixes.md)
+
+- **Tuning indicator centering:** `left_arm` calculation decoupled from `right_info` length; `◀ MHz ▶` now sits at true centre of the indicator row regardless of cursor/step text length
+- **Frame rate cap:** `run()` loop restructured so `terminal.draw()` fires at most every 33 ms (~30 fps); keyboard-repeat events update state but skip renders until the frame interval elapses; single key press still redraws on the next Tick (≤ 100 ms)
+
+### IMP-008 — Performance overhaul
+→ [details](improvements/imp-008-performance-overhaul.md)
+
+- **`Arc<Vec<f32>>` for shared spectrum data:** `FftFrame.bins_dbfs`, `FftFrame.peak_hold`, `WaterfallBuffer.rows`, `spectrum_hold` — `SdrMetrics::clone()` drops from ~528 KB/frame to negligible at 30 fps
+- **FFT scratch pre-allocation:** `samples`, `mags`, `shifted`, `noise_scratch`, `occ_scratch` declared once before the receive loop; ~88 KB/frame heap churn eliminated
+- **Cursor-based drain:** single `buf.drain(..buf_start)` per USB chunk instead of one O(n) drain per FFT frame
+- **Noise floor O(n):** `select_nth_unstable_by` replaces full `sort_by` for the bottom-10% mean
+- **Spectrum canvas downsampling:** bins max-pooled to `canvas_area.width` columns before drawing; ~6 000 draw calls/frame → ~600
+- **Closure data reduced:** `col_data` / `col_peaks` / `held_data` arrays (~10 KB) replace the old 8 KB `bin_colors` Vec + moved `Arc<Vec<f32>>`; closure captures no bins or Theme
+- **`ColorDepth::detect()` cached:** `OnceLock` so `env::var` runs once at startup; all subsequent calls are a single atomic load
+
 ---
 
 ## 2026-05-29

@@ -620,14 +620,20 @@ impl App {
     }
 
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
-        loop {
+        const FRAME_DURATION: Duration = Duration::from_millis(33);
+        let mut last_draw = Instant::now();
+
+        // Initial draw before entering the event loop
+        {
             let m = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
             terminal.draw(|f| {
                 self.engine.draw(f, &m, &self.theme);
-                if self.show_help {
-                    ui::overlay::render_help(f);
-                }
+                if self.show_help { ui::overlay::render_help(f); }
             })?;
+        }
+
+        loop {
+            let needs_redraw;
 
             match self.events.recv() {
                 AppEvent::Key(key) => {
@@ -727,7 +733,7 @@ impl App {
                             KeyCode::Char('h') => {
                                 let held = {
                                     let m = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                                    m.last_fft_frame.as_ref().map(|fr| fr.bins_dbfs.clone())
+                                    m.last_fft_frame.as_ref().map(|fr| Arc::clone(&fr.bins_dbfs))
                                 };
                                 let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner());
                                 if m.spectrum_hold.is_some() {
@@ -1093,8 +1099,20 @@ impl App {
                             _ => {}
                         },
                     }
+                    needs_redraw = last_draw.elapsed() >= FRAME_DURATION;
                 }
-                AppEvent::Tick => {}
+                AppEvent::Tick => {
+                    needs_redraw = true;
+                }
+            }
+
+            if needs_redraw {
+                let m = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                terminal.draw(|f| {
+                    self.engine.draw(f, &m, &self.theme);
+                    if self.show_help { ui::overlay::render_help(f); }
+                })?;
+                last_draw = Instant::now();
             }
         }
     }

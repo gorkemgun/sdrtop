@@ -17,6 +17,8 @@ Not bugs, not roadmap items — just polish, missing features, and practical gap
 | [IMP-004](imp-004-spectrum-display-overhaul.md) | Spectrum display overhaul — fixed y-range, filled columns, focus key highlight, preset reorder | 12→13 | 2026-05-30 | ✅ Done |
 | [IMP-005](imp-005-spectrum-focus-tuning.md) | Spectrum focus tuning — ←→ frequency navigation, step control, tuning indicator | 12→13 | 2026-05-30 | ✅ Done |
 | [IMP-006](imp-006-spectrum-analysis-tools.md) | Spectrum analysis tools — band plan, zoom, hold, cursor, named markers | 12→13 | 2026-05-30 | ✅ Done |
+| [IMP-007](imp-007-spectrum-panel-ux-fixes.md) | Spectrum panel UX fixes — tuning indicator centering, frame rate cap | 12→13 | 2026-05-30 | ✅ Done |
+| [IMP-008](imp-008-performance-overhaul.md) | Performance overhaul — Arc shared buffers, FFT scratch pre-alloc, canvas downsampling | 12→13 | 2026-05-30 | ✅ Done |
 
 ---
 

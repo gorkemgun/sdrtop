@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpectrumMarker {
@@ -9,7 +10,7 @@ pub struct SpectrumMarker {
 
 #[derive(Clone)]
 pub struct WaterfallBuffer {
-    pub rows: VecDeque<Vec<f32>>,
+    pub rows: VecDeque<Arc<Vec<f32>>>,
     pub max_rows: usize,
     pub paused: bool,
 }
@@ -19,7 +20,7 @@ impl WaterfallBuffer {
         Self { rows: VecDeque::new(), max_rows, paused: false }
     }
 
-    pub fn push(&mut self, bins: Vec<f32>) {
+    pub fn push(&mut self, bins: Arc<Vec<f32>>) {
         if self.paused || self.max_rows == 0 { return; }
         if self.rows.len() >= self.max_rows {
             self.rows.pop_back();
@@ -32,9 +33,9 @@ impl WaterfallBuffer {
 #[allow(dead_code)]
 pub struct FftFrame {
     /// fftshifted, EMA-smoothed magnitude spectrum in dBFS
-    pub bins_dbfs: Vec<f32>,
+    pub bins_dbfs: Arc<Vec<f32>>,
     /// decaying peak hold, same length as bins_dbfs
-    pub peak_hold: Vec<f32>,
+    pub peak_hold: Arc<Vec<f32>>,
     /// mean dBFS of the bottom 10% of bins (noise estimate)
     pub noise_floor: f32,
     pub center_freq_hz: u64,
@@ -146,7 +147,7 @@ pub struct SdrMetrics {
     pub pending_marker_freq:   Option<u64>,
     pub spectrum_y_min:        f32,
     pub spectrum_y_max:        f32,
-    pub spectrum_hold:         Option<Vec<f32>>,
+    pub spectrum_hold:         Option<Arc<Vec<f32>>>,
     pub spectrum_cursor_freq:  Option<u64>,
     pub spectrum_markers:      Vec<SpectrumMarker>,
 
@@ -189,17 +190,17 @@ mod tests {
     #[test]
     fn push_adds_newest_row_first() {
         let mut buf = WaterfallBuffer::new(4);
-        buf.push(vec![1.0, 2.0]);
-        buf.push(vec![3.0, 4.0]);
-        assert_eq!(buf.rows[0], vec![3.0, 4.0], "newest row should be at index 0");
-        assert_eq!(buf.rows[1], vec![1.0, 2.0]);
+        buf.push(Arc::new(vec![1.0, 2.0]));
+        buf.push(Arc::new(vec![3.0, 4.0]));
+        assert_eq!(*buf.rows[0], vec![3.0, 4.0], "newest row should be at index 0");
+        assert_eq!(*buf.rows[1], vec![1.0, 2.0]);
     }
 
     #[test]
     fn push_respects_max_rows() {
         let mut buf = WaterfallBuffer::new(3);
         for i in 0..5u32 {
-            buf.push(vec![i as f32]);
+            buf.push(Arc::new(vec![i as f32]));
         }
         assert_eq!(buf.rows.len(), 3, "should not exceed max_rows");
     }
@@ -208,7 +209,7 @@ mod tests {
     fn paused_ignores_push() {
         let mut buf = WaterfallBuffer::new(4);
         buf.paused = true;
-        buf.push(vec![1.0, 2.0]);
+        buf.push(Arc::new(vec![1.0, 2.0]));
         assert!(buf.rows.is_empty(), "paused buffer should not accept new rows");
     }
 }

@@ -34,68 +34,77 @@ impl FftWorker {
         let mut planner = FftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(self.fft_size);
         let window = dsp::compute_window(self.window_fn, self.fft_size);
+        let n = self.fft_size;
 
+        // Pre-allocate all scratch buffers — reused every frame, zero heap churn
         let mut buf: Vec<u8> = Vec::new();
-        let mut smoothed: Vec<f32> = Vec::new();
-        let mut peak: Vec<f32> = Vec::new();
+        let mut samples: Vec<Complex<f32>> = vec![Complex::default(); n];
+        let mut mags:    Vec<f32>          = vec![0.0; n];
+        let mut shifted: Vec<f32>          = vec![0.0; n];
+        let mut smoothed: Vec<f32>         = vec![DB_FLOOR; n];
+        let mut peak: Vec<f32>             = vec![DB_FLOOR; n];
+        // scratch for noise floor partial sort (avoids O(n log n) full sort)
+        let mut noise_scratch: Vec<f32>    = vec![0.0; n];
+        // scratch for occupied-BW sort (avoids alloc per frame)
+        let mut occ_scratch: Vec<(f32, usize)> = vec![(0.0, 0); n];
+        let mut initialized = false;
 
         while let Ok(chunk) = self.sample_rx.recv() {
             buf.extend_from_slice(&chunk);
 
-            while buf.len() >= self.fft_size * 2 {
-                // Convert to windowed complex samples
-                let mut samples: Vec<Complex<f32>> = buf[..self.fft_size * 2]
-                    .chunks_exact(2)
-                    .zip(window.iter())
-                    .map(|(pair, &w)| Complex {
+            let frame_bytes = n * 2;
+            let mut buf_start = 0usize;
+
+            while buf.len() - buf_start >= frame_bytes {
+                let frame = &buf[buf_start..buf_start + frame_bytes];
+
+                // Convert to windowed complex samples in-place
+                for (i, (pair, &w)) in frame.chunks_exact(2).zip(window.iter()).enumerate() {
+                    samples[i] = Complex {
                         re: pair[0] as i8 as f32 / 128.0 * w,
                         im: pair[1] as i8 as f32 / 128.0 * w,
-                    })
-                    .collect();
-                buf.drain(..self.fft_size * 2);
+                    };
+                }
+                buf_start += frame_bytes;
 
                 fft.process(&mut samples);
 
-                // Magnitude → dBFS; normalize by fft_size for size-independent scale
-                let mags: Vec<f32> = samples
-                    .iter()
-                    .map(|z| {
-                        let norm = z.norm() / self.fft_size as f32;
-                        if norm > 0.0 { 20.0 * norm.log10() } else { DB_FLOOR }
-                    })
-                    .collect();
-
-                // fftshift: rotate by N/2 so DC lands at center
-                let n = mags.len();
-                let mut shifted = Vec::with_capacity(n);
-                shifted.extend_from_slice(&mags[n / 2..]);
-                shifted.extend_from_slice(&mags[..n / 2]);
-
-                // EMA smoothing
-                if smoothed.is_empty() {
-                    smoothed = shifted.clone();
-                } else {
-                    let alpha = self.ema_alpha;
-                    for (s, &new) in smoothed.iter_mut().zip(shifted.iter()) {
-                        *s = alpha * new + (1.0 - alpha) * *s;
-                    }
+                // Magnitude → dBFS in-place
+                let n_f32 = n as f32;
+                for (i, z) in samples.iter().enumerate() {
+                    let norm = z.norm() / n_f32;
+                    mags[i] = if norm > 0.0 { 20.0 * norm.log10() } else { DB_FLOOR };
                 }
 
-                // Peak hold with per-frame decay
-                if peak.is_empty() {
-                    peak = smoothed.clone();
+                // fftshift in-place: copy halves into pre-allocated shifted
+                shifted[..n / 2].copy_from_slice(&mags[n / 2..]);
+                shifted[n / 2..].copy_from_slice(&mags[..n / 2]);
+
+                // EMA smoothing in-place
+                if !initialized {
+                    smoothed.copy_from_slice(&shifted);
+                    peak.copy_from_slice(&shifted);
+                    initialized = true;
                 } else {
+                    let alpha = self.ema_alpha;
+                    let one_minus = 1.0 - alpha;
+                    for (s, &new) in smoothed.iter_mut().zip(shifted.iter()) {
+                        *s = alpha * new + one_minus * *s;
+                    }
+                    // Peak hold with per-frame decay
                     let decay = self.peak_decay_db;
                     for (p, &s) in peak.iter_mut().zip(smoothed.iter()) {
                         *p = (*p - decay).max(s);
                     }
                 }
 
-                // Noise floor: mean of bottom 10% of bins
-                let mut sorted = smoothed.clone();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let count = (sorted.len() / 10).max(1);
-                let noise_floor = sorted[..count].iter().sum::<f32>() / count as f32;
+                // Noise floor: mean of bottom 10% via partial sort — O(n) average vs O(n log n)
+                noise_scratch.copy_from_slice(&smoothed);
+                let nf_count = (n / 10).max(1);
+                noise_scratch.select_nth_unstable_by(nf_count - 1, |a, b| {
+                    a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let noise_floor = noise_scratch[..nf_count].iter().sum::<f32>() / nf_count as f32;
 
                 // Read freq/rate while unlocked from the FFT loop
                 let (center_freq_hz, sample_rate) = self
@@ -104,50 +113,53 @@ impl FftWorker {
                     .map(|m| (m.frequency, m.config_sample_rate))
                     .unwrap_or((0, 0.0));
 
-                // SNR: current peak minus noise floor
+                // SNR: peak minus noise floor
                 let peak_dbfs = smoothed.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let snr_db = (peak_dbfs - noise_floor).max(0.0);
 
-                // Channel power: integrate all bins in linear domain → dBFS
-                let total_linear: f32 = smoothed.iter()
-                    .map(|&b| 10f32.powf(b / 10.0))
-                    .sum();
+                // Channel power: integrate all bins → dBFS
+                let total_linear: f32 = smoothed.iter().map(|&b| 10f32.powf(b / 10.0)).sum();
                 let channel_power_dbfs = if total_linear > 0.0 {
                     10.0 * total_linear.log10()
                 } else {
                     f32::NEG_INFINITY
                 };
 
-                // 99% occupied BW: span of bins containing 99% of total power
+                // 99% occupied BW using pre-allocated scratch (no alloc per frame)
                 let occupied_bw_hz = if total_linear > 0.0 && sample_rate > 0.0 {
                     let threshold = total_linear * 0.99;
-                    let mut indexed: Vec<(f32, usize)> = smoothed.iter()
-                        .enumerate()
-                        .map(|(i, &b)| (10f32.powf(b / 10.0), i))
-                        .collect();
-                    indexed.sort_unstable_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+                    for (i, &b) in smoothed.iter().enumerate() {
+                        occ_scratch[i] = (10f32.powf(b / 10.0), i);
+                    }
+                    occ_scratch.sort_unstable_by(|a, b| {
+                        b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+                    });
                     let mut acc = 0f32;
-                    let mut min_bin = smoothed.len();
+                    let mut min_bin = n;
                     let mut max_bin = 0usize;
-                    for (power, idx) in &indexed {
+                    for &(power, idx) in &occ_scratch {
                         acc += power;
-                        min_bin = min_bin.min(*idx);
-                        max_bin = max_bin.max(*idx);
+                        min_bin = min_bin.min(idx);
+                        max_bin = max_bin.max(idx);
                         if acc >= threshold { break; }
                     }
-                    let bin_hz = sample_rate / smoothed.len() as f64;
+                    let bin_hz = sample_rate / n as f64;
                     ((max_bin.saturating_sub(min_bin) + 1) as f64 * bin_hz) as u64
                 } else {
                     0u64
                 };
+
+                // Wrap in Arc once — shared cheaply between FftFrame and waterfall
+                let bins_arc = Arc::new(smoothed.clone());
+                let peak_arc = Arc::new(peak.clone());
 
                 if let Ok(mut m) = self.state.lock() {
                     m.snr_db             = snr_db;
                     m.channel_power_dbfs = channel_power_dbfs;
                     m.occupied_bw_hz     = occupied_bw_hz;
                     m.last_fft_frame = Some(FftFrame {
-                        bins_dbfs: smoothed.clone(),
-                        peak_hold: peak.clone(),
+                        bins_dbfs: Arc::clone(&bins_arc),
+                        peak_hold: peak_arc,
                         noise_floor,
                         center_freq_hz,
                         sample_rate,
@@ -156,8 +168,13 @@ impl FftWorker {
                         channel_power_dbfs,
                         occupied_bw_hz,
                     });
-                    m.waterfall.push(smoothed.clone());
+                    m.waterfall.push(bins_arc);
                 }
+            }
+
+            // Single drain per received chunk instead of one per FFT frame
+            if buf_start > 0 {
+                buf.drain(..buf_start);
             }
         }
     }

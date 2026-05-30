@@ -1,4 +1,5 @@
 use ratatui::style::Color;
+use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ColorDepth {
@@ -7,17 +8,21 @@ pub enum ColorDepth {
     Color16,
 }
 
+static CACHED_DEPTH: OnceLock<ColorDepth> = OnceLock::new();
+
 impl ColorDepth {
     pub fn detect() -> Self {
-        let colorterm = std::env::var("COLORTERM").unwrap_or_default().to_lowercase();
-        if colorterm == "truecolor" || colorterm == "24bit" {
-            return Self::TrueColor;
-        }
-        let term = std::env::var("TERM").unwrap_or_default();
-        if term.contains("256color") {
-            return Self::Color256;
-        }
-        Self::Color16
+        *CACHED_DEPTH.get_or_init(|| {
+            let colorterm = std::env::var("COLORTERM").unwrap_or_default().to_lowercase();
+            if colorterm == "truecolor" || colorterm == "24bit" {
+                return Self::TrueColor;
+            }
+            let term = std::env::var("TERM").unwrap_or_default();
+            if term.contains("256color") {
+                return Self::Color256;
+            }
+            Self::Color16
+        })
     }
 }
 

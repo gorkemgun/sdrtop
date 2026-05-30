@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -120,7 +122,8 @@ impl Panel for SpectrumPanel {
                 let freq_area      = rows[1];
                 let indicator_area = if focused { rows.get(2).copied() } else { None };
 
-                let n          = frame.bins_dbfs.len() as f64;
+                let n_bins     = frame.bins_dbfs.len();
+                let n          = n_bins as f64;
                 let bw         = frame.sample_rate;
                 let left_hz    = frame.center_freq_hz as f64 - bw / 2.0;
                 let right_hz   = frame.center_freq_hz as f64 + bw / 2.0;
@@ -132,19 +135,14 @@ impl Panel for SpectrumPanel {
                 let y_max   = y_max_f as f64;
 
                 let depth = ColorDepth::detect();
-                let bins  = frame.bins_dbfs.clone();
-                let peaks = frame.peak_hold.clone();
+                // Arc::clone is O(1) — no data copied
+                let bins  = Arc::clone(&frame.bins_dbfs);
+                let peaks = Arc::clone(&frame.peak_hold);
                 let noise_floor = frame.noise_floor;
 
-                let bin_colors: Vec<ratatui::style::Color> = bins.iter()
-                    .map(|&db| magnitude_to_color_themed(db, y_min_f, y_max_f, depth, theme))
-                    .collect();
                 let peak_hold_color   = theme.peak_hold;
                 let noise_floor_color = theme.noise_floor;
-
-                // Hold ghost: dim polyline of frozen frame
-                let held_bins = state.spectrum_hold.clone();
-                let hold_color = theme.border_dim;
+                let hold_color        = theme.border_dim;
 
                 // Cursor: canvas x-coordinate (0..n-1)
                 let cursor_x_canvas = state.spectrum_cursor_freq.and_then(|cf| {
@@ -166,12 +164,45 @@ impl Panel for SpectrumPanel {
                 let cursor_power: Option<f32> = state.spectrum_cursor_freq.and_then(|cf| {
                     let frac = (cf as f64 - left_hz) / bw;
                     if (0.0..=1.0).contains(&frac) {
-                        let idx = (frac * (bins.len() - 1) as f64).round() as usize;
-                        Some(bins[idx.min(bins.len() - 1)])
+                        let idx = (frac * (n_bins - 1) as f64).round() as usize;
+                        Some(bins[idx.min(n_bins - 1)])
                     } else { None }
                 });
                 let cursor_freq_mhz = state.spectrum_cursor_freq
                     .map(|f| f as f64 / 1_000_000.0);
+
+                // Downsample to canvas pixel columns — reduces draw calls ~10×.
+                // x_bounds stay [0, n-1] so cursor/marker x positions are unaffected.
+                let draw_n = (canvas_area.width as usize).min(n_bins).max(1);
+
+                // Pre-compute per-column (canvas_x, clamped_y, color) outside the closure
+                // so the closure captures no bins Arc and no Theme reference.
+                // draw_n ≈ 200 entries vs 2048 bins — ~10× smaller than the old bin_colors Vec.
+                let col_data: Vec<(f64, f64, ratatui::style::Color)> = (0..draw_n)
+                    .map(|col| {
+                        let lo = col * n_bins / draw_n;
+                        let hi = ((col + 1) * n_bins / draw_n).max(lo + 1).min(n_bins);
+                        let db = bins[lo..hi].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                        (lo as f64, db.clamp(y_min_f, y_max_f) as f64,
+                         magnitude_to_color_themed(db, y_min_f, y_max_f, depth, theme))
+                    })
+                    .collect();
+
+                let col_peaks: Vec<(f64, f64)> = (0..draw_n)
+                    .map(|col| {
+                        let lo = col * n_bins / draw_n;
+                        let hi = ((col + 1) * n_bins / draw_n).max(lo + 1).min(n_bins);
+                        let db = peaks[lo..hi].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                        (lo as f64, db.clamp(y_min_f, y_max_f) as f64)
+                    })
+                    .collect();
+
+                let held_data: Option<Vec<(f64, f64)>> = state.spectrum_hold.as_ref().map(|held| {
+                    (0..draw_n).map(|col| {
+                        let i = col * n_bins / draw_n;
+                        (i as f64, held[i].clamp(y_min_f, y_max_f) as f64)
+                    }).collect()
+                });
 
                 // ── Canvas ────────────────────────────────────────────────
                 f.render_widget(
@@ -180,40 +211,28 @@ impl Panel for SpectrumPanel {
                         .y_bounds([y_min, y_max])
                         .paint(move |ctx| {
                             // 1. Hold ghost (behind live signal)
-                            if let Some(ref held) = held_bins {
-                                for i in 1..held.len() {
-                                    let y0 = held[i - 1].clamp(y_min_f, y_max_f) as f64;
-                                    let y1 = held[i].clamp(y_min_f, y_max_f) as f64;
+                            if let Some(ref hd) = held_data {
+                                for i in 1..hd.len() {
                                     ctx.draw(&CanvasLine {
-                                        x1: (i - 1) as f64, y1: y0,
-                                        x2: i as f64,       y2: y1,
+                                        x1: hd[i - 1].0, y1: hd[i - 1].1,
+                                        x2: hd[i].0,     y2: hd[i].1,
                                         color: hold_color,
                                     });
                                 }
                             }
                             // 2. Filled columns
-                            for i in 0..bins.len() {
-                                let y_top = bins[i].clamp(y_min_f, y_max_f) as f64;
-                                ctx.draw(&CanvasLine {
-                                    x1: i as f64, y1: y_min,
-                                    x2: i as f64, y2: y_top,
-                                    color: bin_colors[i],
-                                });
+                            for &(x, y_top, color) in &col_data {
+                                ctx.draw(&CanvasLine { x1: x, y1: y_min, x2: x, y2: y_top, color });
                             }
                             // 3. Outline
-                            for i in 1..bins.len() {
-                                let y0 = bins[i - 1].clamp(y_min_f, y_max_f) as f64;
-                                let y1 = bins[i].clamp(y_min_f, y_max_f) as f64;
-                                ctx.draw(&CanvasLine {
-                                    x1: (i - 1) as f64, y1: y0,
-                                    x2: i as f64,       y2: y1,
-                                    color: bin_colors[i - 1],
-                                });
+                            for i in 1..col_data.len() {
+                                let (x0, y0, color) = col_data[i - 1];
+                                let (x1, y1, _)     = col_data[i];
+                                ctx.draw(&CanvasLine { x1: x0, y1: y0, x2: x1, y2: y1, color });
                             }
                             // 4. Peak hold
-                            for (i, &db) in peaks.iter().enumerate() {
-                                let y = db.clamp(y_min_f, y_max_f) as f64;
-                                ctx.draw(&Points { coords: &[(i as f64, y)], color: peak_hold_color });
+                            for &(x, y) in &col_peaks {
+                                ctx.draw(&Points { coords: &[(x, y)], color: peak_hold_color });
                             }
                             // 5. Noise floor
                             let nf = noise_floor.clamp(y_min_f, y_max_f) as f64;
@@ -300,14 +319,16 @@ impl Panel for SpectrumPanel {
                         _ => format!("  step {}  [/]", step_str),
                     };
 
-                    let fixed = 2 + freq_str.len() + right_info.len();
-                    let arm   = (ind_area.width as usize).saturating_sub(fixed) / 2;
+                    let center_len = 2 + freq_str.len();
+                    let left_arm   = (ind_area.width as usize).saturating_sub(center_len) / 2;
+                    let right_arm  = (ind_area.width as usize)
+                        .saturating_sub(left_arm + center_len + right_info.len());
                     let line  = Line::from(vec![
-                        Span::styled("─".repeat(arm), Style::default().fg(theme.border_dim)),
+                        Span::styled("─".repeat(left_arm), Style::default().fg(theme.border_dim)),
                         Span::styled("◀", Style::default().fg(theme.border_accent).add_modifier(Modifier::BOLD)),
                         Span::styled(freq_str, Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
                         Span::styled("▶", Style::default().fg(theme.border_accent).add_modifier(Modifier::BOLD)),
-                        Span::styled("─".repeat(arm), Style::default().fg(theme.border_dim)),
+                        Span::styled("─".repeat(right_arm), Style::default().fg(theme.border_dim)),
                         Span::styled(right_info, Style::default().fg(theme.label)),
                     ]);
                     f.render_widget(Paragraph::new(line), ind_area);
