@@ -1,9 +1,9 @@
 # sdrtop — Development Hub
 
-> btop-inspired TUI for HackRF One & PortaPack SDR devices, written in Rust.
+> btop-inspired universal SDR terminal monitor, written in Rust.
 
 **Stack:** Rust · ratatui · libhackrf FFI · tokio · rustfft · crossbeam  
-**Progress:** Phase 12 of 17 complete · 4 bugs tracked · 3 improvements logged
+**Progress:** Phase 11 complete · Phase 12 in progress · 4 bugs tracked · 3 improvements logged
 
 ---
 
@@ -33,12 +33,18 @@
 | 9 | Waterfall display | ✅ Done | [steps](<phases/Phase 9 - Waterfall Display - Steps.md>) · [log](<phases/Phase 9 - Waterfall Display - Log.md>) |
 | 10 | Configuration & persistence | ✅ Done | [steps](<phases/Phase 10 - Configuration & Persistence - Steps.md>) · [log](<phases/Phase 10 - Configuration & Persistence - Log.md>) |
 | 11 | HackRF deep diagnostics | ✅ Done | [steps](<phases/Phase 11 - HackRF Deep Diagnostics - Steps.md>) · [log](<phases/Phase 11 - HackRF Deep Diagnostics - Log.md>) |
-| 12 | UI/UX polish & theme system | ✅ Done | [12a](<phases/Phase 12a - Theme Foundation - Steps.md>) · [12b](<phases/Phase 12b - Panel Visual Updates - Steps.md>) · [12c](<phases/Phase 12c - Header Footer Focus - Steps.md>) · [log](<phases/Phase 12 - UI UX Polish Theme System - Log.md>) |
-| 13 | PortaPack / Mayhem integration | 🔲 Planned | [steps](<phases/Phase 13 - PortaPack Mayhem Integration - Steps.md>) |
-| 14 | Multi-device support | 🔲 Planned | — |
-| 15 | Polish & production readiness | 🔲 Planned | — |
-| 16 | Distribution & community | 🔲 Planned | — |
-| 17 | Advanced observer mode | 💡 Idea | — |
+| 12 | UI/UX polish & theme system | 🔧 In progress | [12a](<phases/Phase 12a - Theme Foundation - Steps.md>) · [12b](<phases/Phase 12b - Panel Visual Updates - Steps.md>) · [12c](<phases/Phase 12c - Header Footer Focus - Steps.md>) · [log](<phases/Phase 12 - UI UX Polish Theme System - Log.md>) |
+| 13 | Hardware abstraction layer (HAL) | 🔧 **Next** | — |
+| 14 | PortaPack / Mayhem integration | 🔲 Planned | [steps](<phases/Phase 13 - PortaPack Mayhem Integration - Steps.md>) |
+| 15 | HackRF feature pass (band plans, bookmarks, recording, scan) | 🔲 Planned | — |
+| 16 | Polish & production readiness | 🔲 Planned | — |
+| 17 | Distribution & community | 🔲 Planned | — |
+| 18 | RTL-SDR support | ⏳ Needs hardware | — |
+| 19 | Airspy / Airspy HF+ support | ⏳ Needs hardware | — |
+| 20 | SoapySDR backend | ⏳ Needs hardware | — |
+| 21 | Multi-device monitor | ⏳ Needs hardware | — |
+| 22 | Advanced UI | 🔲 Planned | — |
+| 23 | Ecosystem | 🔲 Planned | — |
 
 ---
 

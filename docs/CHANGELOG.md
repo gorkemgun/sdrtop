@@ -22,7 +22,7 @@ Full details are in the linked phase logs and improvement files.
 
 ## 2026-05-28
 
-### Phase 12 — UI/UX Polish & Theme System ✅
+### Phase 12 — UI/UX Polish & Theme System 🔧 In progress
 → [log](<phases/Phase 12 - UI UX Polish Theme System - Log.md>)
 
 - Theme system: `Theme` struct with 6 built-in palettes (`sdr`, `nord`, `dracula`, `gruvbox`, `catppuccin`, `solarized`); `[theme]` TOML section with per-field `#rrggbb` overrides; `--theme` CLI flag
