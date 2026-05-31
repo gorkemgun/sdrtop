@@ -81,8 +81,7 @@ impl App {
     fn draw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
         let m = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let hide_footer = !self.show_footer
-            && m.ui.input_mode == crate::state::InputMode::Normal
-            && m.ui.focused_panel.is_none();
+            && m.ui.input_mode == crate::state::InputMode::Normal;
         self.engine.set_panel_hidden("footer", hide_footer);
         terminal.draw(|f| {
             self.engine.draw(f, &m, &self.theme);
