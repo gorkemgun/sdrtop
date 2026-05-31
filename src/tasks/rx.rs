@@ -67,6 +67,7 @@ pub fn spawn_rx_task(
                 let acc_cross_sum  = m.acc.iq_cross_sum;
                 let acc_samples    = m.acc.sample_count;
                 let acc_jitter_sum = m.acc.jitter_sum_us;
+                let acc_jitter_sq  = m.acc.jitter_sq_sum;
                 let acc_jitter_cnt = m.acc.jitter_count;
                 m.acc.drops         = 0;
                 m.acc.saturated     = 0;
@@ -77,6 +78,7 @@ pub fn spawn_rx_task(
                 m.acc.iq_cross_sum  = 0;
                 m.acc.sample_count  = 0;
                 m.acc.jitter_sum_us = 0;
+                m.acc.jitter_sq_sum = 0;
                 m.acc.jitter_count  = 0;
 
                 m.iq.iq_amplitude_hist = m.acc.iq_hist;
@@ -119,12 +121,17 @@ pub fn spawn_rx_task(
                 }
                 m.signal.usb_error_history.push_back(usb_delta);
 
-                if let Some(jitter) = acc_jitter_sum.checked_div(acc_jitter_cnt) {
-                    m.iq.callback_jitter_us = jitter;
+                if acc_jitter_cnt > 0 {
+                    let mean = acc_jitter_sum / acc_jitter_cnt;
+                    let sq_mean = acc_jitter_sq / acc_jitter_cnt;
+                    let variance = sq_mean.saturating_sub(mean.saturating_mul(mean));
+                    let stddev = (variance as f64).sqrt() as u64;
+                    m.iq.cb_period_us = mean;
+                    m.iq.cb_jitter_us = stddev;
                     if m.iq.jitter_history.len() >= crate::state::THROUGHPUT_HISTORY_LEN {
                         m.iq.jitter_history.pop_front();
                     }
-                    m.iq.jitter_history.push_back(jitter);
+                    m.iq.jitter_history.push_back(stddev);
                 }
 
                 let cap = rx_ctx.sample_tx.capacity().unwrap_or(4);

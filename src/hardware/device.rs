@@ -101,6 +101,7 @@ fn rx_callback_safe(transfer: *mut hackrf_transfer) -> c_int {
             if let Some(last) = m.acc.last_callback {
                 let gap_us = now.duration_since(last).as_micros() as u64;
                 m.acc.jitter_sum_us += gap_us;
+                m.acc.jitter_sq_sum += gap_us.saturating_mul(gap_us);
                 m.acc.jitter_count  += 1;
             }
             m.acc.last_callback = Some(now);

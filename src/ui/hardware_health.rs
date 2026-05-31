@@ -76,10 +76,14 @@ impl Panel for HardwareHealthPanel {
             .collect();
         crate::ui::charts::draw_mini_graph(f, rows[3], &sat_data, sat_color);
 
-        let jitter_color = threshold_color(state.iq.callback_jitter_us as f64, 500.0, 2000.0, theme);
+        let period_ms = state.iq.cb_period_us as f64 / 1000.0;
+        let jitter_color = threshold_color(state.iq.cb_jitter_us as f64, 200.0, 1000.0, theme);
         f.render_widget(
             Paragraph::new(Span::styled(
-                format!("Jitter: {} µs (inter-callback mean)", state.iq.callback_jitter_us),
+                format!(
+                    "CB period {:.1} ms  jitter ±{} µs",
+                    period_ms, state.iq.cb_jitter_us
+                ),
                 Style::default().fg(jitter_color),
             )),
             rows[4],
