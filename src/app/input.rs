@@ -71,11 +71,11 @@ fn handle_spectrum_focus(
     match key.code {
         KeyCode::Left => {
             if let Some(device) = device {
-                let (new_freq, result) = {
+                let new_freq = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    let f = m.radio.frequency.saturating_sub(m.spectrum.step_hz).max(1_000_000);
-                    (f, device.set_frequency(f))
+                    m.radio.frequency.saturating_sub(m.spectrum.step_hz).max(1_000_000)
                 };
+                let result = device.set_frequency(new_freq);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
                     Ok(()) => m.radio.frequency = new_freq,
@@ -85,11 +85,11 @@ fn handle_spectrum_focus(
         }
         KeyCode::Right => {
             if let Some(device) = device {
-                let (new_freq, result) = {
+                let new_freq = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    let f = (m.radio.frequency + m.spectrum.step_hz).min(6_000_000_000);
-                    (f, device.set_frequency(f))
+                    (m.radio.frequency + m.spectrum.step_hz).min(6_000_000_000)
                 };
+                let result = device.set_frequency(new_freq);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
                     Ok(()) => m.radio.frequency = new_freq,
@@ -392,72 +392,57 @@ fn handle_global(
         }
         KeyCode::Up => {
             if let Some(device) = device {
-                let (gain, result) = {
-                    let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    let new_gain = (m.radio.lna_gain + 8).min(40);
-                    (new_gain, device.set_lna_gain(new_gain))
-                };
+                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); (m.radio.lna_gain + 8).min(40) };
+                let result = device.set_lna_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.lna_gain = gain; m.push_log(format!("LNA gain → {} dB", gain)); }
+                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("LNA gain → {} dB", new_gain)); }
                     Err(e) => m.push_log(format!("LNA gain error: {}", e)),
                 }
             }
         }
         KeyCode::Down => {
             if let Some(device) = device {
-                let (gain, result) = {
-                    let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    let new_gain = m.radio.lna_gain.saturating_sub(8);
-                    (new_gain, device.set_lna_gain(new_gain))
-                };
+                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); m.radio.lna_gain.saturating_sub(8) };
+                let result = device.set_lna_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.lna_gain = gain; m.push_log(format!("LNA gain → {} dB", gain)); }
+                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("LNA gain → {} dB", new_gain)); }
                     Err(e) => m.push_log(format!("LNA gain error: {}", e)),
                 }
             }
         }
         KeyCode::Char('[') => {
             if let Some(device) = device {
-                let (gain, result) = {
-                    let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    let new_gain = m.radio.vga_gain.saturating_sub(2);
-                    (new_gain, device.set_vga_gain(new_gain))
-                };
+                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); m.radio.vga_gain.saturating_sub(2) };
+                let result = device.set_vga_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.vga_gain = gain; m.push_log(format!("VGA gain → {} dB", gain)); }
+                    Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
                     Err(e) => m.push_log(format!("VGA gain error: {}", e)),
                 }
             }
         }
         KeyCode::Char(']') => {
             if let Some(device) = device {
-                let (gain, result) = {
-                    let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    let new_gain = (m.radio.vga_gain + 2).min(62);
-                    (new_gain, device.set_vga_gain(new_gain))
-                };
+                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); (m.radio.vga_gain + 2).min(62) };
+                let result = device.set_vga_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.vga_gain = gain; m.push_log(format!("VGA gain → {} dB", gain)); }
+                    Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
                     Err(e) => m.push_log(format!("VGA gain error: {}", e)),
                 }
             }
         }
         KeyCode::Char('a') => {
             if let Some(device) = device {
-                let (enabled, result) = {
-                    let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    let new_state = !m.radio.amp_enabled;
-                    (new_state, device.set_amp_enable(new_state))
-                };
+                let new_state = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); !m.radio.amp_enabled };
+                let result = device.set_amp_enable(new_state);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
                     Ok(()) => {
-                        m.radio.amp_enabled = enabled;
-                        m.push_log(format!("AMP {}", if enabled { "ON" } else { "OFF" }));
+                        m.radio.amp_enabled = new_state;
+                        m.push_log(format!("AMP {}", if new_state { "ON" } else { "OFF" }));
                     }
                     Err(e) => m.push_log(format!("AMP error: {}", e)),
                 }
@@ -510,16 +495,13 @@ fn handle_freq_input(
         }
         KeyCode::Enter => {
             if let Some(device) = device {
-                let (freq_hz, result) = {
+                let freq_hz: Option<u64> = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    match m.ui.input_buf.parse::<f64>() {
-                        Ok(mhz) if mhz > 0.0 => {
-                            let hz = (mhz * 1_000_000.0) as u64;
-                            (Some(hz), Some(device.set_frequency(hz)))
-                        }
-                        _ => (None, None),
-                    }
+                    m.ui.input_buf.parse::<f64>().ok()
+                        .filter(|&mhz| mhz > 0.0)
+                        .map(|mhz| (mhz * 1_000_000.0) as u64)
                 };
+                let result = freq_hz.map(|hz| device.set_frequency(hz));
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match (freq_hz, result) {
                     (Some(hz), Some(Ok(()))) => {
@@ -558,16 +540,16 @@ fn handle_sr_input(
         }
         KeyCode::Enter => {
             if let Some(device) = device {
-                let (rate_hz, result) = {
+                let rate_hz: Option<f64> = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    match m.ui.input_buf.parse::<f64>() {
-                        Ok(mhz) if (2.0..=20.0).contains(&mhz) => {
-                            let hz = mhz * 1_000_000.0;
-                            (Some(hz), Some(device.set_sample_rate(hz)))
-                        }
-                        _ => (None, None),
-                    }
+                    m.ui.input_buf.parse::<f64>().ok()
+                        .filter(|&mhz| (2.0..=20.0).contains(&mhz))
+                        .map(|mhz| mhz * 1_000_000.0)
                 };
+                // Release lock before calling device — hackrf_set_sample_rate is a
+                // blocking USB control transfer; holding the mutex here deadlocks the
+                // rx_callback thread that needs the same lock to return.
+                let result = rate_hz.map(|hz| device.set_sample_rate(hz));
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match (rate_hz, result) {
                     (Some(hz), Some(Ok(bw))) => {
