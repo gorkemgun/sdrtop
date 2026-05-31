@@ -34,6 +34,7 @@
 | 10 | Configuration & persistence | ✅ Done | [steps](<phases/Phase 10 - Configuration & Persistence - Steps.md>) · [log](<phases/Phase 10 - Configuration & Persistence - Log.md>) |
 | 11 | HackRF deep diagnostics | ✅ Done | [steps](<phases/Phase 11 - HackRF Deep Diagnostics - Steps.md>) · [log](<phases/Phase 11 - HackRF Deep Diagnostics - Log.md>) |
 | 12 | UI/UX polish & theme system | 🔧 In progress | [12a](<phases/Phase 12a - Theme Foundation - Steps.md>) · [12b](<phases/Phase 12b - Panel Visual Updates - Steps.md>) · [12c](<phases/Phase 12c - Header Footer Focus - Steps.md>) · [log](<phases/Phase 12 - UI UX Polish Theme System - Log.md>) |
+| 12d | Codebase modularization | ✅ Done | [steps](<phases/Phase 12d - Codebase Modularization - Steps.md>) · [log](<phases/Phase 12d - Codebase Modularization - Log.md>) |
 | 13 | Hardware abstraction layer (HAL) | 🔧 **Next** | — |
 | 14 | PortaPack / Mayhem integration | 🔲 Planned | [steps](<phases/Phase 13 - PortaPack Mayhem Integration - Steps.md>) |
 | 15 | HackRF feature pass (band plans, bookmarks, recording, scan) | 🔲 Planned | — |
