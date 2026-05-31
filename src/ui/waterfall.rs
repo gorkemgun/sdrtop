@@ -71,7 +71,7 @@ impl Panel for WaterfallPanel {
         if buf.paused {
             title_spans.push(Span::styled(" [PAUSED]", Style::default().fg(theme.status_warn)));
         } else if stale {
-            title_spans.push(Span::raw(" [STALE]"));
+            title_spans.push(Span::styled(" [STALE]", Style::default().fg(theme.stale)));
         }
         if stride > 1 {
             title_spans.push(Span::styled(
@@ -79,9 +79,13 @@ impl Panel for WaterfallPanel {
                 Style::default().fg(theme.label),
             ));
         }
-        if scroll > 0 {
+        // Clamp scroll display to actual max: content ≈ area minus borders(2) and indicator(1)
+        let approx_content_h = area.height.saturating_sub(3) as usize;
+        let max_scroll_display = buf.rows.len().saturating_sub(approx_content_h * 2) / 2;
+        let display_scroll = scroll.min(max_scroll_display);
+        if display_scroll > 0 {
             title_spans.push(Span::styled(
-                format!(" [↑{}]", scroll),
+                format!(" [↑{}]", display_scroll),
                 Style::default().fg(theme.value_hi),
             ));
         }
