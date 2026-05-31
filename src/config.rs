@@ -213,15 +213,14 @@ impl LayoutConfig {
         };
         let lab = PresetConfig {
             panels: vec![
-                PanelSpec { name: "header".into(),           position: Top,    height: Some(5), width_pct: None     },
-                PanelSpec { name: "rf_chain".into(),         position: Left,   height: None,    width_pct: Some(50) },
-                PanelSpec { name: "iq_diagnostics".into(),   position: Left,   height: None,    width_pct: Some(50) },
-                PanelSpec { name: "signal_metrics".into(),   position: Right,  height: None,    width_pct: Some(50) },
-                PanelSpec { name: "iq_histogram".into(),     position: Right,  height: None,    width_pct: Some(50) },
-                PanelSpec { name: "hardware_health".into(),  position: Right,  height: None,    width_pct: Some(50) },
-                PanelSpec { name: "system_resources".into(), position: Right,  height: None,    width_pct: Some(50) },
-                PanelSpec { name: "log".into(),              position: Bottom, height: Some(5), width_pct: None     },
-                PanelSpec { name: "footer".into(),           position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "header".into(),          position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "rf_chain".into(),        position: Left,   height: None,    width_pct: Some(33) },
+                PanelSpec { name: "iq_histogram".into(),    position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "iq_diagnostics".into(),  position: Right,  height: None,    width_pct: Some(33) },
+                PanelSpec { name: "hardware_health".into(), position: Right,  height: None,    width_pct: Some(33) },
+                PanelSpec { name: "signal_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "log".into(),             position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),          position: Bottom, height: Some(3), width_pct: None     },
             ],
         };
         let observer = PresetConfig {

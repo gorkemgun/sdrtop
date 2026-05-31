@@ -7,9 +7,9 @@
 [![PortaPack](https://img.shields.io/badge/hardware-PortaPack%20H4M-blueviolet)](https://github.com/portapack-mayhem/mayhem-firmware)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support%20the%20project-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/mustang6139)
 
-**A terminal monitor for SDR hardware. Built to squeeze every piece of diagnostic data out of your radio and put it on screen, live.**
+**Hey there! This is my take on a terminal monitor for SDR hardware.** I wanted something that could hunt down every bit of diagnostic data from your radio and stream it straight to your terminal.
 
-No fluff, and definitely not a lazy wrapper around `hackrf_info`. It delivers raw, real-time data: spectrum, waterfall, ADC health, gain chain, and signal metrics - entirely in the terminal, over SSH, in a tmux pane.
+I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clone. It delivers raw, real-time metrics (spectrum, waterfall, ADC health, gain chain) right inside the terminal. It's lightweight, distraction-free, and fits perfectly into a tmux pane, an SSH session, or the custom screen of your cyberdeck.
 
 **[Full user guide](user_docs/README.md)**
 
@@ -31,7 +31,7 @@ No fluff, and definitely not a lazy wrapper around `hackrf_info`. It delivers ra
 - **IQ histogram** - amplitude distribution; flags saturation and dynamic range issues
 - **Observer mode** - device identity and owner process when another app holds the radio
 - **Six themes** - `sdr` · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
-- **Six layout presets** - switch on the fly with number keys
+- **Layout presets** - switch on the fly with number keys
 
 ---
 
