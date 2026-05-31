@@ -106,7 +106,7 @@ impl App {
                 snr_db: 0.0, channel_power_dbfs: f32::NEG_INFINITY,
                 occupied_bw_hz: 0, usb_errors_session: 0,
             },
-            iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, callback_jitter_us: 0, iq_amplitude_hist: [0u64; 32] },
+            iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, callback_jitter_us: 0, iq_amplitude_hist: [0u64; 32], buf_fill_pct: 0.0 },
             observer: ObserverState::default(),
             spectrum: SpectrumState {
                 step_hz: 100_000, y_min: -120.0, y_max: 0.0,
@@ -198,7 +198,7 @@ impl App {
                 snr_db: 0.0, channel_power_dbfs: f32::NEG_INFINITY,
                 occupied_bw_hz: 0, usb_errors_session: 0,
             },
-            iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, callback_jitter_us: 0, iq_amplitude_hist: [0u64; 32] },
+            iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, callback_jitter_us: 0, iq_amplitude_hist: [0u64; 32], buf_fill_pct: 0.0 },
             observer: ObserverState {
                 active: true,
                 device: Some(format!("{} · {}", sysinfo.product, sysinfo.manufacturer)),

@@ -108,6 +108,13 @@ pub fn spawn_rx_task(
                     m.iq.callback_jitter_us = jitter;
                 }
 
+                let cap = rx_ctx.sample_tx.capacity().unwrap_or(4);
+                m.iq.buf_fill_pct = if cap > 0 {
+                    (rx_ctx.sample_tx.len() as f32 / cap as f32) * 100.0
+                } else {
+                    0.0
+                };
+
                 let _ = acc_drops;
             }
 

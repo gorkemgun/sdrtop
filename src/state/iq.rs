@@ -5,4 +5,5 @@ pub struct IqState {
     pub dc_offset_q:        f32,
     pub callback_jitter_us: u64,
     pub iq_amplitude_hist:  [u64; 32],
+    pub buf_fill_pct:       f32,
 }

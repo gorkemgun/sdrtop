@@ -11,35 +11,29 @@ use super::panel::Panel;
 
 pub struct SignalStripPanel;
 
-fn thresh(val: f64, ok: f64, warn: f64, theme: &crate::Theme) -> Color {
-    if val < ok { theme.status_ok } else if val < warn { theme.status_warn } else { theme.status_crit }
-}
-
 fn snr_color(db: f32, theme: &crate::Theme) -> Color {
     if db >= 20.0 { theme.status_ok } else if db >= 10.0 { theme.status_warn } else { theme.status_crit }
 }
 
 fn sat_color(pct: f32, theme: &crate::Theme) -> Color {
-    thresh(pct as f64, 1.0, 5.0, theme)
+    if pct < 1.0 { theme.status_ok } else if pct < 5.0 { theme.status_warn } else { theme.status_crit }
 }
 
 fn drop_color(drops: u64, theme: &crate::Theme) -> Color {
-    thresh(drops as f64, 1.0, 10.0, theme)
+    if drops == 0 { theme.status_ok } else if drops < 10 { theme.status_warn } else { theme.status_crit }
 }
 
-fn jit_color(us: u64, theme: &crate::Theme) -> Color {
-    thresh(us as f64, 100.0, 1000.0, theme)
+fn buf_color(pct: f32, theme: &crate::Theme) -> Color {
+    if pct < 50.0 { theme.status_ok } else if pct < 80.0 { theme.status_warn } else { theme.status_crit }
 }
 
-fn cpu_color(pct: f32, theme: &crate::Theme) -> Color {
-    thresh(pct as f64, 50.0, 80.0, theme)
+fn iq_color(db: f32, theme: &crate::Theme) -> Color {
+    if db.abs() < 1.0 { theme.status_ok } else if db.abs() < 3.0 { theme.status_warn } else { theme.status_crit }
 }
 
-fn fmt_occ(hz: u64) -> String {
-    if hz == 0 { return "---".into(); }
-    if hz >= 1_000_000 { format!("{:.2} MHz", hz as f64 / 1_000_000.0) }
-    else if hz >= 1_000 { format!("{:.1} kHz", hz as f64 / 1_000.0) }
-    else { format!("{} Hz", hz) }
+fn fmt_rbw(hz: f64) -> String {
+    if hz >= 1_000.0 { format!("{:.1} kHz", hz / 1_000.0) }
+    else { format!("{:.0} Hz", hz) }
 }
 
 impl Panel for SignalStripPanel {
@@ -66,36 +60,50 @@ impl Panel for SignalStripPanel {
         let snr_col = if stale { theme.stale } else { snr_color(state.signal.snr_db, theme) };
 
         let pwr_str = if stale || !state.signal.channel_power_dbfs.is_finite() {
-            "--- dBFS".into()
+            "---".into()
         } else {
             format!("{:.1} dBFS", state.signal.channel_power_dbfs)
         };
         let pwr_col = if stale { theme.stale } else { theme.value };
 
-        let occ_str = if stale { "---".into() } else { fmt_occ(state.signal.occupied_bw_hz) };
-        let occ_col = if stale { theme.stale } else { theme.value };
+        let (nf_str, nf_col) = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
+            Some(fr) => (format!("{:.1} dBFS", fr.noise_floor), theme.value),
+            None     => ("---".into(), theme.stale),
+        };
+
+        let (rbw_str, rbw_col) = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
+            Some(fr) if !fr.bins_dbfs.is_empty() => {
+                let rbw = fr.sample_rate / fr.bins_dbfs.len() as f64;
+                (fmt_rbw(rbw), theme.value)
+            }
+            _ => ("---".into(), theme.stale),
+        };
+
+        let iq_str = format!("{:+.1} dB", state.iq.iq_imbalance_db);
+        let iq_col = iq_color(state.iq.iq_imbalance_db, theme);
+
+        let buf_str = format!("{:.0}%", state.iq.buf_fill_pct);
+        let buf_col = buf_color(state.iq.buf_fill_pct, theme);
 
         let line = Line::from(vec![
             Span::raw(" "),
-            lbl("SNR "), val(snr_str, snr_col),
+            lbl("SNR "),  val(snr_str, snr_col),
             sep.clone(),
-            lbl("PWR "), val(pwr_str, pwr_col),
+            lbl("PWR "),  val(pwr_str, pwr_col),
             sep.clone(),
-            lbl("SAT "), val(format!("{:.1}%", state.signal.adc_saturation_pct),
-                             sat_color(state.signal.adc_saturation_pct, theme)),
+            lbl("NF "),   val(nf_str, nf_col),
+            sep.clone(),
+            lbl("SAT "),  val(format!("{:.1}%", state.signal.adc_saturation_pct),
+                              sat_color(state.signal.adc_saturation_pct, theme)),
             sep.clone(),
             lbl("DROP "), val(format!("{}/s", state.signal.drops_per_sec),
                               drop_color(state.signal.drops_per_sec, theme)),
             sep.clone(),
-            lbl("OCC "), val(occ_str, occ_col),
+            lbl("BUF "),  val(buf_str, buf_col),
             sep.clone(),
-            lbl("JIT "), val(format!("{} µs", state.iq.callback_jitter_us),
-                             jit_color(state.iq.callback_jitter_us, theme)),
+            lbl("IQ "),   val(iq_str, iq_col),
             sep.clone(),
-            lbl("CPU "), val(format!("{:.1}%", state.system.process_cpu_pct),
-                             cpu_color(state.system.process_cpu_pct, theme)),
-            sep.clone(),
-            lbl("RAM "), val(format!("{} MB", state.system.process_rss_mb), theme.value),
+            lbl("RBW "),  val(rbw_str, rbw_col),
         ]);
 
         f.render_widget(Paragraph::new(line), inner);
