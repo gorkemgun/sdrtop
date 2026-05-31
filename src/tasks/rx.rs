@@ -121,6 +121,10 @@ pub fn spawn_rx_task(
 
                 if let Some(jitter) = acc_jitter_sum.checked_div(acc_jitter_cnt) {
                     m.iq.callback_jitter_us = jitter;
+                    if m.iq.jitter_history.len() >= crate::state::THROUGHPUT_HISTORY_LEN {
+                        m.iq.jitter_history.pop_front();
+                    }
+                    m.iq.jitter_history.push_back(jitter);
                 }
 
                 let cap = rx_ctx.sample_tx.capacity().unwrap_or(4);

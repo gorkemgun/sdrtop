@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::Style,
-    text::Span,
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
@@ -24,15 +24,16 @@ impl Panel for IqHistogramPanel {
         let inner = block.inner(area);
         f.render_widget(block, area);
 
-        if inner.height < 3 || inner.width < 4 { return; }
+        if inner.height < 4 || inner.width < 4 { return; }
 
-        // Bottom row = status label, rest = bar chart
+        // chart | axis labels | status label
         let layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .constraints([Constraint::Min(1), Constraint::Length(1), Constraint::Length(1)])
             .split(inner);
         let chart_area = layout[0];
-        let label_area = layout[1];
+        let axis_area  = layout[1];
+        let label_area = layout[2];
 
         let hist = &state.iq.iq_amplitude_hist;
         let total: u64 = hist.iter().sum();
@@ -76,13 +77,15 @@ impl Panel for IqHistogramPanel {
             .map(|r| r.chars().skip(low_cols + mid_cols).collect())
             .collect();
 
+        let zone_constraints = [
+            Constraint::Length(low_cols as u16),
+            Constraint::Length(mid_cols as u16),
+            Constraint::Min(0),
+        ];
+
         let h_layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(low_cols as u16),
-                Constraint::Length(mid_cols as u16),
-                Constraint::Min(0),
-            ])
+            .constraints(zone_constraints.clone())
             .split(chart_area);
 
         f.render_widget(
@@ -96,6 +99,35 @@ impl Panel for IqHistogramPanel {
         f.render_widget(
             Paragraph::new(high_rows.join("\n")).style(Style::default().fg(theme.status_crit)),
             h_layout[2],
+        );
+
+        // X-axis labels aligned to the same zone boundaries as the chart
+        let ax_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(zone_constraints)
+            .split(axis_area);
+
+        let dim = Style::default().fg(theme.label);
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("0", dim),
+                Span::styled("─".repeat(low_cols.saturating_sub(1)), dim),
+            ])),
+            ax_layout[0],
+        );
+        let mid_label = "── OK ──";
+        let mid_w = ax_layout[1].width as usize;
+        let pad   = mid_w.saturating_sub(mid_label.len()) / 2;
+        f.render_widget(
+            Paragraph::new(Span::styled(
+                format!("{}{}", " ".repeat(pad), mid_label),
+                Style::default().fg(theme.status_ok),
+            )),
+            ax_layout[1],
+        );
+        f.render_widget(
+            Paragraph::new(Span::styled("clip", Style::default().fg(theme.status_crit))),
+            ax_layout[2],
         );
 
         // Status label

@@ -39,6 +39,7 @@ impl Panel for HardwareHealthPanel {
                 Constraint::Length(1),
                 Constraint::Length(2),
                 Constraint::Length(1),
+                Constraint::Length(2),
                 Constraint::Length(1),
                 Constraint::Length(2),
                 Constraint::Min(0),
@@ -93,6 +94,13 @@ impl Panel for HardwareHealthPanel {
             )),
             rows[4],
         );
+        let jitter_data: Vec<u64> = state.iq.jitter_history.iter().cloned().collect();
+        f.render_widget(
+            Sparkline::default()
+                .data(&jitter_data)
+                .style(Style::default().fg(jitter_color)),
+            rows[5],
+        );
 
         let usb_color = if state.signal.usb_errors_session > 0 { theme.status_crit } else { theme.status_ok };
         f.render_widget(
@@ -100,14 +108,14 @@ impl Panel for HardwareHealthPanel {
                 format!("USB errors: {} (session)", state.signal.usb_errors_session),
                 Style::default().fg(usb_color),
             )),
-            rows[5],
+            rows[6],
         );
         let usb_err_data: Vec<u64> = state.signal.usb_error_history.iter().cloned().collect();
         f.render_widget(
             Sparkline::default()
                 .data(&usb_err_data)
                 .style(Style::default().fg(usb_color)),
-            rows[6],
+            rows[7],
         );
     }
 }
