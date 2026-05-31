@@ -46,7 +46,6 @@ impl FftWorker {
         // scratch for noise floor partial sort (avoids O(n log n) full sort)
         let mut noise_scratch: Vec<f32>    = vec![0.0; n];
         // scratch for occupied-BW sort (avoids alloc per frame)
-        let mut occ_scratch: Vec<(f32, usize)> = vec![(0.0, 0); n];
         let mut initialized = false;
 
         // Throttle state writes to ~30 fps — EMA runs on every frame for accuracy,
@@ -137,26 +136,22 @@ impl FftWorker {
                     f32::NEG_INFINITY
                 };
 
-                // 99% occupied BW using pre-allocated scratch
+                // 99% occupied BW — ITU-R SM.328 cumulative method:
+                // exclude the bottom 0.5% and top 0.5% of total power,
+                // return the frequency span between those two cut-off points.
                 let occupied_bw_hz = if total_linear > 0.0 && sample_rate > 0.0 {
-                    let threshold = total_linear * 0.99;
+                    let lo_thresh = total_linear * 0.005;
+                    let hi_thresh = total_linear * 0.995;
+                    let bin_hz    = sample_rate / n as f64;
+                    let mut acc   = 0f32;
+                    let mut lo_bin = 0usize;
+                    let mut hi_bin = n - 1;
                     for (i, &b) in smoothed.iter().enumerate() {
-                        occ_scratch[i] = (10f32.powf(b / 10.0), i);
+                        acc += 10f32.powf(b / 10.0);
+                        if acc < lo_thresh { lo_bin = i; }
+                        if acc < hi_thresh { hi_bin = i; }
                     }
-                    occ_scratch.sort_unstable_by(|a, b| {
-                        b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-                    });
-                    let mut acc = 0f32;
-                    let mut min_bin = n;
-                    let mut max_bin = 0usize;
-                    for &(power, idx) in &occ_scratch {
-                        acc += power;
-                        min_bin = min_bin.min(idx);
-                        max_bin = max_bin.max(idx);
-                        if acc >= threshold { break; }
-                    }
-                    let bin_hz = sample_rate / n as f64;
-                    ((max_bin.saturating_sub(min_bin) + 1) as f64 * bin_hz) as u64
+                    ((hi_bin.saturating_sub(lo_bin) + 1) as f64 * bin_hz) as u64
                 } else {
                     0u64
                 };
