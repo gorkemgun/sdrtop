@@ -119,7 +119,7 @@ impl Panel for IqHistogramPanel {
         );
 
         // Status label
-        let high_count: u64 = hist[28..32].iter().sum();
+        let high_count: u64 = hist[24..].iter().sum();
         let low_count:  u64 = hist[..8].iter().sum();
         let label = if total == 0 {
             Span::styled("No samples yet", Style::default().fg(theme.label))
