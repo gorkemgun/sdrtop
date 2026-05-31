@@ -10,6 +10,19 @@ use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::BAND_PLAN;
 use crate::ui::panel::Panel;
+use crate::ui::spectrum::fmt_spectrum_step;
+
+// ── Waterfall row-stride steps ────────────────────────────────────────────────
+
+pub const WF_STRIDES: &[usize] = &[1, 2, 4, 8, 16, 32, 64];
+
+pub fn prev_wf_stride(current: usize) -> usize {
+    WF_STRIDES.iter().rev().find(|&&s| s < current).copied().unwrap_or(1)
+}
+
+pub fn next_wf_stride(current: usize) -> usize {
+    WF_STRIDES.iter().find(|&&s| s > current).copied().unwrap_or(64)
+}
 
 const DB_MAX: f32 = 0.0;
 
@@ -242,7 +255,7 @@ impl Panel for WaterfallPanel {
                     format!("  cur: {:.3} MHz  ← →  M", freq_mhz)
                 }
             } else {
-                let step_str = crate::app::fmt_spectrum_step(state.spectrum_step_hz);
+                let step_str = fmt_spectrum_step(state.spectrum_step_hz);
                 format!("  ×{}  frames/row  [ ]  M cursor  step {}  ↑↓ zoom  J/K scroll", stride, step_str)
             };
 

@@ -16,36 +16,10 @@ use crate::state::{
     InputMode, SdrMetrics, SpectrumMarker, DEFAULT_FREQUENCY, DEFAULT_LNA_GAIN,
     DEFAULT_SAMPLE_RATE, DEFAULT_VGA_GAIN, THROUGHPUT_HISTORY_LEN,
 };
+use crate::tasks;
 use crate::ui;
-
-const SPECTRUM_STEPS: &[u64] = &[
-    1_000, 5_000, 10_000, 25_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000,
-];
-
-fn prev_spectrum_step(current: u64) -> u64 {
-    let idx = SPECTRUM_STEPS.iter().position(|&s| s == current).unwrap_or(4);
-    SPECTRUM_STEPS[idx.saturating_sub(1)]
-}
-
-fn next_spectrum_step(current: u64) -> u64 {
-    let idx = SPECTRUM_STEPS.iter().position(|&s| s == current).unwrap_or(4);
-    SPECTRUM_STEPS[(idx + 1).min(SPECTRUM_STEPS.len() - 1)]
-}
-
-const WF_STRIDES: &[usize] = &[1, 2, 4, 8, 16, 32, 64];
-
-fn prev_wf_stride(current: usize) -> usize {
-    WF_STRIDES.iter().rev().find(|&&s| s < current).copied().unwrap_or(1)
-}
-
-fn next_wf_stride(current: usize) -> usize {
-    WF_STRIDES.iter().find(|&&s| s > current).copied().unwrap_or(64)
-}
-
-pub fn fmt_spectrum_step(hz: u64) -> String {
-    if hz >= 1_000_000 { format!("{} MHz", hz / 1_000_000) }
-    else { format!("{} kHz", hz / 1_000) }
-}
+use crate::ui::spectrum::{fmt_spectrum_step, next_spectrum_step, prev_spectrum_step};
+use crate::ui::waterfall::{next_wf_stride, prev_wf_stride};
 
 pub struct App {
     state: Arc<Mutex<SdrMetrics>>,
@@ -218,137 +192,8 @@ impl App {
             FftWorker::new(sample_rx, fft_state).run();
         });
 
-        let rx_ctx_bg = Arc::clone(&rx_ctx);
-        let state_bg = Arc::clone(&state);
-        let device_bg = Arc::clone(&device);
-        tokio::spawn(async move {
-            let mut hw_rx_active = false;
-
-            loop {
-                let now = Instant::now();
-
-                if hw_rx_active && !device_bg.is_streaming() {
-                    let _ = device_bg.stop_rx();
-                    hw_rx_active = false;
-                    let mut m = state_bg.lock().unwrap_or_else(|e| e.into_inner());
-                    m.rx_enabled = false;
-                    m.hw_streaming = false;
-                    m.push_log("WARNING: Streaming stopped unexpectedly — press [Space] to restart");
-                }
-
-                {
-                    let mut m = state_bg.lock().unwrap_or_else(|e| e.into_inner());
-                    let elapsed_ms = now.duration_since(m.last_poll_time).as_millis() as u64;
-                    let bytes = m.bytes_since_last_poll;
-                    m.bytes_since_last_poll = 0;
-                    m.last_poll_time = now;
-
-                    m.hw_streaming = device_bg.is_streaming();
-
-                    if let Some(bps) = (bytes * 1000).checked_div(elapsed_ms) {
-                        m.current_throughput_bps = bps;
-                        m.actual_sample_rate = (m.current_throughput_bps / 2) as u32;
-                        let throughput_kb = m.current_throughput_bps / 1024;
-                        if m.throughput_history.len() >= THROUGHPUT_HISTORY_LEN {
-                            m.throughput_history.pop_front();
-                        }
-                        m.throughput_history.push_back(throughput_kb);
-                        let actual_sr = m.actual_sample_rate as u64;
-                        if m.sample_rate_history.len() >= THROUGHPUT_HISTORY_LEN {
-                            m.sample_rate_history.pop_front();
-                        }
-                        m.sample_rate_history.push_back(actual_sr);
-                    }
-                    if let Some(dps) = (m.acc_drops * 1000).checked_div(elapsed_ms) {
-                        m.drops_per_sec = dps;
-                    }
-                    let drops_snapshot = m.drops_per_sec;
-                    if m.drop_history.len() >= THROUGHPUT_HISTORY_LEN { m.drop_history.pop_front(); }
-                    m.drop_history.push_back(drops_snapshot);
-
-                    let acc_drops       = m.acc_drops;
-                    let acc_saturated   = m.acc_saturated;
-                    let acc_i_sum       = m.acc_i_sum;
-                    let acc_q_sum       = m.acc_q_sum;
-                    let acc_i_sq_sum    = m.acc_i_sq_sum;
-                    let acc_q_sq_sum    = m.acc_q_sq_sum;
-                    let acc_samples     = m.acc_sample_count;
-                    let acc_jitter_sum  = m.acc_jitter_sum_us;
-                    let acc_jitter_cnt  = m.acc_jitter_count;
-                    m.acc_drops           = 0;
-                    m.acc_saturated       = 0;
-                    m.acc_i_sum           = 0;
-                    m.acc_q_sum           = 0;
-                    m.acc_i_sq_sum        = 0;
-                    m.acc_q_sq_sum        = 0;
-                    m.acc_sample_count    = 0;
-                    m.acc_jitter_sum_us   = 0;
-                    m.acc_jitter_count    = 0;
-
-                    m.iq_amplitude_hist = m.acc_iq_hist;
-                    m.acc_iq_hist = [0u64; 32];
-
-                    let saturable = acc_samples * 2;
-                    m.adc_saturation_pct = if saturable > 0 {
-                        (acc_saturated as f32 / saturable as f32) * 100.0
-                    } else {
-                        0.0
-                    };
-                    if m.adc_saturation_pct > m.adc_saturation_peak {
-                        m.adc_saturation_peak = m.adc_saturation_pct;
-                    }
-                    let sat_snapshot = m.adc_saturation_pct;
-                    if m.saturation_history.len() >= THROUGHPUT_HISTORY_LEN { m.saturation_history.pop_front(); }
-                    m.saturation_history.push_back(sat_snapshot);
-
-                    if acc_samples > 0 {
-                        let n = acc_samples as f64;
-                        m.dc_offset_i = (acc_i_sum as f64 / n / 128.0) as f32;
-                        m.dc_offset_q = (acc_q_sum as f64 / n / 128.0) as f32;
-                        let i_rms = (acc_i_sq_sum as f64 / n).sqrt();
-                        let q_rms = (acc_q_sq_sum as f64 / n).sqrt();
-                        if q_rms > 0.0 {
-                            m.iq_imbalance_db = (20.0 * (i_rms / q_rms).log10()) as f32;
-                        }
-                    }
-
-                    if let Some(jitter) = acc_jitter_sum.checked_div(acc_jitter_cnt) {
-                        m.callback_jitter_us = jitter;
-                    }
-
-                    let _ = acc_drops;
-                }
-
-                let rx_enabled = state_bg.lock().unwrap_or_else(|e| e.into_inner()).rx_enabled;
-                if rx_enabled && !hw_rx_active {
-                    let user_param = Arc::as_ptr(&rx_ctx_bg) as *mut libc::c_void;
-                    match device_bg.start_rx(hardware::rx_callback, user_param) {
-                        Ok(()) => {
-                            hw_rx_active = true;
-                            state_bg.lock().unwrap_or_else(|e| e.into_inner()).push_log("RX streaming started");
-                        }
-                        Err(e) => {
-                            let msg = format!("Error starting RX: {}", e);
-                            let mut m = state_bg.lock().unwrap_or_else(|e| e.into_inner());
-                            m.rx_enabled = false;
-                            m.push_log(msg);
-                        }
-                    }
-                } else if !rx_enabled && hw_rx_active {
-                    let result = device_bg.stop_rx();
-                    hw_rx_active = false;
-                    let mut m = state_bg.lock().unwrap_or_else(|e| e.into_inner());
-                    match result {
-                        Ok(()) => m.push_log("RX streaming stopped"),
-                        Err(e) => m.push_log(format!("Error stopping RX: {}", e)),
-                    }
-                }
-
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        });
-
-        spawn_sys_resource_task(Arc::clone(&state));
+        tasks::spawn_rx_task(Arc::clone(&state), Arc::clone(&device), Arc::clone(&rx_ctx));
+        tasks::spawn_sys_resource_task(Arc::clone(&state));
 
         let mut registry = ui::PanelRegistry::new();
         registry.register(ui::HeaderPanel);
@@ -410,7 +255,7 @@ impl App {
             "High Speed ({} Mbit/s) · {} · Bus {}, Dev {}",
             sysinfo.speed_mbits, sysinfo.max_power, sysinfo.bus, sysinfo.dev
         ));
-        let observer_connected = sysinfo.connected_secs.map(fmt_duration);
+        let observer_connected = sysinfo.connected_secs.map(tasks::fmt_duration);
         let theme = cfg.build_theme();
 
         let state = Arc::new(Mutex::new(SdrMetrics {
@@ -508,58 +353,8 @@ impl App {
             m.push_log("Device is in use by another process — hardware controls disabled");
         }
 
-        // Observer sysfs polling — updates device + owner info every second
-        let obs_state = Arc::clone(&state);
-        let obs_bus = sysinfo.bus;
-        let obs_dev = sysinfo.dev;
-        tokio::spawn(async move {
-            let ticks_per_sec = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
-            let mut last_owner_cpu: Option<(u64, Instant)> = None;
-
-            loop {
-                if let Some(info) = hardware::sysfs::find_hackrf() {
-                    let owner = hardware::sysfs::find_owner(info.bus, info.dev);
-                    let mut m = obs_state.lock().unwrap_or_else(|e| e.into_inner());
-
-                    m.observer_device    = Some(format!("{} · {}", info.product, info.manufacturer));
-                    m.observer_serial    = Some(info.serial);
-                    m.observer_usb       = Some(format!(
-                        "High Speed ({} Mbit/s) · {} · Bus {}, Dev {}",
-                        info.speed_mbits, info.max_power, info.bus, info.dev
-                    ));
-                    m.observer_connected = info.connected_secs.map(fmt_duration);
-
-                    if let Some(o) = owner {
-                        let cpu_pct = if let Some((last_ticks, last_time)) = last_owner_cpu {
-                            let elapsed = last_time.elapsed().as_secs_f64();
-                            let delta = o.cpu_ticks.saturating_sub(last_ticks) as f64;
-                            if elapsed > 0.0 && ticks_per_sec > 0.0 {
-                                (delta / ticks_per_sec / elapsed * 100.0).min(100.0) as f32
-                            } else { 0.0 }
-                        } else { 0.0 };
-                        last_owner_cpu = Some((o.cpu_ticks, Instant::now()));
-
-                        m.observer_owner           = Some(format!("{} (PID {})", o.name, o.pid));
-                        m.observer_cmdline         = Some(o.cmdline);
-                        m.observer_owner_cpu_pct   = cpu_pct;
-                        m.observer_owner_ram_mb    = o.rss_mb;
-                        m.observer_owner_uptime    = Some(fmt_duration(o.running_secs));
-                    } else {
-                        last_owner_cpu = None;
-                        m.observer_owner        = None;
-                        m.observer_cmdline      = None;
-                        m.observer_owner_cpu_pct   = 0.0;
-                        m.observer_owner_ram_mb    = 0;
-                        m.observer_owner_uptime    = None;
-                    }
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        });
-
-        let _ = (obs_bus, obs_dev); // kept for potential future use
-
-        spawn_sys_resource_task(Arc::clone(&state));
+        tasks::spawn_observer_task(Arc::clone(&state), sysinfo.bus, sysinfo.dev);
+        tasks::spawn_sys_resource_task(Arc::clone(&state));
 
         let mut registry = ui::PanelRegistry::new();
         registry.register(ui::HeaderPanel);
@@ -1199,72 +994,8 @@ impl App {
     }
 }
 
-fn fmt_duration(secs: u64) -> String {
-    let h = secs / 3600;
-    let m = (secs % 3600) / 60;
-    let s = secs % 60;
-    if h > 0 { format!("{}h {}m {}s", h, m, s) }
-    else if m > 0 { format!("{}m {}s", m, s) }
-    else { format!("{}s", s) }
-}
-
-fn spawn_sys_resource_task(state: Arc<Mutex<SdrMetrics>>) {
-    tokio::spawn(async move {
-        let ticks_per_sec = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
-        // Seed last_ticks with the current value so the first delta covers only
-        // the first measurement interval, not all accumulated CPU since process start.
-        let mut last_ticks = read_process_stats().map(|(t, _)| t).unwrap_or(0);
-        let mut last_time = Instant::now();
-
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            if let Some((total_ticks, rss_mb)) = read_process_stats() {
-                let elapsed = last_time.elapsed().as_secs_f64();
-                let tick_delta = total_ticks.saturating_sub(last_ticks) as f64;
-                let cpu_pct = if elapsed > 0.0 && ticks_per_sec > 0.0 {
-                    (tick_delta / ticks_per_sec / elapsed * 100.0).min(100.0) as f32
-                } else {
-                    0.0
-                };
-                last_ticks = total_ticks;
-                last_time = Instant::now();
-                if let Ok(mut m) = state.lock() {
-                    m.process_cpu_pct = cpu_pct;
-                    m.process_rss_mb  = rss_mb;
-                }
-            }
-        }
-    });
-}
-
-fn read_process_stats() -> Option<(u64, u64)> {
-    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
-    let after_comm = stat.rsplit_once(')')?.1;
-    let fields: Vec<&str> = after_comm.split_whitespace().collect();
-    let utime: u64 = fields.get(11)?.parse().ok()?;
-    let stime: u64 = fields.get(12)?.parse().ok()?;
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    let rss_kb: u64 = status
-        .lines()
-        .find(|l| l.starts_with("VmRSS:"))?
-        .split_whitespace()
-        .nth(1)?
-        .parse()
-        .ok()?;
-    Some((utime + stime, rss_kb / 1024))
-}
-
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn proc_stat_field_indices() {
-        let fake = "1234 (my process) S 1 1 1 0 -1 4194304 0 0 0 0 42 7 0 0 20 0 1 0 0 0 0";
-        let after_comm = fake.rsplit_once(')').unwrap().1;
-        let fields: Vec<&str> = after_comm.split_whitespace().collect();
-        assert_eq!(fields.get(11), Some(&"42"), "utime at index 11");
-        assert_eq!(fields.get(12), Some(&"7"),  "stime at index 12");
-    }
-
     #[test]
     fn iq_imbalance_zero_for_balanced() {
         let n = 1000_f64;
@@ -1292,11 +1023,4 @@ mod tests {
         assert!((pct - 100.0).abs() < 0.01, "expected 100%, got {}", pct);
     }
 
-    #[test]
-    fn fmt_duration_formats_correctly() {
-        assert_eq!(super::fmt_duration(0),    "0s");
-        assert_eq!(super::fmt_duration(45),   "45s");
-        assert_eq!(super::fmt_duration(90),   "1m 30s");
-        assert_eq!(super::fmt_duration(3661), "1h 1m 1s");
-    }
 }

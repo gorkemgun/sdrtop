@@ -8,6 +8,7 @@ mod fft;
 mod hardware;
 mod palette;
 mod state;
+mod tasks;
 mod ui;
 
 use anyhow::Result;

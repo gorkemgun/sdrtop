@@ -11,11 +11,31 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::fmt_spectrum_step;
 use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::BAND_PLAN;
 use crate::ui::panel::Panel;
+
+// ── Spectrum step sizes ───────────────────────────────────────────────────────
+
+pub const SPECTRUM_STEPS: &[u64] = &[
+    1_000, 5_000, 10_000, 25_000, 100_000, 500_000, 1_000_000, 5_000_000, 10_000_000,
+];
+
+pub fn prev_spectrum_step(current: u64) -> u64 {
+    let idx = SPECTRUM_STEPS.iter().position(|&s| s == current).unwrap_or(4);
+    SPECTRUM_STEPS[idx.saturating_sub(1)]
+}
+
+pub fn next_spectrum_step(current: u64) -> u64 {
+    let idx = SPECTRUM_STEPS.iter().position(|&s| s == current).unwrap_or(4);
+    SPECTRUM_STEPS[(idx + 1).min(SPECTRUM_STEPS.len() - 1)]
+}
+
+pub fn fmt_spectrum_step(hz: u64) -> String {
+    if hz >= 1_000_000 { format!("{} MHz", hz / 1_000_000) }
+    else { format!("{} kHz", hz / 1_000) }
+}
 
 pub struct SpectrumPanel;
 
