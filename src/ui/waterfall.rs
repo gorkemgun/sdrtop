@@ -43,6 +43,7 @@ impl Panel for WaterfallPanel {
             ("[ ]",  "Row stride (speed)"),
             ("M",    "Place/remove cursor"),
             ("← →",  "Move cursor"),
+            ("W",    "Pause / resume"),
             ("Esc",  "Exit focus"),
         ]
     }
