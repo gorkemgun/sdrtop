@@ -5,10 +5,16 @@
 [![Platform](https://img.shields.io/badge/platform-linux-lightgrey?logo=linux&logoColor=white)]()
 [![HackRF One](https://img.shields.io/badge/hardware-HackRF%20One-brightgreen)](https://greatscottgadgets.com/hackrf/one/)
 [![PortaPack](https://img.shields.io/badge/hardware-PortaPack%20H4M-blueviolet)](https://github.com/portapack-mayhem/mayhem-firmware)
+[![Development Stage](https://img.shields.io/badge/stage-early%20development-red)]()
 
 **Hey there! This is my take on a terminal monitor for SDR hardware.** I wanted something that could hunt down every bit of diagnostic data from your radio and stream it straight to your terminal.
 
 I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clone. It delivers raw, real-time metrics (spectrum, waterfall, ADC health, gain chain) right inside the terminal. It's lightweight, distraction-free, and fits perfectly into a tmux pane, an SSH session, or the custom screen of your cyberdeck.
+
+> [!IMPORTANT]
+> **Project Status:** `sdrtop` is currently in an **early development stage**. 
+> * At the moment, **it only supports the HackRF One**. Support for other devices is planned.
+> * **Known Issues:** You might run into some performance issues. In particular, the **Lab preset (Key `5`)** is highly experimental right now and might lag or misbehave.
 
 **[Full user guide](user_docs/README.md)**
 
@@ -16,21 +22,22 @@ I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clon
 
 ## Video
 
-![](/dev_docs/pics/)
+![](/user_docs/pics/sdrtop.gif)
 
 ---
 
 ## What it shows
 
-- **Spectrum analyzer** - FFT with EMA smoothing, peak hold, noise floor, dBFS axis, zoom, band plan overlay, frequency markers
-- **Waterfall** - scrolling spectrogram with truecolor / 256-color / 16-color support
-- **Signal metrics** - SNR, channel power (dBFS), 99% occupied bandwidth
-- **Hardware health** - sample drop rate, ADC saturation, IQ imbalance, DC offset
-- **RF chain** - board revision, baseband filter BW, full gain chain
-- **IQ histogram** - amplitude distribution; flags saturation and dynamic range issues
-- **Observer mode** - device identity and owner process when another app holds the radio
-- **Six themes** - `sdr` · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
-- **Layout presets** - switch on the fly with number keys
+- **Spectrum analyzer** — FFT with EMA smoothing, peak hold, noise floor, dBFS axis, zoom, band plan overlay, frequency markers
+- **Waterfall** — scrolling spectrogram with truecolor / 256-color / 16-color support
+- **Signal strip** — live bar: SNR · channel power · noise floor · ADC saturation · drops · buffer fill · IQ imbalance · RBW
+- **RF chain** — baseband filter BW, total gain, CPLD status, ADC utilisation gauge, gain advisor
+- **IQ diagnostics** — DC offset (I/Q + magnitude gauge), amplitude imbalance, phase imbalance, contextual hint
+- **Hardware health** — drop rate + trend, ADC saturation + trend, USB jitter, USB errors + trend (all with sparklines)
+- **IQ histogram** — ADC amplitude distribution; flags clipping and dynamic range issues
+- **Observer mode** — device identity and owner process when another app holds the radio
+- **Six themes** — `sdr` · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
+- **Layout presets** — five presets, switch on the fly with number keys or cycle with `p`
 
 ---
 
@@ -57,23 +64,24 @@ Press `Space` to start receiving. Press `?` for the key reference. Press `q` to 
 
 ## Keys
 
-| Key       | Action                         |
-| --------- | ------------------------------ |
-| `Space`   | Start / stop RX                |
+| Key        | Action                         |
+| ---------- | ------------------------------ |
+| `Space`    | Start / stop RX                |
 | `↑` / `↓` | LNA gain ±8 dB                 |
-| `[` / `]` | VGA gain ±2 dB                 |
-| `a`       | Toggle RF amplifier            |
-| `f`       | Enter frequency (MHz)          |
-| `s`       | Enter sample rate (2–20 MHz)   |
-| `r`       | Reset all settings to defaults |
-| `w`       | Pause / resume waterfall       |
-| `h`       | Hold / unhold spectrum frame   |
-| `e`       | Focus spectrum panel           |
-| `l`       | Focus waterfall panel          |
-| `1`–`6`   | Switch layout preset           |
-| `p`       | Cycle presets                  |
-| `?`       | Help overlay                   |
-| `q`       | Quit and save config           |
+| `[` / `]`  | VGA gain ±2 dB                 |
+| `a`        | Toggle RF amplifier            |
+| `f`        | Enter frequency (MHz)          |
+| `s`        | Enter sample rate (2–20 MHz)   |
+| `r`        | Reset all settings to defaults |
+| `w`        | Pause / resume waterfall       |
+| `h`        | Hold / unhold spectrum frame   |
+| `e`        | Focus spectrum panel           |
+| `l`        | Focus waterfall panel          |
+| `1`–`5`    | Switch layout preset           |
+| `p`        | Cycle presets                  |
+| `Tab`      | Toggle footer bar              |
+| `?`        | Help overlay                   |
+| `q`        | Quit and save config           |
 
 ---
 
@@ -120,8 +128,24 @@ Available themes: `sdr` (default) · `nord` · `dracula` · `gruvbox` · `catppu
 | HackRF Pro                             | 🔲 Planned        | Needs hardware                            |
 | LimeSDR / bladeRF / SDRplay / PlutoSDR | 🔲 Planned        | Needs hardware                            |
 
-> Hardware support is added only after physical testing on real devices — no guessing from datasheets.  
-> See [Supporting the project](#supporting-the-project) if you want to help expand this list.
+> Hardware support is added only after physical testing on real devices - no guessing from datasheets.
+
+---
+
+## Roadmap
+
+### Near term
+- [ ] RTL-SDR support — R820T / R828D / E4000 (most common dongle, highest impact)
+
+### Hardware pipeline
+- [ ] Airspy Mini / Airspy HF+ Discovery
+- [ ] HackRF Pro
+- [ ] LimeSDR / bladeRF / SDRplay / PlutoSDR via SoapySDR
+
+### App
+- [ ] Frequency scanner mode
+- [ ] Signal recording to file
+- [ ] In-app config editing (no hand-editing TOML)
 
 ---
 

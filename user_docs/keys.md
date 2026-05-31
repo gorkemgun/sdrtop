@@ -16,8 +16,10 @@
 | `w` | Pause or resume the waterfall |
 | `h` | Freeze the spectrum (hold the current frame) |
 | `e` | Enter spectrum focus mode |
-| `1`–`6` | Switch layout preset |
+| `l` | Enter waterfall focus mode |
+| `1`–`5` | Switch layout preset |
 | `p` | Cycle through presets |
+| `Tab` | Show or hide the footer bar |
 | `?` | Show the help overlay |
 | `q` | Quit and save settings |
 

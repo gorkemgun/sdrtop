@@ -8,14 +8,14 @@ sdrtop has six built-in color themes. Switch with `--theme <name>` on startup, o
 
 ## Available themes
 
-| Name | Description |
-|------|-------------|
-| `sdr` | Default — dark background, cyan and green accents |
-| `nord` | Cool blue-grey palette, easy on the eyes |
-| `dracula` | Purple and pink on dark background |
-| `gruvbox` | Warm brown and yellow tones |
-| `catppuccin` | Soft pastel colors on dark background |
-| `solarized` | Classic Solarized dark scheme |
+| Name         | Description                                       |
+| ------------ | ------------------------------------------------- |
+| `sdr`        | Default — dark background, cyan and green accents |
+| `nord`       | Cool blue-grey palette, easy on the eyes          |
+| `dracula`    | Purple and pink on dark background                |
+| `gruvbox`    | Warm brown and yellow tones                       |
+| `catppuccin` | Soft pastel colors on dark background             |
+| `solarized`  | Classic Solarized dark scheme                     |
 
 ---
 

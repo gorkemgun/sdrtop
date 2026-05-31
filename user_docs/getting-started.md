@@ -11,11 +11,26 @@
 - The `libhackrf` library installed
 
 ```sh
-# Arch Linux
+# Arch Linux / Manjaro
 sudo pacman -S hackrf pkgconf
 
-# Debian / Ubuntu
+# Debian / Ubuntu / Linux Mint / Pop!_OS
 sudo apt install libhackrf-dev pkg-config
+
+# Fedora
+sudo dnf install hackrf-devel pkgconf-pkg-config
+
+# openSUSE Tumbleweed / Leap
+sudo zypper install libhackrf-devel pkg-config
+
+# Void Linux
+sudo xbps-install hackrf-devel pkg-config
+
+# Gentoo
+sudo emerge net-wireless/hackrf
+
+# NixOS — add to your configuration.nix or use a dev shell:
+nix-shell -p hackrf pkg-config
 ```
 
 You also need Rust installed. If you don't have it yet:

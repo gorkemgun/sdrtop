@@ -24,36 +24,62 @@ A scrolling history of the spectrum. Each new row represents one moment in time,
 
 ---
 
-## Signal metrics
+## Signal strip
 
-Three numbers about the signal you're currently tuned to:
+A single bar at the bottom of the main view with eight live readings:
 
-- **SNR** — how much stronger the signal is compared to the noise around it. Higher is cleaner.
-- **Channel power** — overall signal strength in the current band, in dBFS.
-- **Occupied bandwidth** — how wide the signal actually is (99% of its energy).
+- **SNR** — signal-to-noise ratio. Higher is cleaner.
+- **PWR** — channel power in dBFS.
+- **NF** — estimated noise floor in dBFS.
+- **SAT** — ADC saturation percentage. Non-zero means the input is clipping; turn gain down.
+- **DROP** — sample drops per second. If this is non-zero, USB can't keep up.
+- **BUF** — receive buffer fill percentage. A leading indicator — if this climbs toward 100%, drops are coming.
+- **IQ** — IQ amplitude imbalance in dB. Small values (under ±1 dB) are normal.
+- **RBW** — resolution bandwidth. Tells you the frequency resolution of the current FFT.
 
 ---
 
 ## Hardware health
 
-Information about whether your HackRF is running smoothly:
+Shows whether your HackRF is running smoothly, with trend sparklines for each metric:
 
-- **Sample drops** — samples the USB connection couldn't deliver in time. Some is normal; a lot means the USB is struggling.
-- **ADC saturation** — the radio's input is overloaded. Turn the gain down.
-- **IQ imbalance** — a hardware characteristic. Small values are normal.
-- **DC offset** — a spike at the exact center frequency. Normal for most SDR hardware.
+- **Drops** — sample drops per second + session total + trend graph.
+- **ADC saturation** — how often samples hit the ADC ceiling + peak + trend.
+- **Jitter** — USB callback timing variance. High jitter often precedes drops.
+- **USB errors** — zero-length USB transfers, usually caused by cable or hub issues + trend.
 
 ---
 
 ## RF chain
 
-Your radio's current settings at a glance: frequency, sample rate, LNA gain, VGA gain, and whether the RF amplifier is on. Also shows the HackRF board revision and baseband filter width.
+Diagnostic view of the signal path. Shows baseband filter bandwidth, total gain across all stages (LNA + VGA + AMP), board revision, USB API version, and CPLD status. At the bottom:
+
+- **ADC utilisation gauge** — what fraction of incoming samples land in the optimal amplitude range (not too weak, not clipping).
+- **Gain advisor** — reads the ADC utilisation and tells you whether to increase or reduce gain, and by how much.
+
+---
+
+## IQ diagnostics
+
+Measures the quality of the I/Q signal from the ADC:
+
+- **DC offset** — how far the I and Q channels are shifted from zero. A non-zero offset causes the DC spike at the center frequency. Shown separately for I and Q, plus a combined magnitude gauge.
+- **Amplitude imbalance** — whether I and Q have the same power level. Causes mirror images in the spectrum.
+- **Phase imbalance** — whether I and Q are exactly 90° apart. Also causes mirroring.
+
+A contextual hint at the bottom summarises whether anything needs attention.
 
 ---
 
 ## IQ histogram
 
-A bar chart showing the distribution of incoming signal amplitudes. Ideally it looks like a hill centered in the middle. If it's pushed to the edges, the gain is too high (saturation). If it's a thin spike in the center, the signal is very weak.
+A bar chart of incoming signal amplitudes across 32 bins. The color zones show:
+
+- **Dim (left)** — low amplitude: signal is weak, ADC is under-utilised.
+- **Green (center)** — healthy range: good dynamic range usage.
+- **Red (right)** — high amplitude: approaching or hitting clipping.
+
+A status line below the chart tells you what it means: "Dynamic range OK", "weak signal — ADC under-utilised", or "clipping risk".
 
 ---
 
@@ -71,10 +97,9 @@ Switch between preset layouts with number keys. Each preset rearranges which pan
 
 | Key | Layout |
 |-----|--------|
-| `1` | Main — spectrum + all diagnostic panels |
+| `1` | Main — spectrum + waterfall + signal strip + log |
 | `2` | Spectrum only |
 | `3` | Waterfall only |
 | `4` | Spectrum + waterfall |
-| `5` | Monitoring — metrics + health focused |
-| `6` | Lab — everything visible at once |
+| `5` | Lab — RF chain · IQ histogram · IQ diagnostics · hardware health |
 | `p` | Cycle through presets |
