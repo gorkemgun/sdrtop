@@ -137,10 +137,10 @@ mod tests {
     }
 
     #[test]
-    fn fmt_occ_formats_correctly() {
-        assert_eq!(fmt_occ(0),           "---");
-        assert_eq!(fmt_occ(500),         "500 Hz");
-        assert_eq!(fmt_occ(1_500),       "1.5 kHz");
-        assert_eq!(fmt_occ(1_250_000),   "1.25 MHz");
+    fn fmt_rbw_formats_correctly() {
+        assert_eq!(fmt_rbw(800.0),       "800 Hz");
+        assert_eq!(fmt_rbw(1_500.0),     "1.5 kHz");
+        assert_eq!(fmt_rbw(15_000.0),    "15.0 kHz");
+        assert_eq!(fmt_rbw(4_882.8),     "4.9 kHz");
     }
 }
