@@ -7,29 +7,32 @@ use ratatui::{
     Frame, Terminal,
 };
 
-struct DeviceSelector {
-    devices: Vec<String>,
+use crate::Theme;
+
+struct DeviceSelector<'a> {
+    devices: &'a [(usize, String)],
     state: ListState,
+    theme: &'a Theme,
 }
 
-impl DeviceSelector {
-    fn new(devices: Vec<String>) -> Self {
+impl<'a> DeviceSelector<'a> {
+    fn new(devices: &'a [(usize, String)], theme: &'a Theme) -> Self {
         let mut state = ListState::default();
         state.select(Some(0));
-        Self { devices, state }
+        Self { devices, state, theme }
     }
 
     fn draw(&mut self, f: &mut Frame) {
         let area = f.size();
 
         f.render_widget(
-            Block::default().style(Style::default().bg(Color::Rgb(15, 15, 25))),
+            Block::default().style(Style::default().bg(Color::Black)),
             area,
         );
 
         let count = self.devices.len() as u16;
         let dialog_h = (count + 4).min(area.height.saturating_sub(4));
-        let dialog_w = 64u16.min(area.width.saturating_sub(4));
+        let dialog_w = 66u16.min(area.width.saturating_sub(4));
 
         let dialog_area = {
             let vert = Layout::default()
@@ -66,8 +69,10 @@ impl DeviceSelector {
         let items: Vec<ListItem> = self
             .devices
             .iter()
-            .enumerate()
-            .map(|(i, serial)| ListItem::new(format!("  [{i}]  {serial}")))
+            .map(|(_, serial)| {
+                ListItem::new(format!("  {serial}"))
+                    .style(Style::default().fg(self.theme.value))
+            })
             .collect();
 
         let list = List::new(items)
@@ -76,12 +81,14 @@ impl DeviceSelector {
                     .borders(Borders::ALL)
                     .title(title)
                     .title_alignment(Alignment::Center)
-                    .style(Style::default().fg(Color::Cyan).bg(Color::Rgb(20, 20, 35))),
+                    .title_style(Style::default().fg(self.theme.value_hi))
+                    .border_style(Style::default().fg(self.theme.border_accent))
+                    .style(Style::default().bg(Color::Black)),
             )
             .highlight_style(
                 Style::default()
-                    .fg(Color::Rgb(15, 15, 25))
-                    .bg(Color::Cyan)
+                    .fg(Color::Black)
+                    .bg(self.theme.border_accent)
                     .add_modifier(Modifier::BOLD),
             )
             .highlight_symbol("► ");
@@ -89,18 +96,19 @@ impl DeviceSelector {
         f.render_stateful_widget(list, chunks[0], &mut self.state);
 
         let hint = Paragraph::new("  ↑/↓ navigate    Enter select    q quit")
-            .style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().fg(self.theme.label))
             .alignment(Alignment::Center);
         f.render_widget(hint, chunks[1]);
     }
 }
 
-/// Runs a TUI device picker. Returns the selected index, or `None` if the user quit.
+/// Runs a TUI device picker. Returns the selected libhackrf device index, or `None` if quit.
 pub fn run<B: Backend>(
-    devices: Vec<String>,
+    devices: Vec<(usize, String)>,
+    theme: &Theme,
     terminal: &mut Terminal<B>,
 ) -> anyhow::Result<Option<usize>> {
-    let mut sel = DeviceSelector::new(devices);
+    let mut sel = DeviceSelector::new(&devices, theme);
     loop {
         terminal.draw(|f| sel.draw(f))?;
         if let Event::Key(key) = event::read()? {
@@ -117,7 +125,9 @@ pub fn run<B: Backend>(
                     sel.state
                         .select(Some((i + 1).min(sel.devices.len().saturating_sub(1))));
                 }
-                KeyCode::Enter => return Ok(sel.state.selected()),
+                KeyCode::Enter => {
+                    return Ok(sel.state.selected().map(|pos| sel.devices[pos].0));
+                }
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(None),
                 _ => {}
             }

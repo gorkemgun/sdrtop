@@ -68,6 +68,8 @@ async fn main() -> Result<()> {
     if let Some(v) = cli.vga       { app_cfg.radio.vga_gain = v.min(62); }
     if let Some(t) = cli.theme     { app_cfg.theme.base = t; }
 
+    let theme = app_cfg.build_theme();
+
     let device_serials = match hardware::Device::list_serials() {
         Ok(s) => s,
         Err(e) => {
@@ -83,7 +85,7 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let device_index = if device_serials.len() > 1 {
-        match ui::device_selector::run(device_serials, &mut terminal) {
+        match ui::device_selector::run(device_serials, &theme, &mut terminal) {
             Ok(Some(idx)) => idx,
             Ok(None) => {
                 disable_raw_mode()?;
@@ -100,7 +102,7 @@ async fn main() -> Result<()> {
             }
         }
     } else {
-        0
+        device_serials[0].0
     };
 
     let mut app = match App::new(app_cfg, config_path, device_index) {

@@ -186,9 +186,9 @@ mod tests {
 
 #[allow(dead_code)]
 impl Device {
-    /// Returns serial numbers (or fallback labels) for all connected HackRF devices.
-    /// Initializes and releases libhackrf internally — safe to call before `open_at`.
-    pub fn list_serials() -> anyhow::Result<Vec<String>> {
+    /// Returns (device_index, serial) pairs for connected HackRF devices that have a
+    /// readable serial number. Initializes and releases libhackrf internally.
+    pub fn list_serials() -> anyhow::Result<Vec<(usize, String)>> {
         unsafe {
             let init_res = hackrf_init();
             if init_res != 0 {
@@ -205,24 +205,27 @@ impl Device {
             let list = &*list_ptr;
             let count = list.devicecount as usize;
 
-            let serials: Vec<String> = (0..count).map(|i| {
-                if !list.serial_numbers.is_null() {
+            let mut devices: Vec<(usize, String)> = Vec::new();
+            if !list.serial_numbers.is_null() {
+                for i in 0..count {
                     let serial_ptr = *list.serial_numbers.add(i);
                     if !serial_ptr.is_null() {
-                        return CStr::from_ptr(serial_ptr).to_string_lossy().into_owned();
+                        let serial = CStr::from_ptr(serial_ptr).to_string_lossy().into_owned();
+                        if !serial.is_empty() {
+                            devices.push((i, serial));
+                        }
                     }
                 }
-                format!("HackRF #{i}")
-            }).collect();
+            }
 
             hackrf_device_list_free(list_ptr);
             hackrf_exit();
 
-            if serials.is_empty() {
+            if devices.is_empty() {
                 anyhow::bail!("No HackRF device found. Please connect your device and try again.");
             }
 
-            Ok(serials)
+            Ok(devices)
         }
     }
 
