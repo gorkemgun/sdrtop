@@ -126,10 +126,10 @@ fn separator_line(theme: &crate::Theme, outer_width: u16) -> Line<'static> {
     ])
 }
 
-/// Frequency · sample-rate · LNA bar · VGA bar.
-/// Total char count is 78 for a standard 80-col terminal (inner_width=78).
-/// Layout (chars): 3 + 8 + 1 + 3 + 4 + 3 + 4 + 5 + 4 + 4 + 8 + 1 + 2 + 3 + 4 + 4 + 8 + 1 + 2 + 3 + 2 = 78
-fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme) -> Line<'static> {
+/// Frequency · sample-rate on the left, LNA · VGA bars right-aligned.
+/// Left block (freq + SR): 31 chars. Right block (LNA + VGA + trailing): 42 chars.
+/// Gap between them fills the remaining inner width, mirroring top_band_line.
+fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) -> Line<'static> {
     let active = state.hw_streaming && !state.observer_mode;
 
     // Frequency: right-padded to 8 chars (covers 0.000–9999.999 MHz)
@@ -149,6 +149,10 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme) -> Line<'static> {
     let vga_color  = if active { theme.status_warn } else { theme.label };
     let dim        = theme.border_dim;
 
+    // left = 3+" "+8+1+"MHz"+4+"SR "+4+" Msps" = 31 chars
+    // right = "LNA "+8+1+2+" dB"+"    "+"VGA "+8+1+2+" dB"+"  " = 42 chars
+    let gap = (inner_width as usize).saturating_sub(31 + 42);
+
     Line::from(vec![
         Span::raw("   "),
         Span::styled(freq_str, Style::default().fg(freq_color).add_modifier(Modifier::BOLD)),
@@ -158,7 +162,7 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme) -> Line<'static> {
         Span::styled("SR ", Style::default().fg(theme.label)),
         Span::styled(sr_str, Style::default().fg(val_color)),
         Span::styled(" Msps", Style::default().fg(theme.label)),
-        Span::raw("    "),
+        Span::raw(" ".repeat(gap)),
         Span::styled("LNA ", Style::default().fg(theme.label)),
         Span::styled(lna_filled, Style::default().fg(lna_color)),
         Span::styled(lna_empty, Style::default().fg(dim)),
@@ -201,7 +205,7 @@ impl Panel for HeaderPanel {
 
         f.render_widget(Paragraph::new(top_band_line(state, theme, inner.width)), top_area);
         f.render_widget(Paragraph::new(separator_line(theme, area.width)), sep_area);
-        f.render_widget(Paragraph::new(bottom_band_line(state, theme)), bot_area);
+        f.render_widget(Paragraph::new(bottom_band_line(state, theme, inner.width)), bot_area);
     }
 }
 
