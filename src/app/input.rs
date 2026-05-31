@@ -265,7 +265,7 @@ fn handle_waterfall_focus(
         }
         KeyCode::Char('j') => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
-            let max = m.waterfall.buffer.rows.len();
+            let max = m.waterfall.buffer.rows.len() / 2;
             m.waterfall.scroll_offset = (m.waterfall.scroll_offset + 1).min(max);
         }
         KeyCode::Char('k') => {

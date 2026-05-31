@@ -150,29 +150,36 @@ impl Panel for WaterfallPanel {
             }
         });
 
-        let rows_to_show = wf_area.height as usize;
-        let max_scroll = buf.rows.len().saturating_sub(rows_to_show);
-        let skip = scroll.min(max_scroll);
+        let rows_to_show  = wf_area.height as usize;
+        // Half-block rendering: each character cell encodes two time-rows (▀ fg=top bg=bottom)
+        let data_rows     = rows_to_show * 2;
+        let max_scroll    = buf.rows.len().saturating_sub(data_rows) / 2;
+        let skip_chars    = scroll.min(max_scroll);
+        let skip_data     = skip_chars * 2;
 
         let depth = ColorDepth::detect();
-        let cursor_style = Style::default().fg(theme.value_hi);
+        let floor_color = magnitude_to_color_themed(f32::NEG_INFINITY, db_min, DB_MAX, depth, theme);
         let mut lines: Vec<Line> = Vec::with_capacity(rows_to_show);
 
-        for (_ts, row_data) in buf.rows.iter().skip(skip).take(rows_to_show) {
-            let n = row_data.len();
+        let mut data_iter = buf.rows.iter().skip(skip_data).take(data_rows);
+        loop {
+            let Some((_ts, top_row)) = data_iter.next() else { break };
+            let bot_row = data_iter.next().map(|(_ts, r)| r.as_ref());
+            let n = top_row.len();
             let mut spans: Vec<Span> = Vec::with_capacity(cols);
             for col in 0..cols {
                 let bin_start = col * n / cols;
-                let bin_end = (((col + 1) * n) / cols).max(bin_start + 1).min(n);
-                let db = row_data[bin_start..bin_end]
-                    .iter()
-                    .cloned()
-                    .fold(f32::NEG_INFINITY, f32::max);
-                let bg = magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme);
+                let bin_end   = (((col + 1) * n) / cols).max(bin_start + 1).min(n);
+                let top_db    = top_row[bin_start..bin_end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                let top_color = magnitude_to_color_themed(top_db, db_min, DB_MAX, depth, theme);
+                let bot_color = bot_row.map(|r| {
+                    let db = r[bin_start..bin_end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme)
+                }).unwrap_or(floor_color);
                 if Some(col) == cursor_col {
-                    spans.push(Span::styled("│", cursor_style.bg(bg)));
+                    spans.push(Span::styled("▀", Style::default().fg(theme.value_hi).bg(bot_color)));
                 } else {
-                    spans.push(Span::styled(" ", Style::default().bg(bg)));
+                    spans.push(Span::styled("▀", Style::default().fg(top_color).bg(bot_color)));
                 }
             }
             lines.push(Line::from(spans));
@@ -214,11 +221,13 @@ impl Panel for WaterfallPanel {
         };
         let h = legend_area.height as usize;
         if h > 0 {
+            let steps = (h * 2).max(2);
             let mut legend: Vec<Line> = Vec::with_capacity(h);
             for row in 0..h {
-                let t = row as f32 / (h.saturating_sub(1)).max(1) as f32;
-                let db = DB_MAX + (db_min - DB_MAX) * t;
-                let bar_color = magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme);
+                let t_top = (row * 2) as f32 / (steps - 1) as f32;
+                let t_bot = (row * 2 + 1) as f32 / (steps - 1) as f32;
+                let top_color = magnitude_to_color_themed(DB_MAX + (db_min - DB_MAX) * t_top, db_min, DB_MAX, depth, theme);
+                let bot_color = magnitude_to_color_themed(DB_MAX + (db_min - DB_MAX) * t_bot, db_min, DB_MAX, depth, theme);
                 let label = match row {
                     0 => format!("{:>+4} ", DB_MAX as i32),
                     r if r == h.saturating_sub(1) => format!("{:>4} ", db_min as i32),
@@ -226,7 +235,7 @@ impl Panel for WaterfallPanel {
                     _ => "     ".to_string(),
                 };
                 legend.push(Line::from(vec![
-                    Span::styled("█", Style::default().fg(bar_color)),
+                    Span::styled("▀", Style::default().fg(top_color).bg(bot_color)),
                     Span::styled(label, Style::default().fg(theme.value)),
                 ]));
             }
@@ -238,7 +247,7 @@ impl Panel for WaterfallPanel {
             let right_info: String = if let Some(cf) = state.waterfall.cursor_freq {
                 // Cursor active: show freq, dBFS at top visible row, time ago
                 let freq_mhz = cf as f64 / 1_000_000.0;
-                let (db_at_cursor, secs_ago) = buf.rows.iter().skip(skip).next()
+                let (db_at_cursor, secs_ago) = buf.rows.iter().skip(skip_data).next()
                     .and_then(|(ts, row)| {
                         let frac = (cf as f64 - left_hz) / bw;
                         if !(0.0..=1.0).contains(&frac) { return None; }
