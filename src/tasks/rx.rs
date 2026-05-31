@@ -17,9 +17,12 @@ pub fn spawn_rx_task(
         let mut hw_rx_active = false;
 
         loop {
+            // Single is_streaming() call per iteration — result used for both the
+            // unexpected-stop check and the hw_streaming state update.
+            let hw_streaming = device.is_streaming();
             let now = Instant::now();
 
-            if hw_rx_active && !device.is_streaming() {
+            if hw_rx_active && !hw_streaming {
                 let _ = device.stop_rx();
                 hw_rx_active = false;
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -27,9 +30,6 @@ pub fn spawn_rx_task(
                 m.radio.hw_streaming = false;
                 m.push_log("WARNING: Streaming stopped unexpectedly — press [Space] to restart");
             }
-
-            // is_streaming() is an FFI call — must not be made while holding the mutex.
-            let hw_streaming = device.is_streaming();
 
             // Lock block 1: snapshot + reset accumulators, do integer computations.
             // Floating-point transcendentals (sqrt, log10, asin) run outside the lock.
