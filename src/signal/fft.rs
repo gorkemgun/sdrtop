@@ -127,7 +127,7 @@ impl FftWorker {
 
                 // SNR: peak minus noise floor
                 let peak_dbfs = smoothed.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let snr_db = (peak_dbfs - noise_floor).max(0.0);
+                let peak_to_nf_db = (peak_dbfs - noise_floor).max(0.0);
 
                 // Channel power: integrate all bins → dBFS
                 let total_linear: f32 = smoothed.iter().map(|&b| 10f32.powf(b / 10.0)).sum();
@@ -166,7 +166,7 @@ impl FftWorker {
                 let peak_arc = Arc::new(peak.clone());
 
                 if let Ok(mut m) = self.state.lock() {
-                    m.signal.snr_db             = snr_db;
+                    m.signal.peak_to_nf_db      = peak_to_nf_db;
                     m.signal.channel_power_dbfs = channel_power_dbfs;
                     m.signal.occupied_bw_hz     = occupied_bw_hz;
                     m.waterfall.last_fft = Some(FftFrame {
@@ -176,7 +176,7 @@ impl FftWorker {
                         center_freq_hz,
                         sample_rate,
                         timestamp: std::time::Instant::now(),
-                        snr_db,
+                        peak_to_nf_db,
                         channel_power_dbfs,
                         occupied_bw_hz,
                     });

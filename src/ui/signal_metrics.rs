@@ -57,10 +57,10 @@ impl Panel for SignalMetricsPanel {
 
         let rows: &[Line] = &[
             Line::from(vec![
-                Span::styled(format!("{:<15}", "SNR"), lbl),
+                Span::styled(format!("{:<15}", "Peak/NF"), lbl),
                 Span::styled(
-                    if stale { "---".into() } else { format!("{:.1} dB", state.signal.snr_db) },
-                    Style::default().fg(if stale { theme.label } else { snr_color(state.signal.snr_db, theme) }),
+                    if stale { "---".into() } else { format!("{:.1} dB", state.signal.peak_to_nf_db) },
+                    Style::default().fg(if stale { theme.label } else { snr_color(state.signal.peak_to_nf_db, theme) }),
                 ),
             ]),
             Line::from(vec![

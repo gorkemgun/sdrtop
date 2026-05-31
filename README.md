@@ -14,7 +14,7 @@ I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clon
 > [!IMPORTANT]
 > **Project Status:** `sdrtop` is currently in an **early development stage**. 
 > * At the moment, **it only supports the HackRF One**. Support for other devices is planned.
-> * **Known Issues:** You might run into some performance issues. In particular, the **Lab preset (Key `5`)** is highly experimental right now and might lag or misbehave.
+> * **Known Issues: **Plenty 😄... You might run into some performance issues.
 
 **[Full user guide](user_docs/README.md)**
 
@@ -30,7 +30,7 @@ I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clon
 
 - **Spectrum analyzer** — FFT with EMA smoothing, peak hold, noise floor, dBFS axis, zoom, band plan overlay, frequency markers
 - **Waterfall** — scrolling spectrogram with truecolor / 256-color / 16-color support
-- **Signal strip** — live bar: SNR · channel power · noise floor · ADC saturation · drops · buffer fill · IQ imbalance · RBW
+- **Signal strip** — live bar: P/NF · channel power · noise floor · ADC saturation · drops · buffer fill · IQ imbalance · RBW
 - **RF chain** — baseband filter BW, total gain, CPLD status, ADC utilisation gauge, gain advisor
 - **IQ diagnostics** — DC offset (I/Q + magnitude gauge), amplitude imbalance, phase imbalance, contextual hint
 - **Hardware health** — drop rate + trend, ADC saturation + trend, USB jitter, USB errors + trend (all with sparklines)

@@ -8,7 +8,7 @@ pub struct SignalState {
     pub adc_saturation_pct:  f32,
     pub adc_saturation_peak: f32,
     pub saturation_history:  VecDeque<f32>,
-    pub snr_db:              f32,
+    pub peak_to_nf_db:       f32,
     pub channel_power_dbfs:  f32,
     pub occupied_bw_hz:      u64,
     pub usb_errors_session:   u64,

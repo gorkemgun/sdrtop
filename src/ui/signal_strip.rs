@@ -56,8 +56,8 @@ impl Panel for SignalStripPanel {
         let lbl = |s: &'static str| Span::styled(s, Style::default().fg(theme.label));
         let val = |s: String, c: Color| Span::styled(s, Style::default().fg(c));
 
-        let snr_str = if stale { "---".into() } else { format!("{:.1} dB", state.signal.snr_db) };
-        let snr_col = if stale { theme.stale } else { snr_color(state.signal.snr_db, theme) };
+        let snr_str = if stale { "---".into() } else { format!("{:.1} dB", state.signal.peak_to_nf_db) };
+        let snr_col = if stale { theme.stale } else { snr_color(state.signal.peak_to_nf_db, theme) };
 
         let pwr_str = if stale || !state.signal.channel_power_dbfs.is_finite() {
             "---".into()
@@ -87,7 +87,7 @@ impl Panel for SignalStripPanel {
 
         let line = Line::from(vec![
             Span::raw(" "),
-            lbl("SNR "),  val(snr_str, snr_col),
+            lbl("P/NF "), val(snr_str, snr_col),
             sep.clone(),
             lbl("PWR "),  val(pwr_str, pwr_col),
             sep.clone(),

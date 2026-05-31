@@ -11,7 +11,7 @@ pub struct FftFrame {
     pub center_freq_hz:   u64,
     pub sample_rate:      f64,
     pub timestamp:        Instant,
-    pub snr_db:           f32,
+    pub peak_to_nf_db:    f32,
     pub channel_power_dbfs: f32,
     pub occupied_bw_hz:   u64,
 }
