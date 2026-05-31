@@ -191,7 +191,7 @@ impl LayoutConfig {
                 PanelSpec { name: "header".into(),   position: Top,    height: Some(5), width_pct: None },
                 PanelSpec { name: "spectrum".into(),  position: Body,   height: None,    width_pct: None },
                 PanelSpec { name: "log".into(),       position: Bottom, height: Some(5), width_pct: None },
-                PanelSpec { name: "footer".into(),    position: Bottom, height: Some(3), width_pct: None },
+                PanelSpec { name: "footer".into(),    position: Bottom, height: None,    width_pct: None },
             ],
         };
         let waterfall = PresetConfig {
@@ -199,7 +199,7 @@ impl LayoutConfig {
                 PanelSpec { name: "header".into(),   position: Top,    height: Some(5), width_pct: None },
                 PanelSpec { name: "waterfall".into(), position: Body,   height: None,    width_pct: None },
                 PanelSpec { name: "log".into(),       position: Bottom, height: Some(5), width_pct: None },
-                PanelSpec { name: "footer".into(),    position: Bottom, height: Some(3), width_pct: None },
+                PanelSpec { name: "footer".into(),    position: Bottom, height: None,    width_pct: None },
             ],
         };
         let spectrum_waterfall = PresetConfig {
@@ -208,7 +208,7 @@ impl LayoutConfig {
                 PanelSpec { name: "spectrum".into(),  position: Body,   height: None,    width_pct: None },
                 PanelSpec { name: "waterfall".into(), position: Body,   height: None,    width_pct: None },
                 PanelSpec { name: "log".into(),       position: Bottom, height: Some(5), width_pct: None },
-                PanelSpec { name: "footer".into(),    position: Bottom, height: Some(3), width_pct: None },
+                PanelSpec { name: "footer".into(),    position: Bottom, height: None,    width_pct: None },
             ],
         };
         let lab = PresetConfig {
@@ -220,7 +220,7 @@ impl LayoutConfig {
                 PanelSpec { name: "hardware_health".into(), position: Right,  height: None,    width_pct: Some(33) },
                 PanelSpec { name: "signal_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
                 PanelSpec { name: "log".into(),             position: Bottom, height: Some(5), width_pct: None     },
-                PanelSpec { name: "footer".into(),          position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "footer".into(),          position: Bottom, height: None,    width_pct: None     },
             ],
         };
         let observer = PresetConfig {
@@ -229,7 +229,7 @@ impl LayoutConfig {
                 PanelSpec { name: "observer".into(),         position: Left,   height: None,    width_pct: Some(60) },
                 PanelSpec { name: "system_resources".into(), position: Right,  height: None,    width_pct: Some(40) },
                 PanelSpec { name: "log".into(),              position: Bottom, height: Some(5), width_pct: None     },
-                PanelSpec { name: "footer".into(),           position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "footer".into(),           position: Bottom, height: None,    width_pct: None     },
             ],
         };
         let main = PresetConfig {
