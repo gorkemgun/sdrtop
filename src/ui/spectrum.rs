@@ -328,7 +328,7 @@ impl Panel for SpectrumPanel {
                         // Pick the first row where this label fits without overlap
                         let row = row_end.iter().position(|&end| col >= end)
                             .unwrap_or(max_rows - 1);
-                        row_end[row] = col + lw + 1;
+                        row_end[row] = row_end[row].max(col + lw + 1);
 
                         f.render_widget(
                             Paragraph::new(Span::styled(
