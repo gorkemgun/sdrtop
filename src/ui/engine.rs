@@ -85,6 +85,10 @@ impl LayoutEngine {
 
         let panel_h = |s: &&crate::config::PanelSpec| -> u16 {
             s.height.unwrap_or_else(|| {
+                // Call footer height directly to avoid dyn-dispatch ambiguity
+                if s.name == "footer" {
+                    return super::footer::compute_footer_height(size.width, state);
+                }
                 self.registry.get(&s.name)
                     .map(|p| p.preferred_height(size.width, state))
                     .unwrap_or(3)

@@ -47,6 +47,20 @@ fn count_lines<S: AsRef<str>>(items: &[S], sep: &str, inner_w: usize) -> usize {
     wrap_items(items, sep, inner_w).len()
 }
 
+/// Public free function — called directly from the engine (bypasses dyn dispatch).
+pub fn compute_footer_height(available_width: u16, state: &SdrMetrics) -> u16 {
+    if !matches!(state.ui.input_mode, InputMode::Normal) || state.observer.active {
+        return 3;
+    }
+    let inner_w = available_width.saturating_sub(2) as usize;
+    let n = if state.ui.focused_panel.is_some() {
+        count_lines(&focus_items(state), FOCUS_SEP, inner_w)
+    } else {
+        count_lines(NORMAL_ITEMS, NORMAL_SEP, inner_w)
+    };
+    (n as u16 + 2).min(MAX_CONTENT_LINES + 2).max(3)
+}
+
 pub struct FooterPanel;
 
 impl Panel for FooterPanel {
@@ -54,21 +68,13 @@ impl Panel for FooterPanel {
     fn min_size(&self) -> (u16, u16) { (40, 3) }
 
     fn preferred_height(&self, available_width: u16, state: &SdrMetrics) -> u16 {
-        if !matches!(state.ui.input_mode, InputMode::Normal) || state.observer.active {
-            return 3;
-        }
-        let inner_w = available_width.saturating_sub(2) as usize;
-        let n = if state.ui.focused_panel.is_some() {
-            let items = focus_items(state);
-            count_lines(&items, FOCUS_SEP, inner_w)
-        } else {
-            count_lines(NORMAL_ITEMS, NORMAL_SEP, inner_w)
-        };
-        (n as u16 + 2).min(MAX_CONTENT_LINES + 2).max(3)
+        compute_footer_height(available_width, state)
     }
 
     fn render(&self, f: &mut Frame, area: Rect, m: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
+        // Clamp to the lines that actually fit — inner_h = area.height - 2 borders
         let inner_w = area.width.saturating_sub(2) as usize;
+        let max_lines = area.height.saturating_sub(2) as usize;
 
         let (lines, border_color): (Vec<String>, _) = if m.observer.active {
             (
@@ -98,12 +104,15 @@ impl Panel for FooterPanel {
                     if let Some(panel_name) = &m.ui.focused_panel {
                         let items = focus_items(m);
                         let mut wrapped = wrap_items(&items, FOCUS_SEP, inner_w);
+                        wrapped.truncate(max_lines.max(1));
                         if let Some(last) = wrapped.last_mut() {
                             last.push_str(&format!("  — {}", panel_name));
                         }
                         (wrapped, theme.border_focused)
                     } else {
-                        (wrap_items(NORMAL_ITEMS, NORMAL_SEP, inner_w), theme.border_dim)
+                        let mut wrapped = wrap_items(NORMAL_ITEMS, NORMAL_SEP, inner_w);
+                        wrapped.truncate(max_lines.max(1));
+                        (wrapped, theme.border_dim)
                     }
                 }
             }
@@ -132,4 +141,38 @@ fn focus_items(m: &SdrMetrics) -> Vec<String> {
     items.push("[Tab] Hide".to_string());
     items.push("[Esc] Exit focus".to_string());
     items
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_items_splits_at_boundary() {
+        let items = ["aaa", "bbb", "ccc"];
+        // sep="  " (2), inner_w=7: "aaa  bbb"=8 > 7 → break after "aaa"
+        let lines = wrap_items(&items, "  ", 7);
+        assert_eq!(lines.len(), 3, "each item on its own line: {:?}", lines);
+    }
+
+    #[test]
+    fn wrap_items_fits_all_on_one_line() {
+        let items = ["aaa", "bbb"];
+        // "aaa  bbb" = 8 chars, inner_w=10 → fits
+        let lines = wrap_items(&items, "  ", 10);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], "aaa  bbb");
+    }
+
+    #[test]
+    fn normal_items_wrap_at_80_cols() {
+        let n = count_lines(NORMAL_ITEMS, NORMAL_SEP, 78);
+        assert!(n >= 2, "normal items at inner_w=78 should need >=2 lines, got {}", n);
+    }
+
+    #[test]
+    fn normal_items_fit_at_200_cols() {
+        let n = count_lines(NORMAL_ITEMS, NORMAL_SEP, 198);
+        assert_eq!(n, 1, "normal items at inner_w=198 should fit on 1 line, got {}", n);
+    }
 }
