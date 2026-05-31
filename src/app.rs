@@ -49,6 +49,48 @@ impl App {
         }
     }
 
+    /// Builds the panel registry + focus-key map + layout engine.
+    /// Called by both `new_normal` and `new_observer` with the appropriate preset name.
+    fn build_ui(
+        board_name: &str,
+        serial: &str,
+        active_preset: &str,
+    ) -> (ui::LayoutEngine, HashMap<char, &'static str>) {
+        let mut registry = ui::PanelRegistry::new();
+        registry.register(ui::HeaderPanel);
+        registry.register(ui::TelemetryPanel {
+            board_name: board_name.to_string(),
+            serial: serial.to_string(),
+        });
+        registry.register(ui::GainsPanel);
+        registry.register(ui::ThroughputPanel);
+        registry.register(ui::SampleRatePanel);
+        registry.register(ui::SignalStripPanel);
+        registry.register(ui::UsbSrPanel);
+        registry.register(ui::LogPanel);
+        registry.register(ui::FooterPanel);
+        registry.register(ui::HardwareHealthPanel);
+        registry.register(ui::IqDiagnosticsPanel);
+        registry.register(ui::SystemResourcesPanel);
+        registry.register(ui::SpectrumPanel);
+        registry.register(ui::WaterfallPanel::new());
+        registry.register(ui::RfChainPanel);
+        registry.register(ui::SignalMetricsPanel);
+        registry.register(ui::IqHistogramPanel);
+        registry.register(ui::ObserverPanel);
+
+        let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
+        for panel in registry.panels_iter() {
+            if let Some(key) = panel.focus_key() {
+                focus_keys.insert(key, panel.name());
+            }
+        }
+
+        let mut engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
+        engine.set_preset(active_preset);
+        (engine, focus_keys)
+    }
+
     fn new_normal(
         cfg: AppConfig,
         config_path: Option<PathBuf>,
@@ -195,38 +237,7 @@ impl App {
         tasks::spawn_rx_task(Arc::clone(&state), Arc::clone(&device), Arc::clone(&rx_ctx));
         tasks::spawn_sys_resource_task(Arc::clone(&state));
 
-        let mut registry = ui::PanelRegistry::new();
-        registry.register(ui::HeaderPanel);
-        registry.register(ui::TelemetryPanel {
-            board_name: board_name.clone(),
-            serial: serial.clone(),
-        });
-        registry.register(ui::GainsPanel);
-        registry.register(ui::ThroughputPanel);
-        registry.register(ui::SampleRatePanel);
-        registry.register(ui::SignalStripPanel);
-        registry.register(ui::UsbSrPanel);
-        registry.register(ui::LogPanel);
-        registry.register(ui::FooterPanel);
-        registry.register(ui::HardwareHealthPanel);
-        registry.register(ui::IqDiagnosticsPanel);
-        registry.register(ui::SystemResourcesPanel);
-        registry.register(ui::SpectrumPanel);
-        registry.register(ui::WaterfallPanel::new());
-        registry.register(ui::RfChainPanel);
-        registry.register(ui::SignalMetricsPanel);
-        registry.register(ui::IqHistogramPanel);
-        registry.register(ui::ObserverPanel);
-
-        let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
-        for panel in registry.panels_iter() {
-            if let Some(key) = panel.focus_key() {
-                focus_keys.insert(key, panel.name());
-            }
-        }
-
-        let mut engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
-        engine.set_preset(&cfg.display.active_preset);
+        let (engine, focus_keys) = Self::build_ui(&board_name, &serial, &cfg.display.active_preset);
 
         Ok(Self {
             state,
@@ -356,38 +367,7 @@ impl App {
         tasks::spawn_observer_task(Arc::clone(&state), sysinfo.bus, sysinfo.dev);
         tasks::spawn_sys_resource_task(Arc::clone(&state));
 
-        let mut registry = ui::PanelRegistry::new();
-        registry.register(ui::HeaderPanel);
-        registry.register(ui::TelemetryPanel {
-            board_name: board_name.clone(),
-            serial: serial.clone(),
-        });
-        registry.register(ui::GainsPanel);
-        registry.register(ui::ThroughputPanel);
-        registry.register(ui::SampleRatePanel);
-        registry.register(ui::SignalStripPanel);
-        registry.register(ui::UsbSrPanel);
-        registry.register(ui::LogPanel);
-        registry.register(ui::FooterPanel);
-        registry.register(ui::HardwareHealthPanel);
-        registry.register(ui::IqDiagnosticsPanel);
-        registry.register(ui::SystemResourcesPanel);
-        registry.register(ui::SpectrumPanel);
-        registry.register(ui::WaterfallPanel::new());
-        registry.register(ui::RfChainPanel);
-        registry.register(ui::SignalMetricsPanel);
-        registry.register(ui::IqHistogramPanel);
-        registry.register(ui::ObserverPanel);
-
-        let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
-        for panel in registry.panels_iter() {
-            if let Some(key) = panel.focus_key() {
-                focus_keys.insert(key, panel.name());
-            }
-        }
-
-        let mut engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
-        engine.set_preset("observer");
+        let (engine, focus_keys) = Self::build_ui(&board_name, &serial, "observer");
 
         Ok(Self {
             state,
