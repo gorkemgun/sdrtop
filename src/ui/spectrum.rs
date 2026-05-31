@@ -32,6 +32,11 @@ pub fn next_spectrum_step(current: u64) -> u64 {
     SPECTRUM_STEPS[(idx + 1).min(SPECTRUM_STEPS.len() - 1)]
 }
 
+fn fmt_khz(hz: u64) -> String {
+    if hz >= 1_000_000 { format!("{:.1}M", hz as f64 / 1_000_000.0) }
+    else               { format!("{}k", hz / 1_000) }
+}
+
 pub fn fmt_spectrum_step(hz: u64) -> String {
     if hz >= 1_000_000 { format!("{} MHz", hz / 1_000_000) }
     else { format!("{} kHz", hz / 1_000) }
@@ -50,6 +55,7 @@ impl Panel for SpectrumPanel {
             ("↑ ↓", "Zoom y-axis"),
             ("J K",  "Cursor"),
             ("M",    "Place/remove marker"),
+            ("B",    "Cycle channel BW on nearest marker"),
             ("H",    "Hold/unhold frame"),
             ("Esc",  "Exit focus"),
         ]
@@ -161,14 +167,33 @@ impl Panel for SpectrumPanel {
                 });
                 let cursor_color = theme.value_hi;
 
-                // Marker canvas x-coordinates
-                let marker_xs: Vec<f64> = state.spectrum.markers.iter()
+                // Marker canvas x-coordinates + optional BW boundary pairs
+                struct MarkerCanvas {
+                    x:      f64,
+                    bw_lo:  Option<f64>,
+                    bw_hi:  Option<f64>,
+                }
+                let marker_data: Vec<MarkerCanvas> = state.spectrum.markers.iter()
                     .filter_map(|mk| {
                         let frac = (mk.freq_hz as f64 - left_hz) / bw;
-                        if (0.0..=1.0).contains(&frac) { Some(frac * (n - 1.0)) } else { None }
+                        if !(0.0..=1.0).contains(&frac) { return None; }
+                        let x = frac * (n - 1.0);
+                        let (bw_lo, bw_hi) = if let Some(ch_bw) = mk.channel_bw_hz {
+                            let half = ch_bw as f64 / 2.0;
+                            let lo_frac = (mk.freq_hz as f64 - half - left_hz) / bw;
+                            let hi_frac = (mk.freq_hz as f64 + half - left_hz) / bw;
+                            (
+                                if lo_frac >= 0.0 { Some(lo_frac * (n - 1.0)) } else { None },
+                                if hi_frac <= 1.0 { Some(hi_frac * (n - 1.0)) } else { None },
+                            )
+                        } else {
+                            (None, None)
+                        };
+                        Some(MarkerCanvas { x, bw_lo, bw_hi })
                     })
                     .collect();
-                let marker_color = theme.status_warn;
+                let marker_color    = theme.status_warn;
+                let bw_border_color = theme.border_accent;
 
                 // Cursor power (read before closure)
                 let cursor_power: Option<f32> = state.spectrum.cursor_freq.and_then(|cf| {
@@ -226,9 +251,15 @@ impl Panel for SpectrumPanel {
                             // 5. Noise floor
                             let nf = noise_floor.clamp(y_min_f, y_max_f) as f64;
                             ctx.draw(&CanvasLine { x1: 0.0, y1: nf, x2: n - 1.0, y2: nf, color: noise_floor_color });
-                            // 6. Marker lines
-                            for &mx in &marker_xs {
-                                ctx.draw(&CanvasLine { x1: mx, y1: y_min, x2: mx, y2: y_max, color: marker_color });
+                            // 6. Marker lines + channel BW boundaries
+                            for md in &marker_data {
+                                ctx.draw(&CanvasLine { x1: md.x, y1: y_min, x2: md.x, y2: y_max, color: marker_color });
+                                if let Some(lo) = md.bw_lo {
+                                    ctx.draw(&CanvasLine { x1: lo, y1: y_min, x2: lo, y2: y_max, color: bw_border_color });
+                                }
+                                if let Some(hi) = md.bw_hi {
+                                    ctx.draw(&CanvasLine { x1: hi, y1: y_min, x2: hi, y2: y_max, color: bw_border_color });
+                                }
                             }
                             // 7. Cursor line
                             if let Some(cx) = cursor_x_canvas {
@@ -268,15 +299,27 @@ impl Panel for SpectrumPanel {
                     for mk in &state.spectrum.markers {
                         let frac = (mk.freq_hz as f64 - left_hz) / bw;
                         if !(0.0..=1.0).contains(&frac) { continue; }
-                        let col = (frac * cw) as u16;
-                        let lw  = mk.label.len() as u16;
-                        let col = col.min(canvas_area.width.saturating_sub(lw));
+
+                        let bw_suffix = match (mk.channel_bw_hz, mk.measured_bw_hz) {
+                            (Some(ch), Some(meas)) => {
+                                let pct = meas as f64 / ch as f64 * 100.0 - 100.0;
+                                format!(" {}/{} {:+.0}%",
+                                    fmt_khz(ch), fmt_khz(meas), pct)
+                            }
+                            (Some(ch), None) => format!(" ±{}", fmt_khz(ch / 2)),
+                            _ => String::new(),
+                        };
+
+                        let text = format!("▼{}{}", mk.label, bw_suffix);
+                        let lw   = text.chars().count() as u16;
+                        let col  = (frac * cw) as u16;
+                        let col  = col.min(canvas_area.width.saturating_sub(lw));
                         f.render_widget(
                             Paragraph::new(Span::styled(
-                                format!("▼{}", mk.label),
+                                text,
                                 Style::default().fg(theme.status_warn).add_modifier(Modifier::BOLD),
                             )),
-                            Rect { x: canvas_area.x + col, y: canvas_area.y + 1, width: lw + 1, height: 1 },
+                            Rect { x: canvas_area.x + col, y: canvas_area.y + 1, width: lw, height: 1 },
                         );
                     }
                 }

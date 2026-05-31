@@ -170,6 +170,40 @@ impl FftWorker {
                     m.signal.peak_to_nf_db      = peak_to_nf_db;
                     m.signal.channel_power_dbfs = channel_power_dbfs;
                     m.signal.occupied_bw_hz     = occupied_bw_hz;
+
+                    // Per-marker occupied BW within each marker's channel window
+                    if sample_rate > 0.0 {
+                        let bin_hz   = sample_rate / n as f64;
+                        let left_hz  = center_freq_hz as f64 - sample_rate / 2.0;
+                        for mk in m.spectrum.markers.iter_mut() {
+                            if let Some(ch_bw) = mk.channel_bw_hz {
+                                let lo_hz = mk.freq_hz as f64 - ch_bw as f64 / 2.0;
+                                let hi_hz = mk.freq_hz as f64 + ch_bw as f64 / 2.0;
+                                let lo_bin = ((lo_hz - left_hz) / bin_hz).floor().max(0.0) as usize;
+                                let hi_bin = ((hi_hz - left_hz) / bin_hz).ceil().min((n - 1) as f64) as usize;
+                                if lo_bin < hi_bin && hi_bin < n {
+                                    let window = &smoothed[lo_bin..=hi_bin];
+                                    let tot: f32 = window.iter().map(|&b| 10f32.powf(b / 10.0)).sum();
+                                    if tot > 0.0 {
+                                        let lo_t = tot * 0.005;
+                                        let hi_t = tot * 0.995;
+                                        let mut acc = 0f32;
+                                        let mut lo_b = 0usize;
+                                        let mut hi_b = window.len() - 1;
+                                        for (i, &b) in window.iter().enumerate() {
+                                            acc += 10f32.powf(b / 10.0);
+                                            if acc < lo_t { lo_b = i; }
+                                            if acc < hi_t { hi_b = i; }
+                                        }
+                                        mk.measured_bw_hz = Some(((hi_b.saturating_sub(lo_b) + 1) as f64 * bin_hz) as u64);
+                                    }
+                                } else {
+                                    mk.measured_bw_hz = None;
+                                }
+                            }
+                        }
+                    }
+
                     m.waterfall.last_fft = Some(FftFrame {
                         bins_dbfs: Arc::clone(&bins_arc),
                         peak_hold: peak_arc,

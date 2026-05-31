@@ -177,3 +177,7 @@ The more expensive hardware (Airspy, LimeSDR, SDRplay) I'm saving toward as well
 No pressure, but if this scratches an itch for you, this is where it goes.
 
 [![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/mustang6139)
+
+---
+
+**[Credits](CREDITS.md)**

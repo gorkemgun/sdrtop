@@ -3,8 +3,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SpectrumMarker {
-    pub freq_hz: u64,
-    pub label:   String,
+    pub freq_hz:       u64,
+    pub label:         String,
+    #[serde(default)]
+    pub channel_bw_hz: Option<u64>,
+    #[serde(skip)]
+    pub measured_bw_hz: Option<u64>,
 }
 
 #[derive(Clone)]

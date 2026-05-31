@@ -8,6 +8,12 @@ use crate::state::{InputMode, SdrMetrics, SpectrumMarker};
 use crate::ui::{self, spectrum::{fmt_spectrum_step, next_spectrum_step, prev_spectrum_step}};
 use crate::ui::waterfall::{next_wf_stride, prev_wf_stride};
 
+fn fmt_bw(hz: u64) -> String {
+    if hz >= 1_000_000 { format!("{:.1} MHz", hz as f64 / 1_000_000.0) }
+    else if hz >= 1_000 { format!("{} kHz", hz / 1_000) }
+    else                { format!("{} Hz", hz) }
+}
+
 pub enum KeyAction {
     Continue,
     Quit,
@@ -167,6 +173,33 @@ fn handle_spectrum_focus(
                     "Name this marker at {:.3} MHz (Enter = confirm, empty = auto-label)",
                     marker_freq as f64 / 1_000_000.0
                 ));
+            }
+        }
+        KeyCode::Char('b') => {
+            const BW_STEPS: &[u64] = &[6_250, 12_500, 25_000, 50_000, 100_000, 200_000, 500_000];
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let cursor = m.spectrum.cursor_freq.unwrap_or(m.radio.frequency);
+            let step   = m.spectrum.step_hz;
+            if let Some(mk) = m.spectrum.markers.iter_mut()
+                .min_by_key(|mk| (mk.freq_hz as i64 - cursor as i64).unsigned_abs())
+                .filter(|mk| (mk.freq_hz as i64 - cursor as i64).unsigned_abs() < step * 4)
+            {
+                let next = match mk.channel_bw_hz {
+                    None      => Some(BW_STEPS[0]),
+                    Some(cur) => {
+                        let idx = BW_STEPS.iter().position(|&b| b == cur);
+                        idx.and_then(|i| BW_STEPS.get(i + 1)).copied()
+                    }
+                };
+                mk.channel_bw_hz = next;
+                mk.measured_bw_hz = None;
+                let msg = match next {
+                    Some(bw) => format!("Marker '{}' channel BW → {}", mk.label, fmt_bw(bw)),
+                    None     => format!("Marker '{}' channel BW cleared", mk.label),
+                };
+                m.push_log(msg);
+            } else {
+                m.push_log("No marker near cursor — place one with [M] first");
             }
         }
         // All other keys fall through to global handler
@@ -558,7 +591,7 @@ fn handle_marker_input(key: KeyEvent, state: &Arc<Mutex<SdrMetrics>>) {
                     m.ui.input_buf.trim().to_string()
                 };
                 m.push_log(format!("Marker: {} → {:.3} MHz", label, freq as f64 / 1_000_000.0));
-                m.spectrum.markers.push(SpectrumMarker { freq_hz: freq, label });
+                m.spectrum.markers.push(SpectrumMarker { freq_hz: freq, label, channel_bw_hz: None, measured_bw_hz: None });
             }
             m.ui.input_mode = InputMode::Normal;
             m.ui.input_buf.clear();
