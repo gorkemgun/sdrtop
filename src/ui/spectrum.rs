@@ -293,13 +293,25 @@ impl Panel for SpectrumPanel {
                     }
                 }
 
-                // ── Marker labels (second row of canvas) ──────────────────
+                // ── Marker labels — collision-aware multi-row placement ───
                 if canvas_area.height >= 3 {
                     let cw = canvas_area.width as f64;
-                    for mk in &state.spectrum.markers {
-                        let frac = (mk.freq_hz as f64 - left_hz) / bw;
-                        if !(0.0..=1.0).contains(&frac) { continue; }
+                    // max rows: up to 1/3 of canvas height, at least 1, at most 4
+                    let max_rows = ((canvas_area.height / 3) as usize).max(1).min(4);
 
+                    // Collect visible markers sorted left→right by frequency
+                    let mut visible: Vec<(f64, &crate::state::SpectrumMarker)> = state.spectrum.markers.iter()
+                        .filter_map(|mk| {
+                            let frac = (mk.freq_hz as f64 - left_hz) / bw;
+                            if (0.0..=1.0).contains(&frac) { Some((frac, mk)) } else { None }
+                        })
+                        .collect();
+                    visible.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+                    // row_end[i] = first free column on row i (1-indexed in canvas rows)
+                    let mut row_end: Vec<u16> = vec![0u16; max_rows];
+
+                    for (frac, mk) in visible {
                         let bw_suffix = match (mk.channel_bw_hz, mk.measured_bw_hz) {
                             (Some(ch), Some(meas)) => {
                                 let pct = meas as f64 / ch as f64 * 100.0 - 100.0;
@@ -308,17 +320,27 @@ impl Panel for SpectrumPanel {
                             (Some(ch), None) => format!(" {}?", fmt_khz(ch)),
                             _ => String::new(),
                         };
-
                         let text = format!("▼{}{}", mk.label, bw_suffix);
                         let lw   = text.chars().count() as u16;
                         let col  = (frac * cw) as u16;
                         let col  = col.min(canvas_area.width.saturating_sub(lw));
+
+                        // Pick the first row where this label fits without overlap
+                        let row = row_end.iter().position(|&end| col >= end)
+                            .unwrap_or(max_rows - 1);
+                        row_end[row] = col + lw + 1;
+
                         f.render_widget(
                             Paragraph::new(Span::styled(
                                 text,
                                 Style::default().fg(theme.status_warn).add_modifier(Modifier::BOLD),
                             )),
-                            Rect { x: canvas_area.x + col, y: canvas_area.y + 1, width: lw, height: 1 },
+                            Rect {
+                                x: canvas_area.x + col,
+                                y: canvas_area.y + 1 + row as u16,
+                                width: lw,
+                                height: 1,
+                            },
                         );
                     }
                 }
