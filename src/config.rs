@@ -239,7 +239,7 @@ impl LayoutConfig {
                 PanelSpec { name: "waterfall".into(),     position: Body,   height: None,    width_pct: None },
                 PanelSpec { name: "signal_strip".into(),  position: Bottom, height: Some(3), width_pct: None },
                 PanelSpec { name: "log".into(),           position: Bottom, height: Some(5), width_pct: None },
-                PanelSpec { name: "footer".into(),        position: Bottom, height: Some(3), width_pct: None },
+                PanelSpec { name: "footer".into(),        position: Bottom, height: None,    width_pct: None },
             ],
         };
         let mut presets = HashMap::new();
