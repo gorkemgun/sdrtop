@@ -34,7 +34,7 @@ impl Panel for IqDiagnosticsPanel {
     fn min_size(&self) -> (u16, u16) { (30, 8) }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
-        let stale = !state.radio.hw_streaming && !state.observer.active;
+        let stale = !state.radio.hw_streaming;
         let title = if stale { " IQ Diagnostics [STALE] " } else { " IQ Diagnostics " };
         let border_color = if focused { theme.border_focused }
             else if stale { theme.stale }

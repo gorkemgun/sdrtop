@@ -11,8 +11,8 @@ use ratatui::{
 
 use crate::state::THROUGHPUT_HISTORY_LEN;
 
-/// ▐-style horizontal bar — same visual language as the header's LNA/VGA gain bars.
-/// Renders into a single terminal row: `label ▐▐▐▐▐▐▐░░░░ value_str`
+/// Full-block horizontal bar — same visual language as the header's LNA/VGA gain bars.
+/// Renders into a single terminal row: `label ████░░░░ value_str`
 pub fn draw_hbar(
     f: &mut Frame,
     area: Rect,
@@ -31,8 +31,8 @@ pub fn draw_hbar(
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(label.to_string(),     Style::default().fg(theme.label)),
-            Span::styled("▐".repeat(filled),    Style::default().fg(color)),
-            Span::styled("▐".repeat(empty),     Style::default().fg(theme.border_dim)),
+            Span::styled("█".repeat(filled),    Style::default().fg(color)),
+            Span::styled("░".repeat(empty),     Style::default().fg(theme.border_dim)),
             Span::raw(" "),
             Span::styled(value_str.to_string(), Style::default().fg(color)),
         ])),

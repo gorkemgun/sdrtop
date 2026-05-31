@@ -72,7 +72,7 @@ impl Panel for HardwareHealthPanel {
             rows[2],
         );
         let sat_data: Vec<u64> = state.signal.saturation_history.iter()
-            .map(|v| *v as u64)
+            .map(|v| (*v * 1000.0) as u64)  // millipercent — preserves sub-1% values on graph
             .collect();
         crate::ui::charts::draw_mini_graph(f, rows[3], &sat_data, sat_color);
 
