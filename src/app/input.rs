@@ -264,7 +264,9 @@ fn handle_waterfall_focus(
             }
         }
         KeyCode::Char('j') => {
-            state.lock().unwrap_or_else(|e| e.into_inner()).waterfall.scroll_offset += 1;
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let max = m.waterfall.buffer.rows.len();
+            m.waterfall.scroll_offset = (m.waterfall.scroll_offset + 1).min(max);
         }
         KeyCode::Char('k') => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());

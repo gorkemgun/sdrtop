@@ -53,11 +53,12 @@ impl Panel for WaterfallPanel {
         let scroll  = state.waterfall.scroll_offset;
         let stride  = buf.row_stride;
 
+        let no_data = state.waterfall.last_fft.is_none();
         let stale = state.waterfall.last_fft.as_ref()
             .map(|fr| fr.timestamp.elapsed() > std::time::Duration::from_millis(500))
             .unwrap_or(false);
         let border_color = if focused { theme.border_focused }
-            else if buf.paused || stale { theme.stale }
+            else if buf.paused || stale || no_data { theme.stale }
             else { theme.border_accent };
 
         // Title: second 'l' in "Waterfall" highlighted as focus key indicator
@@ -195,7 +196,7 @@ impl Panel for WaterfallPanel {
                 let col    = (frac * cw) as u16;
                 let lw     = label.len() as u16;
                 let col    = col.min(wf_area.width.saturating_sub(lw));
-                if col as i32 <= next_free_col { continue; }
+                if (col as i32) < next_free_col { continue; }
                 next_free_col = col as i32 + lw as i32 + 1;
                 f.render_widget(
                     Paragraph::new(Span::styled(label, Style::default().fg(theme.label))),
