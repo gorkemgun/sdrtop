@@ -15,3 +15,6 @@ docs/.obsidian/
 # Claude code superpowers
 .superpowers/
 docs/superpowers/
+
+# Developer-specific docsuments
+dev_docs/

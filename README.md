@@ -11,11 +11,13 @@
 
 No fluff, and definitely not a lazy wrapper around `hackrf_info`. It delivers raw, real-time data: spectrum, waterfall, ADC health, gain chain, and signal metrics - entirely in the terminal, over SSH, in a tmux pane.
 
+**[Full user guide](user_docs/README.md)**
+
 ---
 
 ## Video
 
-![](/dev_docs/pics/sdrtop.gif)
+![](/dev_docs/pics/)
 
 ---
 
@@ -51,8 +53,6 @@ cargo build --release
 ```
 
 Press `Space` to start receiving. Press `?` for the key reference. Press `q` to quit and save.
-
-→ **[Full user guide](user_docs/README.md)**
 
 ---
 
@@ -142,11 +142,3 @@ The more expensive hardware (Airspy, LimeSDR, SDRplay) I'm saving toward as well
 No pressure, but if this scratches an itch for you, this is where it goes.
 
 [![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/mustang6139)
-
----
-
-## Status
-
-Phase 11 complete · Phase 12 in progress. Running on real hardware. Next: finish UI polish, then hardware abstraction layer.
-
-→ [User guide](user_docs/README.md) · [What's new](user_docs/whats-new.md) · [Roadmap](dev_docs/Roadmap.md) · [Changelog](dev_docs/CHANGELOG.md) · [Developer docs](dev_docs/Home.md)

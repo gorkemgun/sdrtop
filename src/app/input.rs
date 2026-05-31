@@ -19,11 +19,12 @@ pub fn handle_key(
     device: Option<&Arc<hardware::Device>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
+    show_footer: &mut bool,
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
     let input_mode = state.lock().unwrap_or_else(|e| e.into_inner()).ui.input_mode.clone();
     match input_mode {
-        InputMode::Normal        => handle_normal(key, state, device, engine, show_help, focus_keys),
+        InputMode::Normal        => handle_normal(key, state, device, engine, show_help, show_footer, focus_keys),
         InputMode::FrequencyInput  => { handle_freq_input(key, state, device); KeyAction::Continue }
         InputMode::SampleRateInput => { handle_sr_input(key, state, device);   KeyAction::Continue }
         InputMode::MarkerNameInput => { handle_marker_input(key, state);        KeyAction::Continue }
@@ -38,14 +39,15 @@ fn handle_normal(
     device: Option<&Arc<hardware::Device>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
+    show_footer: &mut bool,
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
     let focused = engine.focused_panel_name().map(|s| s.to_string());
 
     match focused.as_deref() {
-        Some("spectrum")  => handle_spectrum_focus(key, state, device, engine, show_help, focus_keys),
-        Some("waterfall") => handle_waterfall_focus(key, state, engine, show_help, focus_keys),
-        _                 => handle_global(key, state, device, engine, show_help, focus_keys),
+        Some("spectrum")  => handle_spectrum_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("waterfall") => handle_waterfall_focus(key, state, engine, show_help, show_footer, focus_keys),
+        _                 => handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
 }
 
@@ -57,6 +59,7 @@ fn handle_spectrum_focus(
     device: Option<&Arc<hardware::Device>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
+    show_footer: &mut bool,
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
     match key.code {
@@ -167,7 +170,7 @@ fn handle_spectrum_focus(
             }
         }
         // All other keys fall through to global handler
-        _ => return handle_global(key, state, device, engine, show_help, focus_keys),
+        _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
     KeyAction::Continue
 }
@@ -179,6 +182,7 @@ fn handle_waterfall_focus(
     state: &Arc<Mutex<SdrMetrics>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
+    show_footer: &mut bool,
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
     match key.code {
@@ -233,7 +237,7 @@ fn handle_waterfall_focus(
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             m.waterfall.scroll_offset = m.waterfall.scroll_offset.saturating_sub(1);
         }
-        _ => return handle_global_no_device(key, state, engine, show_help, focus_keys),
+        _ => return handle_global_no_device(key, state, engine, show_help, show_footer, focus_keys),
     }
     KeyAction::Continue
 }
@@ -246,6 +250,7 @@ fn handle_global(
     device: Option<&Arc<hardware::Device>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
+    show_footer: &mut bool,
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
     match key.code {
@@ -298,6 +303,7 @@ fn handle_global(
             m.push_log("Enter sample rate in MHz (2–20), then press Enter");
         }
         KeyCode::Char('?') => *show_help = !*show_help,
+        KeyCode::Tab       => *show_footer = !*show_footer,
         KeyCode::Char('p') => {
             engine.cycle_preset();
             let name = engine.active_preset().to_string();
@@ -422,9 +428,10 @@ fn handle_global_no_device(
     state: &Arc<Mutex<SdrMetrics>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
+    show_footer: &mut bool,
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
-    handle_global(key, state, None, engine, show_help, focus_keys)
+    handle_global(key, state, None, engine, show_help, show_footer, focus_keys)
 }
 
 // ── Text input modes ──────────────────────────────────────────────────────────

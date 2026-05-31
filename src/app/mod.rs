@@ -16,16 +16,17 @@ use crate::state::SdrMetrics;
 use crate::ui;
 
 pub struct App {
-    pub(super) state:      Arc<Mutex<SdrMetrics>>,
-    pub(super) device:     Option<Arc<hardware::Device>>,
+    pub(super) state:       Arc<Mutex<SdrMetrics>>,
+    pub(super) device:      Option<Arc<hardware::Device>>,
     #[allow(dead_code)]
-    pub(super) rx_ctx:     Option<Arc<RxContext>>,
+    pub(super) rx_ctx:      Option<Arc<RxContext>>,
     pub(super) config_path: Option<PathBuf>,
-    pub(super) events:     EventStream,
-    pub(super) show_help:  bool,
-    pub(super) engine:     ui::LayoutEngine,
-    pub(super) theme:      crate::Theme,
-    pub(super) focus_keys: HashMap<char, &'static str>,
+    pub(super) events:      EventStream,
+    pub(super) show_help:   bool,
+    pub(super) show_footer: bool,
+    pub(super) engine:      ui::LayoutEngine,
+    pub(super) theme:       crate::Theme,
+    pub(super) focus_keys:  HashMap<char, &'static str>,
 }
 
 impl App {
@@ -56,6 +57,7 @@ impl App {
                         self.device.as_ref(),
                         &mut self.engine,
                         &mut self.show_help,
+                        &mut self.show_footer,
                         &self.focus_keys,
                     ) {
                         input::KeyAction::Quit => {
@@ -78,6 +80,10 @@ impl App {
 
     fn draw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
         let m = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let hide_footer = !self.show_footer
+            && m.ui.input_mode == crate::state::InputMode::Normal
+            && m.ui.focused_panel.is_none();
+        self.engine.set_panel_hidden("footer", hide_footer);
         terminal.draw(|f| {
             self.engine.draw(f, &m, &self.theme);
             if self.show_help { ui::overlay::render_help(f); }

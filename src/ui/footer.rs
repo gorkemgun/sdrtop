@@ -52,7 +52,7 @@ impl Panel for FooterPanel {
                         )
                     } else {
                         (
-                            " [Q] Quit  [Space] RX  [↑↓] LNA  [[] VGA  [A] AMP  [F] Freq  [S] Rate  [R] Reset  [?] Help ".to_string(),
+                            " [Q] Quit  [Space] RX  [↑↓] LNA  [[] VGA  [A] AMP  [F] Freq  [S] Rate  [R] Reset  [?] Help  [Tab] Hide ".to_string(),
                             theme.border_dim,
                         )
                     }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     Frame,
@@ -11,11 +13,17 @@ pub struct LayoutEngine {
     pub config: LayoutConfig,
     registry: PanelRegistry,
     focused_panel: Option<String>,
+    hidden_panels: HashSet<String>,
 }
 
 impl LayoutEngine {
     pub fn new(config: LayoutConfig, registry: PanelRegistry) -> Self {
-        Self { config, registry, focused_panel: None }
+        Self { config, registry, focused_panel: None, hidden_panels: HashSet::new() }
+    }
+
+    pub fn set_panel_hidden(&mut self, name: &str, hidden: bool) {
+        if hidden { self.hidden_panels.insert(name.to_string()); }
+        else      { self.hidden_panels.remove(name); }
     }
 
     pub fn active_preset(&self) -> &str {
@@ -67,8 +75,10 @@ impl LayoutEngine {
         let size = f.size();
         let focused = self.focused_panel.as_deref();
 
-        let top_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Top).collect();
-        let bottom_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Bottom).collect();
+        let visible = |name: &str| !self.hidden_panels.contains(name);
+
+        let top_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Top && visible(&s.name)).collect();
+        let bottom_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Bottom && visible(&s.name)).collect();
         let body_specs: Vec<_> = specs.iter().filter(|s| {
             matches!(s.position, Position::Left | Position::Right | Position::Body)
         }).collect();

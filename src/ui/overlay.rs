@@ -27,6 +27,7 @@ pub fn render_help(f: &mut Frame) {
  [E]        Focus spectrum panel (expand / zoom)\n\
    Esc      Exit spectrum focus\n\
  [?]        Toggle this help\n\
+ [Tab]      Toggle footer bar\n\
 \n\
  --theme <name>:  sdr | nord | dracula | gruvbox | catppuccin | solarized\n\
 \n\
