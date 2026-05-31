@@ -2,7 +2,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::Style,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{
+        canvas::{Canvas, Line as CanvasLine},
+        Block, BorderType, Borders, Paragraph,
+    },
     Frame,
 };
 
@@ -37,74 +40,60 @@ impl Panel for IqHistogramPanel {
 
         let hist = &state.iq.iq_amplitude_hist;
         let total: u64 = hist.iter().sum();
-        let max_count = hist.iter().copied().max().unwrap_or(1).max(1);
-        let bar_height = chart_area.height as usize;
-        let n_bins = 32usize.min(chart_area.width as usize);
+        let max_count  = hist.iter().copied().max().unwrap_or(1).max(1);
+        let n_bins     = 32usize.min(chart_area.width as usize);
+        let log_max    = ((max_count + 1) as f64).log2();
 
-        // Build rows of the bar chart (top = high count, bottom = low count)
-        // Use log scale: fill = log2(count+1) / log2(max+1) * bar_height
-        let log_max = ((max_count + 1) as f64).log2();
+        // Pre-compute per-bin heights and colors (can't borrow theme inside closure)
+        let label_color = theme.label;
+        let ok_color    = theme.status_ok;
+        let crit_color  = theme.status_crit;
 
-        let mut rows: Vec<String> = (0..bar_height).map(|_| String::new()).collect();
-        for &count in hist.iter().take(n_bins) {
-            let fill_frac = if log_max > 0.0 {
-                ((count + 1) as f64).log2() / log_max
-            } else {
-                0.0
-            };
-            let fill = (fill_frac * bar_height as f64).round() as usize;
-            let fill = fill.min(bar_height);
-
-            for (row, row_str) in rows.iter_mut().enumerate().take(bar_height) {
-                let row_from_bottom = bar_height - 1 - row;
-                row_str.push(if row_from_bottom < fill { '█' } else { ' ' });
-            }
-        }
-
-        // Split chart into 3 horizontal segments: low/mid/high amplitude
-        let low_cols  = (n_bins * 8 / 32).min(chart_area.width as usize);
-        let high_cols = (n_bins * 4 / 32).min(chart_area.width as usize);
-        let mid_cols  = n_bins.saturating_sub(low_cols + high_cols);
-
-        // Build colored column groups using chars() to avoid UTF-8 byte-slice panics
-        let low_rows:  Vec<String> = rows.iter()
-            .map(|r| r.chars().take(low_cols).collect())
-            .collect();
-        let mid_rows:  Vec<String> = rows.iter()
-            .map(|r| r.chars().skip(low_cols).take(mid_cols).collect())
-            .collect();
-        let high_rows: Vec<String> = rows.iter()
-            .map(|r| r.chars().skip(low_cols + mid_cols).collect())
+        let bin_data: Vec<(f64, f64)> = hist.iter().take(n_bins).enumerate()
+            .map(|(i, &count)| {
+                let h = if log_max > 0.0 { ((count + 1) as f64).log2() / log_max } else { 0.0 };
+                (i as f64, h)
+            })
             .collect();
 
-        let zone_constraints = [
-            Constraint::Length(low_cols as u16),
-            Constraint::Length(mid_cols as u16),
-            Constraint::Min(0),
-        ];
-
-        let h_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(zone_constraints.clone())
-            .split(chart_area);
-
+        // Canvas — spectrum style: filled columns + outline connecting bin tops
         f.render_widget(
-            Paragraph::new(low_rows.join("\n")).style(Style::default().fg(theme.label)),
-            h_layout[0],
-        );
-        f.render_widget(
-            Paragraph::new(mid_rows.join("\n")).style(Style::default().fg(theme.status_ok)),
-            h_layout[1],
-        );
-        f.render_widget(
-            Paragraph::new(high_rows.join("\n")).style(Style::default().fg(theme.status_crit)),
-            h_layout[2],
+            Canvas::default()
+                .x_bounds([0.0, n_bins as f64])
+                .y_bounds([0.0, 1.0])
+                .paint(move |ctx| {
+                    // Filled columns
+                    for &(x, h) in &bin_data {
+                        let color = if x >= 24.0 { crit_color }
+                                    else if x >= 8.0 { ok_color }
+                                    else { label_color };
+                        ctx.draw(&CanvasLine { x1: x + 0.5, y1: 0.0, x2: x + 0.5, y2: h, color });
+                    }
+                    // Outline
+                    for i in 1..bin_data.len() {
+                        let (x0, h0) = bin_data[i - 1];
+                        let (x1, h1) = bin_data[i];
+                        let color = if x1 >= 24.0 { crit_color }
+                                    else if x1 >= 8.0 { ok_color }
+                                    else { label_color };
+                        ctx.draw(&CanvasLine { x1: x0 + 0.5, y1: h0, x2: x1 + 0.5, y2: h1, color });
+                    }
+                }),
+            chart_area,
         );
 
-        // X-axis labels aligned to the same zone boundaries as the chart
+        // X-axis zone labels aligned to bin boundaries
+        let low_cols = (chart_area.width as usize * 8  / n_bins).max(1);
+        let high_cols = (chart_area.width as usize * 8  / n_bins).max(1);
+        let mid_cols  = (chart_area.width as usize).saturating_sub(low_cols + high_cols).max(1);
+
         let ax_layout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(zone_constraints)
+            .constraints([
+                Constraint::Length(low_cols as u16),
+                Constraint::Length(mid_cols as u16),
+                Constraint::Min(0),
+            ])
             .split(axis_area);
 
         let dim = Style::default().fg(theme.label);
@@ -116,17 +105,16 @@ impl Panel for IqHistogramPanel {
             ax_layout[0],
         );
         let mid_label = "── OK ──";
-        let mid_w = ax_layout[1].width as usize;
-        let pad   = mid_w.saturating_sub(mid_label.len()) / 2;
+        let pad = ax_layout[1].width as usize / 2;
         f.render_widget(
             Paragraph::new(Span::styled(
-                format!("{}{}", " ".repeat(pad), mid_label),
-                Style::default().fg(theme.status_ok),
+                format!("{:>width$}", mid_label, width = pad + mid_label.len()),
+                Style::default().fg(ok_color),
             )),
             ax_layout[1],
         );
         f.render_widget(
-            Paragraph::new(Span::styled("clip", Style::default().fg(theme.status_crit))),
+            Paragraph::new(Span::styled("clip", Style::default().fg(crit_color))),
             ax_layout[2],
         );
 

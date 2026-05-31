@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::Span,
-    widgets::{Block, BorderType, Borders, Paragraph, Sparkline},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -58,12 +58,7 @@ impl Panel for HardwareHealthPanel {
             rows[0],
         );
         let drop_data: Vec<u64> = state.signal.drop_history.iter().cloned().collect();
-        f.render_widget(
-            Sparkline::default()
-                .data(&drop_data)
-                .style(Style::default().fg(drop_color)),
-            rows[1],
-        );
+        crate::ui::charts::draw_mini_graph(f, rows[1], &drop_data, drop_color);
 
         let sat_color = threshold_color(state.signal.adc_saturation_pct as f64, 1.0, 5.0, theme);
         f.render_widget(
@@ -79,12 +74,7 @@ impl Panel for HardwareHealthPanel {
         let sat_data: Vec<u64> = state.signal.saturation_history.iter()
             .map(|v| *v as u64)
             .collect();
-        f.render_widget(
-            Sparkline::default()
-                .data(&sat_data)
-                .style(Style::default().fg(sat_color)),
-            rows[3],
-        );
+        crate::ui::charts::draw_mini_graph(f, rows[3], &sat_data, sat_color);
 
         let jitter_color = threshold_color(state.iq.callback_jitter_us as f64, 500.0, 2000.0, theme);
         f.render_widget(
@@ -95,12 +85,7 @@ impl Panel for HardwareHealthPanel {
             rows[4],
         );
         let jitter_data: Vec<u64> = state.iq.jitter_history.iter().cloned().collect();
-        f.render_widget(
-            Sparkline::default()
-                .data(&jitter_data)
-                .style(Style::default().fg(jitter_color)),
-            rows[5],
-        );
+        crate::ui::charts::draw_mini_graph(f, rows[5], &jitter_data, jitter_color);
 
         let usb_color = if state.signal.usb_errors_session > 0 { theme.status_crit } else { theme.status_ok };
         f.render_widget(
@@ -111,11 +96,6 @@ impl Panel for HardwareHealthPanel {
             rows[6],
         );
         let usb_err_data: Vec<u64> = state.signal.usb_error_history.iter().cloned().collect();
-        f.render_widget(
-            Sparkline::default()
-                .data(&usb_err_data)
-                .style(Style::default().fg(usb_color)),
-            rows[7],
-        );
+        crate::ui::charts::draw_mini_graph(f, rows[7], &usb_err_data, usb_color);
     }
 }

@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Gauge, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -107,16 +107,16 @@ impl Panel for RfChainPanel {
             ]),
         ];
 
-        // Reserve 2 rows at the bottom for the ADC utilisation gauge
-        let n_info = info_rows.len().min(inner.height.saturating_sub(2) as usize);
-        if inner.height < 3 { return; }
+        // Reserve 1 row at the bottom for the ADC utilisation ▐ bar
+        let n_info = info_rows.len().min(inner.height.saturating_sub(1) as usize);
+        if inner.height < 2 { return; }
 
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(n_info as u16),
                 Constraint::Min(0),
-                Constraint::Length(2),
+                Constraint::Length(1),
             ])
             .split(inner);
 
@@ -129,12 +129,11 @@ impl Panel for RfChainPanel {
             f.render_widget(Paragraph::new(line.clone()), row_areas[i]);
         }
 
-        f.render_widget(
-            Gauge::default()
-                .label(format!("ADC util  {:.0}%", util_ratio * 100.0))
-                .ratio(util_ratio)
-                .style(Style::default().fg(util_color)),
-            sections[2],
+        crate::ui::charts::draw_hbar(
+            f, sections[2], util_ratio,
+            "ADC util ",
+            &format!("{:.0}%", util_ratio * 100.0),
+            util_color, theme,
         );
     }
 }

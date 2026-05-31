@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Gauge, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
@@ -55,14 +55,12 @@ impl Panel for IqDiagnosticsPanel {
             return;
         }
 
-        // Layout: 5 text rows + gap + 2 gauge rows
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1), // DC offset I
                 Constraint::Length(1), // DC offset Q
-                Constraint::Length(1), // DC magnitude gauge label
-                Constraint::Length(2), // DC magnitude gauge
+                Constraint::Length(1), // DC magnitude ▐ bar
                 Constraint::Length(1), // blank
                 Constraint::Length(1), // IQ amplitude imbalance
                 Constraint::Length(1), // IQ phase imbalance
@@ -91,20 +89,15 @@ impl Panel for IqDiagnosticsPanel {
             rows[1],
         );
 
-        // DC magnitude gauge (0 = perfect, 0.05 = very bad)
-        let dc_mag = (state.iq.dc_offset_i.hypot(state.iq.dc_offset_q)) as f64;
+        // DC magnitude ▐ bar
+        let dc_mag   = (state.iq.dc_offset_i.hypot(state.iq.dc_offset_q)) as f64;
         let dc_ratio = (dc_mag / 0.05).min(1.0);
         let dc_color = offset_color(dc_mag as f32, theme);
-        f.render_widget(
-            Paragraph::new(Span::styled("DC magnitude", lbl)),
-            rows[2],
-        );
-        f.render_widget(
-            Gauge::default()
-                .label(format!("{:.4}", dc_mag))
-                .ratio(dc_ratio)
-                .style(Style::default().fg(dc_color)),
-            rows[3],
+        crate::ui::charts::draw_hbar(
+            f, rows[2], dc_ratio,
+            "DC mag ",
+            &format!("{:.4}", dc_mag),
+            dc_color, theme,
         );
 
         // IQ amplitude imbalance
@@ -117,7 +110,7 @@ impl Panel for IqDiagnosticsPanel {
                     Style::default().fg(imbalance_color(amp_abs, theme)),
                 ),
             ])),
-            rows[5],
+            rows[4],
         );
 
         // IQ phase imbalance
@@ -130,7 +123,7 @@ impl Panel for IqDiagnosticsPanel {
                     Style::default().fg(phase_color(phase_abs, theme)),
                 ),
             ])),
-            rows[6],
+            rows[5],
         );
 
         // Contextual hint
@@ -150,7 +143,7 @@ impl Panel for IqDiagnosticsPanel {
         };
         f.render_widget(
             Paragraph::new(Span::styled(hint, Style::default().fg(hint_color))),
-            rows[7],
+            rows[6],
         );
     }
 }
