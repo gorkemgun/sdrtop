@@ -3,7 +3,6 @@
 /// Each function takes the data it needs by value (mostly Arc clones) and
 /// returns immediately after calling `tokio::spawn`.  The caller never needs
 /// to join — these tasks run for the entire lifetime of the process.
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 

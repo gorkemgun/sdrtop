@@ -68,8 +68,8 @@ async fn main() -> Result<()> {
     if let Some(v) = cli.vga       { app_cfg.radio.vga_gain = v.min(62); }
     if let Some(t) = cli.theme     { app_cfg.theme.base = t; }
 
-    let mut app = match App::new(app_cfg, config_path) {
-        Ok(a) => a,
+    let device_serials = match hardware::Device::list_serials() {
+        Ok(s) => s,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -81,6 +81,38 @@ async fn main() -> Result<()> {
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    let device_index = if device_serials.len() > 1 {
+        match ui::device_selector::run(device_serials, &mut terminal) {
+            Ok(Some(idx)) => idx,
+            Ok(None) => {
+                disable_raw_mode()?;
+                execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                terminal.show_cursor()?;
+                return Ok(());
+            }
+            Err(e) => {
+                disable_raw_mode()?;
+                execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                terminal.show_cursor()?;
+                eprintln!("Device selection error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        0
+    };
+
+    let mut app = match App::new(app_cfg, config_path, device_index) {
+        Ok(a) => a,
+        Err(e) => {
+            disable_raw_mode()?;
+            execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+            terminal.show_cursor()?;
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let result = app.run(&mut terminal);
 

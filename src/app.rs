@@ -35,8 +35,8 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cfg: AppConfig, config_path: Option<PathBuf>) -> anyhow::Result<Self> {
-        match hardware::Device::open() {
+    pub fn new(cfg: AppConfig, config_path: Option<PathBuf>, device_index: usize) -> anyhow::Result<Self> {
+        match hardware::Device::open_at(device_index) {
             Ok(raw_device) => Self::new_normal(cfg, config_path, raw_device),
             Err(open_err) => {
                 // Device failed to open — check if it's physically present via sysfs.

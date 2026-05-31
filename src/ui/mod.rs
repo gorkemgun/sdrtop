@@ -1,4 +1,5 @@
 pub mod band_plan;
+pub mod device_selector;
 pub mod engine;
 pub mod footer;
 pub mod gains;

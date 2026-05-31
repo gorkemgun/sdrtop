@@ -186,7 +186,47 @@ mod tests {
 
 #[allow(dead_code)]
 impl Device {
-    pub fn open() -> anyhow::Result<Self> {
+    /// Returns serial numbers (or fallback labels) for all connected HackRF devices.
+    /// Initializes and releases libhackrf internally — safe to call before `open_at`.
+    pub fn list_serials() -> anyhow::Result<Vec<String>> {
+        unsafe {
+            let init_res = hackrf_init();
+            if init_res != 0 {
+                let err = CStr::from_ptr(hackrf_error_name(init_res)).to_string_lossy();
+                anyhow::bail!("Failed to initialize libhackrf: {}", err);
+            }
+
+            let list_ptr = hackrf_device_list();
+            if list_ptr.is_null() {
+                hackrf_exit();
+                anyhow::bail!("Failed to retrieve HackRF device list.");
+            }
+
+            let list = &*list_ptr;
+            let count = list.devicecount as usize;
+
+            let serials: Vec<String> = (0..count).map(|i| {
+                if !list.serial_numbers.is_null() {
+                    let serial_ptr = *list.serial_numbers.add(i);
+                    if !serial_ptr.is_null() {
+                        return CStr::from_ptr(serial_ptr).to_string_lossy().into_owned();
+                    }
+                }
+                format!("HackRF #{i}")
+            }).collect();
+
+            hackrf_device_list_free(list_ptr);
+            hackrf_exit();
+
+            if serials.is_empty() {
+                anyhow::bail!("No HackRF device found. Please connect your device and try again.");
+            }
+
+            Ok(serials)
+        }
+    }
+
+    pub fn open_at(device_index: usize) -> anyhow::Result<Self> {
         unsafe {
             let init_res = hackrf_init();
             if init_res != 0 {
@@ -206,49 +246,17 @@ impl Device {
             if count == 0 {
                 hackrf_device_list_free(list_ptr);
                 hackrf_exit();
-                anyhow::bail!(
-                    "No HackRF device found. Please connect your device and try again."
-                );
+                anyhow::bail!("No HackRF device found. Please connect your device and try again.");
             }
 
-            let selected_index = if count == 1 {
-                0
-            } else {
-                println!("Multiple HackRF devices found:");
-                let mut valid_count = 0;
-                if !list.serial_numbers.is_null() {
-                    for i in 0..count {
-                        let serial_ptr = *list.serial_numbers.add(i);
-                        if !serial_ptr.is_null() {
-                            let serial = CStr::from_ptr(serial_ptr).to_string_lossy();
-                            println!("[{}] Serial: {}", i, serial);
-                            valid_count += 1;
-                        }
-                    }
-                }
-
-                if valid_count == 0 {
-                    hackrf_device_list_free(list_ptr);
-                    hackrf_exit();
-                    anyhow::bail!("No valid serial numbers found for connected devices.");
-                }
-                print!("Select device index [0-{}]: ", count - 1);
-                use std::io::{self, Write};
-                io::stdout().flush()?;
-
-                let mut input = String::new();
-                io::stdin().read_line(&mut input)?;
-                let idx = input.trim().parse::<usize>().unwrap_or(usize::MAX);
-                if idx >= count {
-                    hackrf_device_list_free(list_ptr);
-                    hackrf_exit();
-                    anyhow::bail!("Invalid device index selected.");
-                }
-                idx
-            };
+            if device_index >= count {
+                hackrf_device_list_free(list_ptr);
+                hackrf_exit();
+                anyhow::bail!("Device index {} out of range ({} device(s) found).", device_index, count);
+            }
 
             let mut ptr = std::ptr::null_mut();
-            let res = hackrf_device_list_open(list_ptr, selected_index as c_int, &mut ptr);
+            let res = hackrf_device_list_open(list_ptr, device_index as c_int, &mut ptr);
             hackrf_device_list_free(list_ptr);
 
             if res != 0 {
@@ -259,6 +267,10 @@ impl Device {
 
             Ok(Device(ptr))
         }
+    }
+
+    pub fn open() -> anyhow::Result<Self> {
+        Self::open_at(0)
     }
 
     pub fn version(&self) -> anyhow::Result<String> {
