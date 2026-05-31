@@ -173,15 +173,22 @@ impl FftWorker {
 
                     // Per-marker occupied BW within each marker's channel window
                     if sample_rate > 0.0 {
-                        let bin_hz   = sample_rate / n as f64;
-                        let left_hz  = center_freq_hz as f64 - sample_rate / 2.0;
+                        let bin_hz  = sample_rate / n as f64;
+                        let left_hz = center_freq_hz as f64 - sample_rate / 2.0;
+                        let right_hz = left_hz + sample_rate;
                         for mk in m.spectrum.markers.iter_mut() {
                             if let Some(ch_bw) = mk.channel_bw_hz {
-                                let lo_hz = mk.freq_hz as f64 - ch_bw as f64 / 2.0;
-                                let hi_hz = mk.freq_hz as f64 + ch_bw as f64 / 2.0;
+                                let mf = mk.freq_hz as f64;
+                                // Skip markers outside the current band
+                                if mf < left_hz || mf > right_hz {
+                                    mk.measured_bw_hz = None;
+                                    continue;
+                                }
+                                let lo_hz  = mf - ch_bw as f64 / 2.0;
+                                let hi_hz  = mf + ch_bw as f64 / 2.0;
                                 let lo_bin = ((lo_hz - left_hz) / bin_hz).floor().max(0.0) as usize;
                                 let hi_bin = ((hi_hz - left_hz) / bin_hz).ceil().min((n - 1) as f64) as usize;
-                                if lo_bin < hi_bin && hi_bin < n {
+                                if lo_bin <= hi_bin && hi_bin < n {
                                     let window = &smoothed[lo_bin..=hi_bin];
                                     let tot: f32 = window.iter().map(|&b| 10f32.powf(b / 10.0)).sum();
                                     if tot > 0.0 {

@@ -303,10 +303,9 @@ impl Panel for SpectrumPanel {
                         let bw_suffix = match (mk.channel_bw_hz, mk.measured_bw_hz) {
                             (Some(ch), Some(meas)) => {
                                 let pct = meas as f64 / ch as f64 * 100.0 - 100.0;
-                                format!(" {}/{} {:+.0}%",
-                                    fmt_khz(ch), fmt_khz(meas), pct)
+                                format!(" {}/{} {:+.0}%", fmt_khz(ch), fmt_khz(meas), pct)
                             }
-                            (Some(ch), None) => format!(" ±{}", fmt_khz(ch / 2)),
+                            (Some(ch), None) => format!(" {}?", fmt_khz(ch)),
                             _ => String::new(),
                         };
 
