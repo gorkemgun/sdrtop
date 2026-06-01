@@ -170,10 +170,6 @@ impl FftWorker {
                     0u64
                 };
 
-                // Wrap in Arc once — shared cheaply between FftFrame and waterfall
-                let bins_arc = Arc::new(smoothed.clone());
-                let peak_arc = Arc::new(peak.clone());
-
                 if let Ok(mut m) = self.state.lock() {
                     m.signal.peak_to_nf_db      = peak_to_nf_db;
                     m.signal.channel_power_dbfs = channel_power_dbfs;
@@ -219,8 +215,23 @@ impl FftWorker {
                         }
                     }
 
+                    // Reclaim the Vec allocations from the previous FftFrame before
+                    // overwriting it.  We hold the mutex, so refcount == 1 and
+                    // try_unwrap is guaranteed to succeed — no heap alloc needed.
+                    let (mut bins_vec, mut peak_vec) = match m.waterfall.last_fft.take() {
+                        Some(old) => (
+                            Arc::try_unwrap(old.bins_dbfs).unwrap_or_else(|_| vec![0.0_f32; n]),
+                            Arc::try_unwrap(old.peak_hold).unwrap_or_else(|_| vec![0.0_f32; n]),
+                        ),
+                        None => (vec![0.0_f32; n], vec![0.0_f32; n]),
+                    };
+                    bins_vec.copy_from_slice(&smoothed);
+                    peak_vec.copy_from_slice(&peak);
+                    let bins_arc = Arc::new(bins_vec);
+                    let peak_arc = Arc::new(peak_vec);
+
                     m.waterfall.last_fft = Some(FftFrame {
-                        bins_dbfs: Arc::clone(&bins_arc),
+                        bins_dbfs: bins_arc,
                         peak_hold: peak_arc,
                         noise_floor,
                         center_freq_hz,
@@ -231,7 +242,7 @@ impl FftWorker {
                         occupied_bw_hz,
                         enbw_hz: enbw_coeff * sample_rate / n as f64,
                     });
-                    m.waterfall.buffer.push(bins_arc);
+                    m.waterfall.buffer.push(&smoothed);
                 }
             }
 

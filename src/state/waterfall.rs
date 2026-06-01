@@ -40,11 +40,13 @@ impl WaterfallBuffer {
         }
     }
 
-    pub fn push(&mut self, bins: Arc<Vec<f32>>) {
+    pub fn push(&mut self, bins: &[f32]) {
         if self.paused || self.max_rows == 0 { return; }
 
         if self.acc_count == 0 || self.acc_bins.len() != bins.len() {
-            self.acc_bins = (*bins).clone();
+            // Reuse existing capacity — resize only when the bin count changes.
+            self.acc_bins.resize(bins.len(), 0.0);
+            self.acc_bins.copy_from_slice(bins);
         } else {
             for (a, &b) in self.acc_bins.iter_mut().zip(bins.iter()) {
                 *a += b;
@@ -55,7 +57,8 @@ impl WaterfallBuffer {
         if self.acc_count >= self.row_stride {
             let inv = 1.0 / self.acc_count as f32;
             for a in self.acc_bins.iter_mut() { *a *= inv; }
-            let averaged = Arc::new(std::mem::take(&mut self.acc_bins));
+            // Clone acc_bins into the row Arc — acc_bins keeps its allocation for the next push.
+            let averaged = Arc::new(self.acc_bins.clone());
             if self.rows.len() >= self.max_rows { self.rows.pop_back(); }
             self.rows.push_front((Instant::now(), averaged));
             self.acc_count = 0;
@@ -99,8 +102,8 @@ mod tests {
     #[test]
     fn push_adds_newest_row_first() {
         let mut buf = WaterfallBuffer::new(4);
-        buf.push(Arc::new(vec![1.0, 2.0]));
-        buf.push(Arc::new(vec![3.0, 4.0]));
+        buf.push(&[1.0, 2.0]);
+        buf.push(&[3.0, 4.0]);
         assert_eq!(*buf.rows[0].1, vec![3.0, 4.0], "newest row should be at index 0");
         assert_eq!(*buf.rows[1].1, vec![1.0, 2.0]);
     }
@@ -109,7 +112,7 @@ mod tests {
     fn push_respects_max_rows() {
         let mut buf = WaterfallBuffer::new(3);
         for i in 0..5u32 {
-            buf.push(Arc::new(vec![i as f32]));
+            buf.push(&[i as f32]);
         }
         assert_eq!(buf.rows.len(), 3, "should not exceed max_rows");
     }
@@ -118,7 +121,7 @@ mod tests {
     fn paused_ignores_push() {
         let mut buf = WaterfallBuffer::new(4);
         buf.paused = true;
-        buf.push(Arc::new(vec![1.0, 2.0]));
+        buf.push(&[1.0, 2.0]);
         assert!(buf.rows.is_empty(), "paused buffer should not accept new rows");
     }
 
@@ -126,9 +129,9 @@ mod tests {
     fn stride_averages_frames() {
         let mut buf = WaterfallBuffer::new(4);
         buf.set_row_stride(2);
-        buf.push(Arc::new(vec![10.0, 20.0]));
+        buf.push(&[10.0, 20.0]);
         assert!(buf.rows.is_empty(), "first frame should not push yet");
-        buf.push(Arc::new(vec![20.0, 40.0]));
+        buf.push(&[20.0, 40.0]);
         assert_eq!(buf.rows.len(), 1, "second frame should push averaged row");
         assert_eq!(*buf.rows[0].1, vec![15.0, 30.0]);
     }
@@ -137,9 +140,9 @@ mod tests {
     fn stride_reset_clears_accumulator() {
         let mut buf = WaterfallBuffer::new(4);
         buf.set_row_stride(3);
-        buf.push(Arc::new(vec![10.0]));
+        buf.push(&[10.0]);
         buf.set_row_stride(1);
-        buf.push(Arc::new(vec![5.0]));
+        buf.push(&[5.0]);
         assert_eq!(buf.rows.len(), 1);
         assert_eq!(*buf.rows[0].1, vec![5.0]);
     }
