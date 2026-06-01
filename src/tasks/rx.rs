@@ -159,8 +159,9 @@ pub fn spawn_rx_task(
                 cb_jitter_us = None;
             }
 
-            // Lock block 2: write computed IQ / jitter results.
-            {
+            // Lock block 2: write computed IQ / jitter results, then read rx_enabled
+            // in the same critical section to avoid a separate third lock.
+            let rx_enabled = {
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 if acc_samples > 0 {
                     m.iq.dc_offset_i = dc_i;
@@ -176,9 +177,8 @@ pub fn spawn_rx_task(
                     }
                     m.iq.jitter_history.push_back(jitter);
                 }
-            }
-
-            let rx_enabled = state.lock().unwrap_or_else(|e| e.into_inner()).radio.rx_enabled;
+                m.radio.rx_enabled
+            };
             if rx_enabled && !hw_rx_active {
                 let user_param = Arc::as_ptr(&rx_ctx) as *mut libc::c_void;
                 match device.start_rx(hardware::rx_callback, user_param) {
