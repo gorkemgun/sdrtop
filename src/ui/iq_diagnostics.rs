@@ -89,8 +89,9 @@ impl Panel for IqDiagnosticsPanel {
             rows[1],
         );
 
-        // DC magnitude ▐ bar
-        let dc_mag   = (state.iq.dc_offset_i.hypot(state.iq.dc_offset_q)) as f64;
+        // DC magnitude ▐ bar — cast to f64 first so hypot runs in f64 precision;
+        // computing in f32 then widening loses digits at the 4th decimal place.
+        let dc_mag   = (state.iq.dc_offset_i as f64).hypot(state.iq.dc_offset_q as f64);
         let dc_ratio = (dc_mag / 0.05).min(1.0);
         let dc_color = offset_color(dc_mag as f32, theme);
         crate::ui::charts::draw_hbar(
@@ -136,7 +137,11 @@ impl Panel for IqDiagnosticsPanel {
         } else {
             "✓ IQ quality OK"
         };
-        let hint_color = if amp_abs > 3.0 || phase_abs > 5.0 || dc_mag as f32 > 0.02 {
+        // Match hint color to the severity shown by individual value rows:
+        // crit-level amp/phase → status_crit, DC or minor imbalance → status_warn.
+        let hint_color = if amp_abs > 3.0 || phase_abs > 5.0 {
+            theme.status_crit
+        } else if dc_mag as f32 > 0.02 || amp_abs > 1.0 || phase_abs > 2.0 {
             theme.status_warn
         } else {
             theme.label

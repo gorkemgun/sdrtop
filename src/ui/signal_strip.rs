@@ -59,12 +59,14 @@ impl Panel for SignalStripPanel {
         let snr_str = if stale { "---".into() } else { format!("{:.1} dB", state.signal.peak_to_nf_db) };
         let snr_col = if stale { theme.stale } else { snr_color(state.signal.peak_to_nf_db, theme) };
 
-        let pwr_str = if stale || !state.signal.channel_power_dbfs.is_finite() {
+        let pwr_finite = state.signal.channel_power_dbfs.is_finite();
+        let pwr_str = if stale || !pwr_finite {
             "---".into()
         } else {
             format!("{:.1} dBFS", state.signal.channel_power_dbfs)
         };
-        let pwr_col = if stale { theme.stale } else { theme.value };
+        // Use stale color when not-finite too — "---" should always look dimmed.
+        let pwr_col = if stale || !pwr_finite { theme.stale } else { theme.value };
 
         let (nf_str, nf_col) = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
             Some(fr) => (format!("{:.1} dBFS", fr.noise_floor), theme.value),
@@ -76,8 +78,20 @@ impl Panel for SignalStripPanel {
             _ => ("---".into(), theme.stale),
         };
 
-        let iq_str = format!("{:+.1} dB", state.iq.iq_imbalance_db);
-        let iq_col = iq_color(state.iq.iq_imbalance_db, theme);
+        // SAT and IQ come from the rx accumulator, not the FFT — gate on hw_streaming.
+        let hw_stale = !state.radio.hw_streaming;
+        let (sat_str, sat_col) = if hw_stale {
+            ("---".into(), theme.stale)
+        } else {
+            (format!("{:.1}%", state.signal.adc_saturation_pct),
+             sat_color(state.signal.adc_saturation_pct, theme))
+        };
+        let (iq_str, iq_col) = if hw_stale {
+            ("---".into(), theme.stale)
+        } else {
+            (format!("{:+.1} dB", state.iq.iq_imbalance_db),
+             iq_color(state.iq.iq_imbalance_db, theme))
+        };
 
         let buf_str = format!("{:.0}%", state.iq.buf_fill_pct);
         let buf_col = buf_color(state.iq.buf_fill_pct, theme);
@@ -90,8 +104,7 @@ impl Panel for SignalStripPanel {
             sep.clone(),
             lbl("NF "),   val(nf_str, nf_col),
             sep.clone(),
-            lbl("SAT "),  val(format!("{:.1}%", state.signal.adc_saturation_pct),
-                              sat_color(state.signal.adc_saturation_pct, theme)),
+            lbl("SAT "),  val(sat_str, sat_col),
             sep.clone(),
             lbl("DROP "), val(format!("{}/s", state.signal.drops_per_sec),
                               drop_color(state.signal.drops_per_sec, theme)),
