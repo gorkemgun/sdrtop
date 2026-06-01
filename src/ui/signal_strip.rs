@@ -93,8 +93,18 @@ impl Panel for SignalStripPanel {
              iq_color(state.iq.iq_imbalance_db, theme))
         };
 
-        let buf_str = format!("{:.0}%", state.iq.buf_fill_pct);
-        let buf_col = buf_color(state.iq.buf_fill_pct, theme);
+        let (drop_str, drop_col) = if hw_stale {
+            ("---".into(), theme.stale)
+        } else {
+            (format!("{}/s", state.signal.drops_per_sec),
+             drop_color(state.signal.drops_per_sec, theme))
+        };
+        let (buf_str, buf_col) = if hw_stale {
+            ("---".into(), theme.stale)
+        } else {
+            (format!("{:.0}%", state.iq.buf_fill_pct),
+             buf_color(state.iq.buf_fill_pct, theme))
+        };
 
         let line = Line::from(vec![
             Span::raw(" "),
@@ -106,8 +116,7 @@ impl Panel for SignalStripPanel {
             sep.clone(),
             lbl("SAT "),  val(sat_str, sat_col),
             sep.clone(),
-            lbl("DROP "), val(format!("{}/s", state.signal.drops_per_sec),
-                              drop_color(state.signal.drops_per_sec, theme)),
+            lbl("DROP "), val(drop_str, drop_col),
             sep.clone(),
             lbl("BUF "),  val(buf_str, buf_col),
             sep.clone(),

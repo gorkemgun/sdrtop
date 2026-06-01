@@ -96,7 +96,7 @@ fn gain_advice(hist: &[u64; 32]) -> (&'static str, u8) {
 
 impl Panel for RfChainPanel {
     fn name(&self) -> &'static str { "rf_chain" }
-    fn min_size(&self) -> (u16, u16) { (32, 15) }
+    fn min_size(&self) -> (u16, u16) { (32, 16) }
 
     fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let stale = !state.radio.hw_streaming;
