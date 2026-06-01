@@ -51,7 +51,9 @@ impl FftWorker {
         let mut peak: Vec<f32>             = vec![DB_FLOOR; n];
         // scratch for noise floor partial sort (avoids O(n log n) full sort)
         let mut noise_scratch: Vec<f32>    = vec![0.0; n];
-        // scratch for occupied-BW sort (avoids alloc per frame)
+        // linear power per bin — computed once per display frame, reused for channel
+        // power, occupied BW, and per-marker BW (avoids repeated 10^(x/10) powf calls)
+        let mut linear: Vec<f32>           = vec![0.0; n];
         let mut initialized = false;
 
         // Throttle state writes to ~30 fps — EMA runs on every frame for accuracy,
@@ -134,8 +136,14 @@ impl FftWorker {
                 let peak_dbfs = smoothed.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
                 let peak_to_nf_db = (peak_dbfs - noise_floor).max(0.0);
 
+                // Single linear-power pass — 10^(x/10) is expensive; compute once,
+                // reuse for channel power, occupied BW, and per-marker BW below.
+                for (l, &s) in linear.iter_mut().zip(smoothed.iter()) {
+                    *l = 10f32.powf(s / 10.0);
+                }
+                let total_linear: f32 = linear.iter().sum();
+
                 // Channel power: integrate all bins → dBFS
-                let total_linear: f32 = smoothed.iter().map(|&b| 10f32.powf(b / 10.0)).sum();
                 let channel_power_dbfs = if total_linear > 0.0 {
                     10.0 * total_linear.log10()
                 } else {
@@ -152,8 +160,8 @@ impl FftWorker {
                     let mut acc   = 0f32;
                     let mut lo_bin = 0usize;
                     let mut hi_bin = n - 1;
-                    for (i, &b) in smoothed.iter().enumerate() {
-                        acc += 10f32.powf(b / 10.0);
+                    for (i, &lin) in linear.iter().enumerate() {
+                        acc += lin;
                         if acc < lo_thresh { lo_bin = i; }
                         if acc < hi_thresh { hi_bin = i; }
                     }
@@ -189,16 +197,16 @@ impl FftWorker {
                                 let lo_bin = ((lo_hz - left_hz) / bin_hz).floor().max(0.0) as usize;
                                 let hi_bin = ((hi_hz - left_hz) / bin_hz).ceil().min((n - 1) as f64) as usize;
                                 if lo_bin <= hi_bin && hi_bin < n {
-                                    let window = &smoothed[lo_bin..=hi_bin];
-                                    let tot: f32 = window.iter().map(|&b| 10f32.powf(b / 10.0)).sum();
+                                    let lin_slice = &linear[lo_bin..=hi_bin];
+                                    let tot: f32 = lin_slice.iter().sum();
                                     if tot > 0.0 {
                                         let lo_t = tot * 0.005;
                                         let hi_t = tot * 0.995;
                                         let mut acc = 0f32;
                                         let mut lo_b = 0usize;
-                                        let mut hi_b = window.len() - 1;
-                                        for (i, &b) in window.iter().enumerate() {
-                                            acc += 10f32.powf(b / 10.0);
+                                        let mut hi_b = lin_slice.len() - 1;
+                                        for (i, &lin) in lin_slice.iter().enumerate() {
+                                            acc += lin;
                                             if acc < lo_t { lo_b = i; }
                                             if acc < hi_t { hi_b = i; }
                                         }
