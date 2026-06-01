@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 pub const LOG_MAX_ENTRIES: usize = 100;
 
@@ -16,7 +17,7 @@ pub struct UiState {
     pub input_buf:              String,
     pub focused_panel:          Option<String>,
     pub focused_panel_bindings: &'static [(&'static str, &'static str)],
-    pub log:                    VecDeque<String>,
+    pub log:                    VecDeque<Arc<str>>,
 }
 
 impl UiState {
@@ -24,7 +25,7 @@ impl UiState {
         if self.log.len() >= LOG_MAX_ENTRIES {
             self.log.pop_front();
         }
-        self.log.push_back(msg.into());
+        self.log.push_back(Arc::from(msg.into()));
     }
 }
 
