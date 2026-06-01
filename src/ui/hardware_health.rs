@@ -115,14 +115,15 @@ impl Panel for HardwareHealthPanel {
         let usb_err_data: Vec<u64> = state.signal.usb_error_history.iter().cloned().collect();
         crate::ui::charts::draw_mini_graph(f, rows[7], &usb_err_data, usb_color);
 
-        // Sample rate: configured vs actually measured
-        let cfg_sr  = state.radio.config_sample_rate / 1_000_000.0;
-        let act_sr  = state.radio.actual_sample_rate  as f64 / 1_000_000.0;
-        let (sr_text, sr_color) = if state.radio.actual_sample_rate == 0 {
-            ("SR  config --- / actual ---".to_string(), theme.label)
+        // Sample rate: configured (always known) vs actually measured.
+        let cfg_sr = state.radio.config_sample_rate / 1_000_000.0;
+        let act_sr = state.radio.actual_sample_rate as f64 / 1_000_000.0;
+        let (sr_text, sr_color) = if state.radio.actual_sample_rate == 0 || cfg_sr <= 0.0 {
+            // Not streaming (or not yet measured): show the configured rate, dash the actual.
+            (format!("SR  {:.3} → --- MHz", cfg_sr), theme.label)
         } else {
             let delta_pct = ((act_sr - cfg_sr) / cfg_sr * 100.0).abs();
-            let color = if delta_pct < 2.0      { theme.status_ok }
+            let color = if delta_pct < 2.0       { theme.status_ok }
                         else if delta_pct < 10.0 { theme.status_warn }
                         else                     { theme.status_crit };
             (format!("SR  {:.3} → {:.3} MHz  ({:+.1}%)", cfg_sr, act_sr, act_sr - cfg_sr), color)
