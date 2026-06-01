@@ -293,12 +293,14 @@ impl Device {
     }
 
     pub fn version(&self) -> anyhow::Result<String> {
-        let mut buf = [0i8; 64];
+        // Use u8 buffer and .cast() so the pointer converts to *mut c_char
+        // on both glibc (c_char = i8) and Android Bionic (c_char = u8).
+        let mut buf = [0u8; 64];
         unsafe {
-            if hackrf_version_string_read(self.0, buf.as_mut_ptr(), 63) != 0 {
+            if hackrf_version_string_read(self.0, buf.as_mut_ptr().cast(), 63) != 0 {
                 anyhow::bail!("Failed to read firmware version");
             }
-            Ok(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
+            Ok(CStr::from_ptr(buf.as_ptr().cast()).to_string_lossy().into_owned())
         }
     }
 
