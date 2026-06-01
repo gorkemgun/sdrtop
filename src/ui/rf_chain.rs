@@ -21,6 +21,34 @@ fn fmt_hz(hz: u32) -> String {
     }
 }
 
+/// Cascade Noise Figure via Friis formula (result in dB).
+///
+/// HackRF One stage approximations:
+///   AMP  — MGA-81563 front-end LNA: gain 14 dB, NF ~2.0 dB
+///   LNA  — MAX2837 LNA: NF ~3.5 dB at max gain (40 dB), degrades ~0.15 dB
+///          per dB of gain reduction (model: NF_LNA = 3.5 + (40−G)×0.15)
+///   VGA  — MAX2837 baseband VGA: NF ~10 dB (contribution negligible at high LNA gain)
+///
+/// Friis: F_total = F₁ + (F₂−1)/G₁ + (F₃−1)/(G₁·G₂)  (all linear, → back to dB)
+fn estimate_nf_db(amp_enabled: bool, lna_gain: u32, vga_gain: u32) -> f64 {
+    let lin = |db: f64| 10f64.powf(db / 10.0);
+
+    let nf_lna = 3.5 + (40.0 - lna_gain as f64).max(0.0) * 0.15;
+    let f_lna  = lin(nf_lna);
+    let g_lna  = lin(lna_gain as f64);
+    let f_vga  = lin(10.0);
+
+    let f_total = if amp_enabled {
+        let f_amp = lin(2.0);
+        let g_amp = lin(14.0);
+        f_amp + (f_lna - 1.0) / g_amp + (f_vga - 1.0) / (g_amp * g_lna)
+    } else {
+        f_lna + (f_vga - 1.0) / g_lna
+    };
+
+    10.0 * f_total.log10()
+}
+
 fn gain_advice(hist: &[u64; 32]) -> (&'static str, bool) {
     let total: u64 = hist.iter().sum();
     if total == 0 { return ("no signal — start RX", false); }
@@ -95,23 +123,63 @@ impl Panel for RfChainPanel {
             (ratio, color)
         };
 
+        // Estimated cascade Noise Figure (Friis)
+        let nf_db = estimate_nf_db(state.radio.amp_enabled, state.radio.lna_gain, state.radio.vga_gain);
+        let nf_color = if nf_db < 4.0      { theme.status_ok }
+                       else if nf_db < 8.0 { theme.status_warn }
+                       else                { theme.status_crit };
+
+        // Frequency display
+        let freq_str = format!("{:.3} MHz", state.radio.frequency as f64 / 1_000_000.0);
+
+        // Gain chain: AMP[14] → LNA[xx] → VGA[xx] = total dB
+        let chain_line = if state.radio.amp_enabled {
+            Line::from(vec![
+                Span::styled("AMP", lbl),
+                Span::styled(format!("[{}]", 14), hi),
+                Span::styled(" → ", lbl),
+                Span::styled("LNA", lbl),
+                Span::styled(format!("[{}]", state.radio.lna_gain), hi),
+                Span::styled(" → ", lbl),
+                Span::styled("VGA", lbl),
+                Span::styled(format!("[{}]", state.radio.vga_gain), hi),
+                Span::styled(format!(" = {} dB", total_gain), Style::default().fg(theme.value_hi)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("LNA", lbl),
+                Span::styled(format!("[{}]", state.radio.lna_gain), hi),
+                Span::styled(" → ", lbl),
+                Span::styled("VGA", lbl),
+                Span::styled(format!("[{}]", state.radio.vga_gain), hi),
+                Span::styled(format!(" = {} dB", total_gain), Style::default().fg(theme.value_hi)),
+            ])
+        };
+
         let info_rows: &[Line] = &[
             Line::from(vec![
-                Span::styled(format!("{:<13}", "BB filter"),  lbl),
-                Span::styled(fmt_hz(bb_bw), val),
+                Span::styled(format!("{:<13}", "Freq"),      lbl),
+                Span::styled(freq_str, hi),
             ]),
             Line::from(vec![
-                Span::styled(format!("{:<13}", "Total gain"), lbl),
-                Span::styled(format!("{} dB", total_gain), hi),
+                Span::styled(format!("{:<13}", "BB filter"), lbl),
+                Span::styled(fmt_hz(bb_bw), val),
+            ]),
+            Line::from(vec![Span::raw("")]),
+            chain_line,
+            Line::from(vec![
+                Span::styled(format!("{:<13}", "Est. NF"),  lbl),
+                Span::styled(format!("~{:.1} dB", nf_db),  Style::default().fg(nf_color)),
+                Span::styled("  (Friis)", Style::default().fg(theme.border_dim)),
             ]),
             Line::from(vec![Span::raw("")]),
             Line::from(vec![
                 Span::styled(format!("{:<13}", "Board"),   lbl),
-                Span::styled(Device::board_rev_name(state.system.board_rev), val),
+                Span::styled(Device::board_rev_name(state.system.board_rev), Style::default().fg(theme.border_dim)),
             ]),
             Line::from(vec![
                 Span::styled(format!("{:<13}", "USB API"), lbl),
-                Span::styled(format!("{:#06x}", state.system.usb_api_version), val),
+                Span::styled(format!("{:#06x}", state.system.usb_api_version), Style::default().fg(theme.border_dim)),
             ]),
             Line::from(vec![
                 Span::styled(format!("{:<13}", "CPLD"),    lbl),
@@ -151,5 +219,42 @@ impl Panel for RfChainPanel {
             &format!("{:.0}%", util_ratio * 100.0),
             util_color, theme,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nf_amp_on_max_gain_is_near_amp_nf() {
+        // With AMP enabled and max LNA gain, first stage (AMP, NF=2.0 dB)
+        // dominates — cascade NF should be just above 2.0 dB.
+        let nf = estimate_nf_db(true, 40, 20);
+        assert!(nf > 2.0 && nf < 3.0, "expected ~2.1 dB, got {:.2}", nf);
+    }
+
+    #[test]
+    fn nf_amp_off_max_lna_gain_near_lna_nf() {
+        // Without AMP, LNA is first stage at max gain (40 dB, NF≈3.5 dB).
+        // VGA contribution is negligible — cascade NF ≈ 3.5 dB.
+        let nf = estimate_nf_db(false, 40, 20);
+        assert!(nf > 3.4 && nf < 4.0, "expected ~3.5 dB, got {:.2}", nf);
+    }
+
+    #[test]
+    fn nf_degrades_at_lower_lna_gain() {
+        // Lower LNA gain → higher NF (both LNA NF degrades and VGA contributes more).
+        let nf_high = estimate_nf_db(false, 40, 20);
+        let nf_low  = estimate_nf_db(false,  8, 20);
+        assert!(nf_low > nf_high, "NF should be worse at lower LNA gain");
+    }
+
+    #[test]
+    fn nf_amp_lowers_cascade_nf() {
+        // Enabling AMP should lower the cascade NF at same LNA/VGA settings.
+        let nf_no_amp = estimate_nf_db(false, 24, 20);
+        let nf_amp    = estimate_nf_db(true,  24, 20);
+        assert!(nf_amp < nf_no_amp, "AMP should improve cascade NF");
     }
 }
