@@ -94,8 +94,12 @@ impl LayoutEngine {
                     .unwrap_or(3)
             })
         };
-        let top_h: u16 = top_specs.iter().map(panel_h).sum();
-        let bot_h: u16 = bottom_specs.iter().map(panel_h).sum();
+
+        // Compute heights once — reused for both total-height sum and per-panel Rect.
+        let top_heights: Vec<u16>    = top_specs.iter().map(panel_h).collect();
+        let bottom_heights: Vec<u16> = bottom_specs.iter().map(panel_h).collect();
+        let top_h: u16 = top_heights.iter().sum();
+        let bot_h: u16 = bottom_heights.iter().sum();
 
         let outer = Layout::default()
             .direction(Direction::Vertical)
@@ -108,8 +112,7 @@ impl LayoutEngine {
 
         // Top panels — stacked downward
         let mut y = outer[0].y;
-        for spec in &top_specs {
-            let h = panel_h(spec);
+        for (spec, &h) in top_specs.iter().zip(top_heights.iter()) {
             let area = Rect { x: outer[0].x, y, width: outer[0].width, height: h };
             self.registry.render_panel(&spec.name, f, area, state, theme, focused == Some(spec.name.as_str()));
             y += h;
@@ -117,8 +120,7 @@ impl LayoutEngine {
 
         // Bottom panels — stacked downward
         let mut y = outer[2].y;
-        for spec in &bottom_specs {
-            let h = panel_h(spec);
+        for (spec, &h) in bottom_specs.iter().zip(bottom_heights.iter()) {
             let area = Rect { x: outer[2].x, y, width: outer[2].width, height: h };
             self.registry.render_panel(&spec.name, f, area, state, theme, focused == Some(spec.name.as_str()));
             y += h;
