@@ -234,11 +234,13 @@ mod tests {
 
     #[test]
     fn papr_single_bin_is_near_zero_db() {
-        // All samples in one bin → peak ≈ rms → PAPR near 0 dB
+        // All samples in one mid/high bin → peak_top/bin_centre ≈ 1 → PAPR near 0 dB.
+        // (Bin 0 is a special case: ratio = 4/2 = 2 → 6 dB, a quantisation artefact
+        //  for noise-floor signals — the status label already flags those as "weak".)
         let mut hist = [0u64; 32];
         hist[20] = 1000;
         let papr = estimate_papr_db(&hist, 1000).unwrap();
-        assert!(papr.abs() < 1.0, "single-bin PAPR should be ~0 dB, got {:.2}", papr);
+        assert!(papr.abs() < 1.0, "single-bin PAPR (bin 20) should be ~0.2 dB, got {:.2}", papr);
     }
 
     #[test]
