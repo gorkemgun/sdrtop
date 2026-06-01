@@ -43,9 +43,13 @@ impl Panel for RfChainPanel {
     fn min_size(&self) -> (u16, u16) { (32, 10) }
 
     fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
-        let border_color = if focused { theme.border_focused } else { theme.border_default };
+        let stale = !state.radio.hw_streaming;
+        let title = if stale { " RF Chain [STALE] " } else { " RF Chain " };
+        let border_color = if focused { theme.border_focused }
+            else if stale { theme.stale }
+            else { theme.border_default };
         let block = Block::default()
-            .title(" RF Chain ")
+            .title(title)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color));
@@ -67,8 +71,14 @@ impl Panel for RfChainPanel {
         let val  = Style::default().fg(theme.value);
         let hi   = Style::default().fg(theme.value_hi);
 
-        let (advice_text, is_warn) = gain_advice(&state.iq.iq_amplitude_hist);
-        let advice_color = if is_warn { theme.status_crit } else { theme.status_ok };
+        let (advice_text, is_warn) = if stale {
+            ("--- (RX not streaming)", false)
+        } else {
+            gain_advice(&state.iq.iq_amplitude_hist)
+        };
+        let advice_color = if stale { theme.stale }
+            else if is_warn { theme.status_crit }
+            else { theme.status_ok };
 
         // ADC utilisation gauge: fraction of samples in mid-range bins (8–23)
         let total: u64 = state.iq.iq_amplitude_hist.iter().sum();

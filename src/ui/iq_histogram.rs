@@ -108,7 +108,9 @@ impl Panel for IqHistogramPanel {
         let pad = ax_layout[1].width as usize / 2;
         f.render_widget(
             Paragraph::new(Span::styled(
-                format!("{:>width$}", mid_label, width = pad + mid_label.len()),
+                // Use chars().count() — '─' is 3 bytes in UTF-8 so .len() would
+                // over-pad by 8 bytes, pushing the label off-screen in narrow windows.
+                format!("{:>width$}", mid_label, width = pad + mid_label.chars().count()),
                 Style::default().fg(ok_color),
             )),
             ax_layout[1],
