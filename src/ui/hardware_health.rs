@@ -22,9 +22,13 @@ impl Panel for HardwareHealthPanel {
     fn min_size(&self) -> (u16, u16) { (30, 12) }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
-        let border_color = if focused { theme.border_focused } else { theme.border_default };
+        let stale = !state.radio.hw_streaming;
+        let title = if stale { " Hardware Health [STALE] " } else { " Hardware Health " };
+        let border_color = if focused { theme.border_focused }
+            else if stale { theme.stale }
+            else { theme.border_default };
         let block = Block::default()
-            .title(" Hardware Health ")
+            .title(title)
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color));
@@ -76,22 +80,32 @@ impl Panel for HardwareHealthPanel {
             .collect();
         crate::ui::charts::draw_mini_graph(f, rows[3], &sat_data, sat_color);
 
-        let period_ms = state.iq.cb_period_us as f64 / 1000.0;
         let jitter_color = threshold_color(state.iq.cb_jitter_us as f64, 200.0, 1000.0, theme);
+        let cb_text = if state.iq.cb_period_us == 0 {
+            "CB period ---  jitter ---".to_string()
+        } else {
+            format!(
+                "CB period {:.1} ms  jitter ±{} µs",
+                state.iq.cb_period_us as f64 / 1000.0,
+                state.iq.cb_jitter_us,
+            )
+        };
         f.render_widget(
             Paragraph::new(Span::styled(
-                format!(
-                    "CB period {:.1} ms  jitter ±{} µs",
-                    period_ms, state.iq.cb_jitter_us
-                ),
-                Style::default().fg(jitter_color),
+                cb_text,
+                Style::default().fg(if state.iq.cb_period_us == 0 { theme.label } else { jitter_color }),
             )),
             rows[4],
         );
         let jitter_data: Vec<u64> = state.iq.jitter_history.iter().cloned().collect();
         crate::ui::charts::draw_mini_graph(f, rows[5], &jitter_data, jitter_color);
 
-        let usb_color = if state.signal.usb_errors_session > 0 { theme.status_crit } else { theme.status_ok };
+        // Color by recent rate (last poll delta), not session total — avoids
+        // permanently-crit display after a single historic error.
+        let usb_recent: u64 = state.signal.usb_error_history.iter().sum();
+        let usb_color = if usb_recent > 0 { theme.status_crit }
+            else if state.signal.usb_errors_session > 0 { theme.status_warn }
+            else { theme.status_ok };
         f.render_widget(
             Paragraph::new(Span::styled(
                 format!("USB errors: {} (session)", state.signal.usb_errors_session),
