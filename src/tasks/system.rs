@@ -7,6 +7,10 @@ use crate::state::SdrMetrics;
 pub fn spawn_sys_resource_task(state: Arc<Mutex<SdrMetrics>>) {
     tokio::spawn(async move {
         let ticks_per_sec = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
+        // Normalise by core count so the result is a system-wide 0–100% figure.
+        // Without this, a multi-threaded process (FFT worker + rx task + UI) can
+        // consume >1 core, making the raw per-core figure pin to 100%.
+        let ncpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f64;
         let mut last_ticks = read_self_stats().map(|(t, _)| t).unwrap_or(0);
         let mut last_time = Instant::now();
 
@@ -16,7 +20,7 @@ pub fn spawn_sys_resource_task(state: Arc<Mutex<SdrMetrics>>) {
                 let elapsed = last_time.elapsed().as_secs_f64();
                 let tick_delta = total_ticks.saturating_sub(last_ticks) as f64;
                 let cpu_pct = if elapsed > 0.0 && ticks_per_sec > 0.0 {
-                    (tick_delta / ticks_per_sec / elapsed * 100.0).min(100.0) as f32
+                    (tick_delta / ticks_per_sec / elapsed / ncpus * 100.0).min(100.0) as f32
                 } else {
                     0.0
                 };
