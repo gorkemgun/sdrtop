@@ -17,7 +17,6 @@ pub struct FftFrame {
     pub enbw_hz:          f64,
 }
 
-#[derive(Clone)]
 pub struct WaterfallBuffer {
     /// Each row: (push timestamp, averaged bins). Newest row first.
     pub rows:       VecDeque<(Instant, Arc<Vec<f32>>)>,
@@ -26,6 +25,21 @@ pub struct WaterfallBuffer {
     pub row_stride: usize,
     acc_bins:  Vec<f32>,
     acc_count: usize,
+}
+
+impl Clone for WaterfallBuffer {
+    fn clone(&self) -> Self {
+        Self {
+            rows:       self.rows.clone(),
+            max_rows:   self.max_rows,
+            paused:     self.paused,
+            row_stride: self.row_stride,
+            // acc_bins is an internal FFT accumulator never read by the UI —
+            // skip the 8 KB copy and give the clone an empty buffer.
+            acc_bins:  Vec::new(),
+            acc_count: self.acc_count,
+        }
+    }
 }
 
 impl WaterfallBuffer {
