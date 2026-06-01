@@ -21,6 +21,21 @@ fn fmt_hz(hz: u32) -> String {
     }
 }
 
+/// Format a length in cm into the most readable unit.
+fn fmt_cm(cm: f64) -> String {
+    if cm >= 100.0      { format!("{:.2} m",  cm / 100.0) }
+    else if cm >= 1.0   { format!("{:.1} cm", cm) }
+    else                { format!("{:.1} mm", cm * 10.0) }
+}
+
+/// λ and λ/4 from frequency in Hz.  Returns "--- / ---" if frequency is 0.
+fn fmt_wavelength(freq_hz: u64) -> String {
+    if freq_hz == 0 { return "--- / ---".to_string(); }
+    let lambda    = 3e10 / freq_hz as f64;   // cm  (c = 3×10¹⁰ cm/s)
+    let lambda_4  = lambda / 4.0;
+    format!("{} / {}", fmt_cm(lambda), fmt_cm(lambda_4))
+}
+
 /// Cascade Noise Figure via Friis formula (result in dB).
 ///
 /// HackRF One stage approximations:
@@ -139,8 +154,10 @@ impl Panel for RfChainPanel {
                        else if nf_db < 8.0 { theme.status_warn }
                        else                { theme.status_crit };
 
-        // Frequency display
-        let freq_str = format!("{:.3} MHz", state.radio.frequency as f64 / 1_000_000.0);
+        // Frequency, wavelength, and sample rate strings
+        let freq_str  = format!("{:.3} MHz", state.radio.frequency as f64 / 1_000_000.0);
+        let wl_str    = fmt_wavelength(state.radio.frequency);
+        let sr_str    = format!("{:.3} MHz", state.radio.config_sample_rate / 1_000_000.0);
 
         // Gain chain: AMP[14] → LNA[xx] → VGA[xx] = total dB
         let chain_line = if state.radio.amp_enabled {
@@ -168,11 +185,19 @@ impl Panel for RfChainPanel {
 
         let info_rows: &[Line] = &[
             Line::from(vec![
-                Span::styled(format!("{:<13}", "Freq"),      lbl),
+                Span::styled(format!("{:<13}", "Freq"),       lbl),
                 Span::styled(freq_str, hi),
             ]),
             Line::from(vec![
-                Span::styled(format!("{:<13}", "BB filter"), lbl),
+                Span::styled(format!("{:<13}", "λ / λ/4"),   lbl),
+                Span::styled(wl_str, val),
+            ]),
+            Line::from(vec![
+                Span::styled(format!("{:<13}", "Sample rate"), lbl),
+                Span::styled(sr_str, val),
+            ]),
+            Line::from(vec![
+                Span::styled(format!("{:<13}", "BB filter"),  lbl),
                 Span::styled(fmt_hz(bb_bw), val),
             ]),
             Line::from(vec![Span::raw("")]),
@@ -295,6 +320,27 @@ mod tests {
         hist[8] = 50; hist[16] = 50; // mid-range utilisation
         let (_, sev) = gain_advice(&hist);
         assert_eq!(sev, 0);
+    }
+
+    #[test]
+    fn wavelength_2400mhz() {
+        // λ = 3e10 / 2.4e9 = 12.5 cm,  λ/4 = 3.1 cm
+        let s = fmt_wavelength(2_400_000_000);
+        assert!(s.contains("12.5 cm"), "got: {}", s);
+        assert!(s.contains("3.1 cm"),  "got: {}", s);
+    }
+
+    #[test]
+    fn wavelength_433mhz() {
+        // λ = 3e10 / 4.33e8 ≈ 69.3 cm,  λ/4 ≈ 17.3 cm
+        let s = fmt_wavelength(433_000_000);
+        assert!(s.contains("69."), "got: {}", s);
+        assert!(s.contains("17."), "got: {}", s);
+    }
+
+    #[test]
+    fn wavelength_zero_returns_dashes() {
+        assert_eq!(fmt_wavelength(0), "--- / ---");
     }
 
     #[test]
