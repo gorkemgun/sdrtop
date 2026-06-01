@@ -111,6 +111,11 @@ pub fn spawn_rx_task(
                 m.iq.buf_fill_pct = if cap > 0 {
                     rx_ctx.sample_tx.len() as f32 / cap as f32 * 100.0
                 } else { 0.0 };
+                let buf_sample = (m.iq.buf_fill_pct * 10.0) as u64;
+                if m.iq.buf_fill_history.len() >= crate::state::THROUGHPUT_HISTORY_LEN {
+                    m.iq.buf_fill_history.pop_front();
+                }
+                m.iq.buf_fill_history.push_back(buf_sample);
 
                 (acc_i_sum, acc_q_sum, acc_i_sq_sum, acc_q_sq_sum,
                  acc_cross_sum, acc_samples, acc_jitter_sum, acc_jitter_sq, acc_jitter_cnt)

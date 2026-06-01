@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    text::Span,
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
@@ -19,7 +19,7 @@ fn threshold_color(value: f64, warn: f64, crit: f64, theme: &crate::Theme) -> Co
 
 impl Panel for HardwareHealthPanel {
     fn name(&self) -> &'static str { "hardware_health" }
-    fn min_size(&self) -> (u16, u16) { (30, 12) }
+    fn min_size(&self) -> (u16, u16) { (30, 18) }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let stale = !state.radio.hw_streaming;
@@ -38,14 +38,17 @@ impl Panel for HardwareHealthPanel {
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
-                Constraint::Length(2),
-                Constraint::Length(1),
-                Constraint::Length(2),
-                Constraint::Length(1),
-                Constraint::Length(2),
-                Constraint::Length(1),
-                Constraint::Length(2),
+                Constraint::Length(1), // [0] drops label
+                Constraint::Length(2), // [1] drops graph
+                Constraint::Length(1), // [2] sat label
+                Constraint::Length(2), // [3] sat graph
+                Constraint::Length(1), // [4] CPU + RAM label
+                Constraint::Length(2), // [5] CPU graph
+                Constraint::Length(1), // [6] USB label
+                Constraint::Length(2), // [7] USB graph
+                Constraint::Length(1), // [8] sample rate label
+                Constraint::Length(1), // [9] BUF fill label
+                Constraint::Length(2), // [10] BUF fill graph
                 Constraint::Min(0),
             ])
             .split(inner);
@@ -80,25 +83,21 @@ impl Panel for HardwareHealthPanel {
             .collect();
         crate::ui::charts::draw_mini_graph(f, rows[3], &sat_data, sat_color);
 
-        let jitter_color = threshold_color(state.iq.cb_jitter_us as f64, 200.0, 1000.0, theme);
-        let cb_text = if state.iq.cb_period_us == 0 {
-            "CB period ---  jitter ---".to_string()
-        } else {
-            format!(
-                "CB period {:.1} ms  jitter ±{} µs",
-                state.iq.cb_period_us as f64 / 1000.0,
-                state.iq.cb_jitter_us,
-            )
-        };
+        let cpu = state.system.process_cpu_pct;
+        let cpu_color = threshold_color(cpu as f64, 50.0, 80.0, theme);
+        let rss_color = threshold_color(state.system.process_rss_mb as f64, 200.0, 400.0, theme);
+        let lbl = Style::default().fg(theme.label);
         f.render_widget(
-            Paragraph::new(Span::styled(
-                cb_text,
-                Style::default().fg(if state.iq.cb_period_us == 0 { theme.label } else { jitter_color }),
-            )),
+            Paragraph::new(Line::from(vec![
+                Span::styled("CPU: ", lbl),
+                Span::styled(format!("{:.1}%", cpu), Style::default().fg(cpu_color)),
+                Span::styled("   RAM: ", lbl),
+                Span::styled(format!("{} MB", state.system.process_rss_mb), Style::default().fg(rss_color)),
+            ])),
             rows[4],
         );
-        let jitter_data: Vec<u64> = state.iq.jitter_history.iter().cloned().collect();
-        crate::ui::charts::draw_mini_graph(f, rows[5], &jitter_data, jitter_color);
+        let cpu_data: Vec<u64> = state.system.cpu_history.iter().cloned().collect();
+        crate::ui::charts::draw_mini_graph(f, rows[5], &cpu_data, cpu_color);
 
         // Color by recent rate (last poll delta), not session total — avoids
         // permanently-crit display after a single historic error.
@@ -115,5 +114,39 @@ impl Panel for HardwareHealthPanel {
         );
         let usb_err_data: Vec<u64> = state.signal.usb_error_history.iter().cloned().collect();
         crate::ui::charts::draw_mini_graph(f, rows[7], &usb_err_data, usb_color);
+
+        // Sample rate: configured vs actually measured
+        let cfg_sr  = state.radio.config_sample_rate / 1_000_000.0;
+        let act_sr  = state.radio.actual_sample_rate  as f64 / 1_000_000.0;
+        let (sr_text, sr_color) = if state.radio.actual_sample_rate == 0 {
+            ("SR  config --- / actual ---".to_string(), theme.label)
+        } else {
+            let delta_pct = ((act_sr - cfg_sr) / cfg_sr * 100.0).abs();
+            let color = if delta_pct < 2.0      { theme.status_ok }
+                        else if delta_pct < 10.0 { theme.status_warn }
+                        else                     { theme.status_crit };
+            (format!("SR  {:.3} → {:.3} MHz  ({:+.1}%)", cfg_sr, act_sr, act_sr - cfg_sr), color)
+        };
+        f.render_widget(
+            Paragraph::new(Span::styled(sr_text, Style::default().fg(sr_color))),
+            rows[8],
+        );
+
+        // Buffer fill history
+        let buf_color = if state.iq.buf_fill_pct >= 80.0 { theme.status_crit }
+                        else if state.iq.buf_fill_pct >= 50.0 { theme.status_warn }
+                        else { theme.status_ok };
+        f.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("BUF fill: ", lbl),
+                Span::styled(
+                    if stale { "---".to_string() } else { format!("{:.0}%", state.iq.buf_fill_pct) },
+                    Style::default().fg(if stale { theme.stale } else { buf_color }),
+                ),
+            ])),
+            rows[9],
+        );
+        let buf_data: Vec<u64> = state.iq.buf_fill_history.iter().cloned().collect();
+        crate::ui::charts::draw_mini_graph(f, rows[10], &buf_data, buf_color);
     }
 }

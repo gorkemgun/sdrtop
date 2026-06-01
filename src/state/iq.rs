@@ -8,5 +8,6 @@ pub struct IqState {
     pub jitter_history:      std::collections::VecDeque<u64>,
     pub iq_amplitude_hist:   [u64; 32],
     pub buf_fill_pct:        f32,
+    pub buf_fill_history:    std::collections::VecDeque<u64>,
     pub phase_imbalance_deg: f32,
 }

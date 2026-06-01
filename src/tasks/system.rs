@@ -25,6 +25,10 @@ pub fn spawn_sys_resource_task(state: Arc<Mutex<SdrMetrics>>) {
                 if let Ok(mut m) = state.lock() {
                     m.system.process_cpu_pct = cpu_pct;
                     m.system.process_rss_mb  = rss_mb;
+                    if m.system.cpu_history.len() >= crate::state::THROUGHPUT_HISTORY_LEN {
+                        m.system.cpu_history.pop_front();
+                    }
+                    m.system.cpu_history.push_back((cpu_pct * 10.0) as u64);
                 }
             }
         }
