@@ -53,6 +53,12 @@ pub fn fmt_spectrum_step(hz: u64) -> String {
     else { format!("{} kHz", hz / 1_000) }
 }
 
+fn freq_to_canvas_x(freq_hz: f64, left_hz: f64, bw: f64, n: f64) -> Option<f64> {
+    if bw <= 0.0 { return None; }
+    let frac = (freq_hz - left_hz) / bw;
+    if (0.0..=1.0).contains(&frac) { Some(frac * (n - 1.0)) } else { None }
+}
+
 pub struct SpectrumPanel;
 
 impl Panel for SpectrumPanel {
@@ -145,9 +151,10 @@ impl Panel for SpectrumPanel {
                 let n_bins = frame.bins_dbfs.len();
                 if n_bins == 0 { return; }
                 let n = n_bins as f64;
-                let bw         = frame.sample_rate;
-                let left_hz    = frame.center_freq_hz as f64 - bw / 2.0;
-                let right_hz   = frame.center_freq_hz as f64 + bw / 2.0;
+                let bw = frame.sample_rate;
+                if bw <= 0.0 { return; }
+                let left_hz  = frame.center_freq_hz as f64 - bw / 2.0;
+                let right_hz = frame.center_freq_hz as f64 + bw / 2.0;
 
                 // Dynamic y-range from state (user-controlled zoom)
                 let y_min_f = state.spectrum.y_min;
@@ -181,27 +188,39 @@ impl Panel for SpectrumPanel {
 
                 // Marker canvas x-coordinates + optional BW boundary pairs
                 struct MarkerCanvas {
-                    x:      f64,
+                    x:      Option<f64>,
                     bw_lo:  Option<f64>,
                     bw_hi:  Option<f64>,
                 }
                 let marker_data: Vec<MarkerCanvas> = state.spectrum.markers.iter()
                     .filter_map(|mk| {
-                        let frac = (mk.freq_hz as f64 - left_hz) / bw;
-                        if !(0.0..=1.0).contains(&frac) { return None; }
-                        let x = frac * (n - 1.0);
+                        let x = freq_to_canvas_x(mk.freq_hz as f64, left_hz, bw, n);
                         let (bw_lo, bw_hi) = if let Some(ch_bw) = mk.channel_bw_hz {
                             let half = ch_bw as f64 / 2.0;
                             let lo_frac = (mk.freq_hz as f64 - half - left_hz) / bw;
                             let hi_frac = (mk.freq_hz as f64 + half - left_hz) / bw;
                             (
-                                if lo_frac >= 0.0 { Some(lo_frac * (n - 1.0)) } else { None },
-                                if hi_frac <= 1.0 { Some(hi_frac * (n - 1.0)) } else { None },
+                                if (0.0..=1.0).contains(&lo_frac) { Some(lo_frac * (n - 1.0)) } else { None },
+                                if (0.0..=1.0).contains(&hi_frac) { Some(hi_frac * (n - 1.0)) } else { None },
                             )
                         } else {
                             (None, None)
                         };
-                        Some(MarkerCanvas { x, bw_lo, bw_hi })
+
+                        let overlaps_view = if let Some(ch_bw) = mk.channel_bw_hz {
+                            let half = ch_bw as f64 / 2.0;
+                            let lo_frac = (mk.freq_hz as f64 - half - left_hz) / bw;
+                            let hi_frac = (mk.freq_hz as f64 + half - left_hz) / bw;
+                            lo_frac <= 1.0 && hi_frac >= 0.0
+                        } else {
+                            x.is_some()
+                        };
+
+                        if overlaps_view {
+                            Some(MarkerCanvas { x, bw_lo, bw_hi })
+                        } else {
+                            None
+                        }
                     })
                     .collect();
                 let marker_color    = theme.status_warn;
@@ -265,7 +284,9 @@ impl Panel for SpectrumPanel {
                             ctx.draw(&CanvasLine { x1: 0.0, y1: nf, x2: n - 1.0, y2: nf, color: noise_floor_color });
                             // 6. Marker lines + channel BW boundaries
                             for md in &marker_data {
-                                ctx.draw(&CanvasLine { x1: md.x, y1: y_min, x2: md.x, y2: y_max, color: marker_color });
+                                if let Some(cx) = md.x {
+                                    ctx.draw(&CanvasLine { x1: cx, y1: y_min, x2: cx, y2: y_max, color: marker_color });
+                                }
                                 if let Some(lo) = md.bw_lo {
                                     ctx.draw(&CanvasLine { x1: lo, y1: y_min, x2: lo, y2: y_max, color: bw_border_color });
                                 }
