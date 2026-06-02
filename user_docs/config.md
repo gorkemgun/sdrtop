@@ -54,6 +54,51 @@ You can add as many as you like. You can also place them from within sdrtop usin
 
 ---
 
+## Custom layout presets
+
+A *preset* is a named arrangement of panels. sdrtop ships with built-in presets you switch between with the number keys, but you can also define your own in the config file. Your presets are merged with the built-in ones at startup, and they survive a save — sdrtop never erases hand-written presets.
+
+A preset is a list of panels. Each panel has a `name`, a `position`, and optionally a size:
+
+```toml
+[presets.my_view]
+panels = [
+  { name = "header",   position = "top",    height = 5     },
+  { name = "spectrum", position = "body"                    },
+  { name = "log",      position = "right",  width_pct = 30  },
+  { name = "footer",   position = "bottom"                  },
+]
+```
+
+**Positions:**
+
+| Position | Where it goes | Size field |
+|----------|---------------|------------|
+| `top`    | Full-width strip at the top    | `height` (rows) |
+| `bottom` | Full-width strip at the bottom | `height` (rows) |
+| `left`   | Left column of the body        | `width_pct` (% of body) |
+| `right`  | Right column of the body       | `width_pct` (% of body) |
+| `body`   | Centre column (fills remaining space) | — |
+
+**Available panel names:** `header`, `spectrum`, `waterfall`, `log`, `footer`, `signal_strip`, `rf_chain`, `iq_diagnostics`, `iq_histogram`, `hardware_health`, `signal_metrics`, `system_resources`.
+
+**Reaching your preset:**
+
+- It automatically joins the `p` cycle (presets are cycled in alphabetical order).
+- If you name it after a reserved number-key slot, that key switches to it directly:
+
+  | Key | Reserved name |
+  |-----|---------------|
+  | `6` | `lab_iq`      |
+  | `7` | `lab_rf`      |
+  | `8` | `lab_timing`  |
+  | `9` | `lab_signal`  |
+  | `0` | `micro_main`  |
+
+  For example, defining `[presets.lab_iq]` makes the `6` key switch to it. (Pressing a number key whose preset isn't defined just logs a note and does nothing.) If you override a built-in name (`main`, `spectrum`, `waterfall`, `spectrum_waterfall`, `lab`), your version replaces it.
+
+---
+
 ## CLI flags
 
 If you want to start sdrtop with specific settings without changing the config file, you can pass them on the command line. These override the saved config for that session only.

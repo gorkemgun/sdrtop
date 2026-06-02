@@ -17,7 +17,8 @@
 | `h` | Freeze the spectrum (hold the current frame) |
 | `e` | Enter spectrum focus mode |
 | `l` | Enter waterfall focus mode |
-| `1`–`5` | Switch layout preset |
+| `1`–`5` | Switch built-in layout preset |
+| `6`–`9`, `0` | Switch to a custom preset (when defined — see [Configuration](config.md#custom-layout-presets)) |
 | `p` | Cycle through presets |
 | `Tab` | Show or hide the footer bar |
 | `?` | Show the help overlay |

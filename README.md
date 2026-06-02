@@ -89,7 +89,8 @@ Press `Space` to start receiving. Press `?` for the key reference. Press `q` to 
 | `h`        | Hold / unhold spectrum frame   |
 | `e`        | Focus spectrum panel           |
 | `l`        | Focus waterfall panel          |
-| `1`–`5`    | Switch layout preset           |
+| `1`–`5`    | Switch built-in layout preset  |
+| `6`–`9`, `0` | Switch to a custom preset (if defined — see below) |
 | `p`        | Cycle presets                  |
 | `Tab`      | Toggle footer bar              |
 | `?`        | Help overlay                   |
@@ -126,6 +127,8 @@ base = "nord"
 ```
 
 Available themes: `sdr` (default) · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
+
+You can also define your own `[presets.*]` layouts in the config — they merge with the built-ins and survive a save. See [user_docs/config.md](user_docs/config.md#custom-layout-presets).
 
 ---
 

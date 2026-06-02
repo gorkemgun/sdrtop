@@ -27,6 +27,9 @@ pub struct App {
     pub(super) engine:      ui::LayoutEngine,
     pub(super) theme:       crate::Theme,
     pub(super) focus_keys:  HashMap<char, &'static str>,
+    /// User-defined presets as loaded from config.toml, kept so save_config can
+    /// write them back verbatim instead of erasing hand-edited presets.
+    pub(super) user_presets: HashMap<String, crate::config::PresetConfig>,
 }
 
 impl App {
@@ -110,6 +113,7 @@ impl App {
                 spectrum_markers:   markers,
             },
             theme: crate::config::ThemeConfig { base: self.theme.name.to_string(), ..Default::default() },
+            presets: self.user_presets.clone(),
         };
         let _ = cfg.save(path);
     }

@@ -90,6 +90,11 @@ pub struct AppConfig {
     pub display: DisplayConfig,
     #[serde(default)]
     pub theme: ThemeConfig,
+    /// User-defined layout presets, merged into the built-in set at startup.
+    /// A preset here with the same name as a built-in overrides it. Preserved
+    /// verbatim across save so hand-written presets survive a quit.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub presets: HashMap<String, PresetConfig>,
 }
 
 impl AppConfig {
@@ -148,7 +153,7 @@ impl AppConfig {
     }
 }
 
-#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Position {
     Top,
@@ -158,21 +163,21 @@ pub enum Position {
     Body,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct PanelSpec {
     pub name: String,
     pub position: Position,
     /// Height in terminal rows — used for Top and Bottom panels.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u16>,
     /// Width as a percentage of the body zone — used for Left and Right panels.
     /// All panels in the same column carry the same value; the LayoutEngine
     /// reads only the first panel's value to determine column width.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub width_pct: Option<u16>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct PresetConfig {
     pub panels: Vec<PanelSpec>,
 }
@@ -252,6 +257,17 @@ impl LayoutConfig {
         Self { active_preset: "spectrum_waterfall".into(), presets }
     }
 
+    /// Built-in presets with the user's custom presets merged on top. A user
+    /// preset whose name matches a built-in replaces it; new names are added
+    /// (and so join the `[P]` cycle automatically).
+    pub fn with_user_presets(user: &HashMap<String, PresetConfig>) -> Self {
+        let mut cfg = Self::default_config();
+        for (name, preset) in user {
+            cfg.presets.insert(name.clone(), preset.clone());
+        }
+        cfg
+    }
+
     pub fn active_panels(&self) -> &[PanelSpec] {
         self.presets
             .get(&self.active_preset)
@@ -324,6 +340,56 @@ mod tests {
         let restored: AppConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(restored.radio.lna_gain, 24);
         assert_eq!(restored.display.active_preset, "spectrum");
+    }
+
+    #[test]
+    fn with_user_presets_adds_new_and_overrides_builtin() {
+        let raw = r#"
+            [presets.custom]
+            panels = [
+              { name = "header", position = "top", height = 3 },
+              { name = "footer", position = "bottom" },
+            ]
+            [presets.main]
+            panels = [
+              { name = "spectrum", position = "body" },
+            ]
+        "#;
+        let app: AppConfig = toml::from_str(raw).unwrap();
+        let cfg = LayoutConfig::with_user_presets(&app.presets);
+        // New preset joined the set.
+        assert!(cfg.presets.contains_key("custom"));
+        // Built-in presets still present.
+        assert!(cfg.presets.contains_key("spectrum_waterfall"));
+        // User override replaced the built-in "main".
+        let main = cfg.presets.get("main").unwrap();
+        assert_eq!(main.panels.len(), 1);
+        assert_eq!(main.panels[0].name, "spectrum");
+    }
+
+    #[test]
+    fn app_config_round_trip_preserves_user_presets() {
+        let raw = r#"
+            [presets.custom]
+            panels = [
+              { name = "header", position = "top", height = 3 },
+              { name = "footer", position = "bottom" },
+            ]
+        "#;
+        let app: AppConfig = toml::from_str(raw).unwrap();
+        let serialized = toml::to_string_pretty(&app).unwrap();
+        let restored: AppConfig = toml::from_str(&serialized).unwrap();
+        let custom = restored.presets.get("custom").expect("custom preset survives round-trip");
+        assert_eq!(custom.panels.len(), 2);
+        assert_eq!(custom.panels[0].height, Some(3));
+        assert_eq!(custom.panels[1].name, "footer");
+    }
+
+    #[test]
+    fn app_config_without_presets_omits_section() {
+        let app = AppConfig::default();
+        let serialized = toml::to_string_pretty(&app).unwrap();
+        assert!(!serialized.contains("[presets"), "empty presets should not emit a section: {serialized}");
     }
 
     #[test]

@@ -22,6 +22,7 @@ impl App {
         board_name: &str,
         serial: &str,
         active_preset: &str,
+        user_presets: &HashMap<String, crate::config::PresetConfig>,
     ) -> (ui::LayoutEngine, HashMap<char, &'static str>) {
         let mut registry = ui::PanelRegistry::new();
         registry.register(ui::HeaderPanel);
@@ -53,7 +54,7 @@ impl App {
             }
         }
 
-        let mut engine = ui::LayoutEngine::new(LayoutConfig::default_config(), registry);
+        let mut engine = ui::LayoutEngine::new(LayoutConfig::with_user_presets(user_presets), registry);
         engine.set_preset(active_preset);
         (engine, focus_keys)
     }
@@ -154,7 +155,7 @@ impl App {
         tasks::spawn_rx_task(Arc::clone(&state), Arc::clone(&device), Arc::clone(&rx_ctx));
         tasks::spawn_sys_resource_task(Arc::clone(&state));
 
-        let (engine, focus_keys) = Self::build_ui(&board_name, &serial, &cfg.display.active_preset);
+        let (engine, focus_keys) = Self::build_ui(&board_name, &serial, &cfg.display.active_preset, &cfg.presets);
 
         Ok(Self {
             state,
@@ -167,6 +168,7 @@ impl App {
             engine,
             theme,
             focus_keys,
+            user_presets: cfg.presets,
         })
     }
 
@@ -243,7 +245,7 @@ impl App {
         tasks::spawn_observer_task(Arc::clone(&state), sysinfo.bus, sysinfo.dev);
         tasks::spawn_sys_resource_task(Arc::clone(&state));
 
-        let (engine, focus_keys) = Self::build_ui(&board_name, &serial, "observer");
+        let (engine, focus_keys) = Self::build_ui(&board_name, &serial, "observer", &cfg.presets);
 
         Ok(Self {
             state,
@@ -256,6 +258,7 @@ impl App {
             engine,
             theme,
             focus_keys,
+            user_presets: cfg.presets,
         })
     }
 }
