@@ -34,17 +34,9 @@ Use these as **starting points**, not rules. Every antenna, frequency, and envir
 
 ---
 
-## Frequency input tricks
+## Frequency tuning
 
-### Shorthand notation
-
-When you press `f` to enter a frequency, you can type numbers in a few formats:
-
-- **MHz (most common):** `92.8` → 92.8 MHz
-- **Direct Hz (for precision):** You can also think of the input as millions of Hz, so `92.8` is always interpreted as MHz.
-- **Decimal places:** `433.920` for 433.920 MHz, `2.4065` for 2.4065 GHz
-
-### Quick scans
+### Quick frequency scanning
 
 To quickly check a few frequencies:
 
@@ -173,11 +165,9 @@ Keep an eye on the **Hardware Health** panel:
 
 ---
 
-## Configuration and presets
+## Custom presets for your workflow
 
-### Custom presets for different scenarios
-
-Define presets for different use cases in your config:
+Define your own presets in the config for different use cases. See [Advanced Features](advanced.md#defining-custom-presets) for the full syntax, but here's a quick example:
 
 ```toml
 [presets.airband_chase]
@@ -185,30 +175,12 @@ panels = [
   { name = "header",       position = "top",    height = 2  },
   { name = "spectrum",     position = "body"                 },
   { name = "signal_strip", position = "bottom", height = 2  },
-  { name = "footer",       position = "bottom", height = 1  },
-]
-
-[presets.lab_detailed]
-panels = [
-  { name = "header",           position = "top",    height = 2  },
-  { name = "rf_chain",         position = "left",   width_pct = 25 },
-  { name = "iq_histogram",     position = "body"                 },
-  { name = "iq_diagnostics",   position = "right",  width_pct = 25 },
-  { name = "hardware_health",  position = "bottom", height = 3  },
-  { name = "footer",           position = "bottom", height = 1  },
 ]
 ```
 
-Then assign one to a number key (`8` is free):
+Assign it to a key by naming it `lab_timing` (uses key `8`), or access it via `p` (preset cycle).
 
-```toml
-[presets.lab_timing]
-# your custom preset definition
-```
-
-Press `8` to switch to it on the fly.
-
-### Persistent frequency markers
+---
 
 Add markers to your config so they're always loaded:
 
@@ -238,7 +210,7 @@ If you have a HackRF on a Raspberry Pi or embedded system, you can run sdrtop ov
 ssh pi@raspberrypi.local sdrtop --theme nord --frequency 433920000
 ```
 
-You might want to use a smaller screen layout. Press `0` for **micro mode** (a compact, single-panel view that adapts to window width).
+For small screens, press `0` to enter **micro mode** — a compact, single-panel view.
 
 ### tmux pane
 
@@ -248,122 +220,6 @@ sdrtop fits nicely in a tmux pane. Create a split and run:
 tmux split-window -v -c ~/SDR -p 30 'sdrtop --lna 24'
 ```
 
-Now you have sdrtop running in a 30% pane, with other commands above. Quit with `q` — the pane closes cleanly.
-
 ---
-
-## Noise figure and minimum detectable signal
-
-### Understanding Est. NF (Noise Figure)
-
-The **estimated noise figure** in the Lab preset tells you how much noise your receiver adds. Lower is better.
-
-- **2 dB** (with AMP on) — excellent; this is about as good as HackRF gets.
-- **3–4 dB** (AMP off, high LNA) — very good.
-- **6+ dB** (low LNA gain) — acceptable, but the receiver is adding noticeable noise.
-
-The calculation uses the Friis formula and known HackRF characteristics. It's an estimate, not a lab measurement, but it's reliable enough for field tuning.
-
-### Understanding MDS (Minimum Detectable Signal)
-
-The **MDS** in dBm tells you the weakest signal you can pull out of the noise:
-
-```
-MDS = −174 dBm/Hz + 10·log₁₀(bandwidth) + NF
-```
-
-A typical HackRF at 10 MHz bandwidth with a 3.5 dB noise figure:
-
-```
-MDS = −174 + 40 + 3.5 = −130.5 dBm
-```
-
-**In practice:** If your target signal is stronger than the MDS, you can hear it. If it's much weaker, you probably can't.
-
-**To improve MDS:**
-- Lower the noise figure (use AMP, increase LNA).
-- Narrow the baseband filter (lower sample rate → narrower filter, but less bandwidth).
-- Both work, but they trade off flexibility.
-
----
-
-## IQ quality diagnosis
-
-### IRR (Image Rejection Ratio) is the key quadrature metric
-
-A signal appears on both sides of center — the real signal on one side, a mirror image on the other. **IRR** tells you how far below the real signal the image appears.
-
-- **30+ dB** — clean; the image is faint.
-- **20–30 dB** — acceptable for most work.
-- **< 20 dB** — poor; mirror images become visible in the spectrum.
-
-IRR depends on **amplitude and phase imbalance** between I and Q. Some is hardware-dependent, but sample rate can affect it. Experiment.
-
-### PAPR fingerprints signal type
-
-The **PAPR** (peak-to-average power ratio) in the IQ Amplitude Distribution is a quick way to identify what kind of signal you're looking at:
-
-| PAPR | Signal type |
-|------|-------------|
-| < 3 dB | CW, FM, constant-envelope |
-| 3–8 dB | AM, mixed modulation |
-| 8–15 dB | Wideband, spread-spectrum |
-| > 15 dB | Bursty, impulsive, radar |
-
-This is useful for blind signal identification.
-
----
-
-## Antenna tips
-
-### Quarter-wavelength antennas
-
-The **RF Chain** panel shows **λ/4** (quarter-wavelength) at your tuned frequency. Cut a wire or monopole to this length for a resonant antenna with no tuning.
-
-Examples:
-- **433 MHz:** λ/4 ≈ 17.3 cm (good for 433 MHz LoRaWAN / ISM)
-- **2.4 GHz:** λ/4 ≈ 3.1 cm (tiny!)
-- **144 MHz (2m band):** λ/4 ≈ 52 cm (longer, but very effective)
-
-### Practical antenna tuning
-
-If you're not getting a strong signal:
-
-1. **Try a different antenna orientation.** Some patterns are directional.
-2. **Move the antenna around.** Even 30 cm can make a difference.
-3. **Use **λ/4** as a starting point, then adjust length slightly for better signal.
-4. **Watch the spectrum.** If the noise floor rises when you add an antenna, it's working (catching more signal and noise together is a good sign).
-
----
-
-## Recommended default config for first-time use
-
-Save this to `~/.config/sdrtop/config.toml`:
-
-```toml
-[radio]
-frequency_hz = 92800000   # FM broadcast band
-sample_rate = 5000000.0   # 5 MHz is a good default
-lna_gain = 24             # Safe, mid-range gain
-vga_gain = 20             # Complements LNA
-amp_enabled = false       # Off by default; turn on if signal is too weak
-
-[display]
-active_preset = "main"    # Spectrum + waterfall + signal strip
-waterfall_max_rows = 64
-
-[theme]
-base = "nord"             # Easy on the eyes
-
-[[display.spectrum_markers]]
-freq_hz = 88000000
-label = "FM start"
-
-[[display.spectrum_markers]]
-freq_hz = 108000000
-label = "FM end"
-```
-
-This gives you a good starting point for learning the app without overwhelming configuration.
 
 ← [Back](README.md)

@@ -131,16 +131,9 @@
 
 ### Another app has my HackRF locked
 
-**Problem:** You see "Observer mode" in the display, and it says another app is using your radio.
+**Problem:** You see "Observer mode" in the display.
 
-**Solution:**
-
-1. **Identify the process.** Observer mode shows the process name that's holding the radio. You can also check with `lsof` or `fuser`:
-   ```sh
-   sudo fuser -n usb /dev/bus/usb/*/HackRF*
-   ```
-2. **Close the competing app.** gnuradio, SDR++, or other SDR software needs to release the device. Quit them completely.
-3. **sdrtop will pick up the radio automatically** once the other app releases it. You'll see the display transition back to normal control mode. No restart needed.
+**Solution:** See [Advanced Features — Observer mode](advanced.md#observer-mode-when-another-app-owns-the-radio) for details on what's happening and how to recover control.
 
 ---
 

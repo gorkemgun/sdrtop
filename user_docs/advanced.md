@@ -4,6 +4,8 @@
 
 Deep dives into less-obvious features and workflows.
 
+**Note:** For configuration (custom presets, frequency/sample rate input), see [Configuration](config.md). This page covers runtime behavior and advanced workflows.
+
 ---
 
 ## Multiple HackRF devices
@@ -68,48 +70,6 @@ Each panel in focus mode has its own set of keybindings. This is a complete refe
 | `←` / `→` | Move cursor frequency (when placed) |
 | `j` / `k` | Scroll back/forward through waterfall history |
 | `Esc` | Exit focus mode |
-
----
-
-## Custom input modes: frequency and sample rate
-
-### Frequency input (press `f`)
-
-After pressing `f`, you'll see a prompt:
-
-```
-Enter frequency (MHz): _
-```
-
-Type a frequency in MHz and press `Enter`. Examples:
-
-- `92.8` → 92.8 MHz (FM station)
-- `433.92` → 433.92 MHz (ISM band)
-- `2.4065` → 2.4065 GHz (WiFi channel 1)
-- `10` → 10 MHz (decimal is allowed)
-
-**Valid range:** 1 MHz to 6 GHz.
-
-If you enter an invalid frequency, you'll see an error message briefly, and the frequency won't change. Try again.
-
-### Sample rate input (press `s`)
-
-After pressing `s`, you'll see:
-
-```
-Enter sample rate (MHz): _
-```
-
-Type a sample rate in MHz and press `Enter`. Examples:
-
-- `2` → 2 MHz (narrow bandwidth, low data rate)
-- `5` → 5 MHz (balanced)
-- `10` → 10 MHz (wider spectrum, higher CPU)
-- `20` → 20 MHz (maximum for HackRF One over USB 2.0)
-
-**Valid range:** 2 MHz to 20 MHz.
-
-The actual sample rate **may be slightly lower** than requested due to USB and clock constraints. The Lab preset shows **SR** (configured vs. measured), so you can verify the actual rate achieved.
 
 ---
 
@@ -278,19 +238,7 @@ panels = [
 - `body` is optional; if omitted, `left` and `right` split the available space.
 - `header` and `footer` cannot both be absent (the UI needs at least one).
 
-### Overriding built-in presets
-
-If you define a custom preset with the same name as a built-in, yours replaces it. For example:
-
-```toml
-[presets.main]
-panels = [
-  { name = "spectrum",      position = "body"                 },
-  { name = "hardware_health", position = "bottom", height = 4 },
-]
-```
-
-Now pressing `1` uses your custom layout instead of the default.
+For detailed syntax and examples, see [Configuration](config.md#custom-layout-presets).
 
 ---
 
@@ -340,40 +288,6 @@ sdrtop detects your terminal's color depth automatically:
 The spectrum and waterfall colors adapt accordingly. True color looks best, but 16-color still works.
 
 No configuration needed; sdrtop handles it automatically.
-
----
-
-## Config file location and backup
-
-### Default location
-
-`~/.config/sdrtop/config.toml`
-
-### Using a custom config file
-
-Start sdrtop with a different config path:
-
-```sh
-sdrtop --config ~/my-custom-config.toml
-```
-
-This is useful for having multiple profiles (e.g., one for weak-signal hunting, another for interference measurement).
-
-### Backing up and sharing configs
-
-Your config is a plain text TOML file. You can:
-
-1. **Backup:** Copy to a safe location.
-   ```sh
-   cp ~/.config/sdrtop/config.toml ~/backups/sdrtop-config-$(date +%Y%m%d).toml
-   ```
-
-2. **Share:** Email or version-control the file (no secrets inside).
-
-3. **Restore:** Copy back and restart sdrtop.
-   ```sh
-   cp ~/backups/sdrtop-config-20260602.toml ~/.config/sdrtop/config.toml
-   ```
 
 ---
 
