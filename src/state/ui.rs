@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use super::MicroView;
+
 pub const LOG_MAX_ENTRIES: usize = 100;
 
 #[derive(Clone, PartialEq)]
@@ -24,6 +26,9 @@ pub struct UiState {
     /// Names of all defined presets, synced each frame alongside active_preset.
     /// Lets the footer build the lab map from presets that actually exist.
     pub preset_names:           Vec<String>,
+    /// Current position in the micro `[0]` cycle. Advanced by the `[0]` handler;
+    /// read by the footer to show "micro N/M".
+    pub micro_view:             MicroView,
     pub log:                    VecDeque<Arc<str>>,
 }
 
@@ -45,6 +50,7 @@ impl Default for UiState {
             focused_panel_bindings: &[],
             active_preset:          String::new(),
             preset_names:           Vec::new(),
+            micro_view:             MicroView::default(),
             log:                    VecDeque::new(),
         }
     }

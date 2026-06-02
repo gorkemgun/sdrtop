@@ -15,6 +15,8 @@ pub fn spawn_rx_task(
 ) {
     tokio::spawn(async move {
         let mut hw_rx_active = false;
+        // Throttles SNR history sampling to ~500 ms regardless of the 200 ms poll.
+        let mut last_snr_push = Instant::now();
 
         loop {
             // Single is_streaming() call per iteration — result used for both the
@@ -28,6 +30,7 @@ pub fn spawn_rx_task(
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 m.radio.rx_enabled = false;
                 m.radio.hw_streaming = false;
+                m.radio.rx_start_time = None;
                 m.push_log("WARNING: Streaming stopped unexpectedly — press [Space] to restart");
             }
 
@@ -182,6 +185,15 @@ pub fn spawn_rx_task(
                     }
                     m.iq.jitter_history.push_back(jitter);
                 }
+                // Sample SNR into the trend history at ~500 ms while streaming.
+                if hw_streaming && now.duration_since(last_snr_push) >= Duration::from_millis(500) {
+                    last_snr_push = now;
+                    if m.signal.snr_history.len() >= crate::state::SNR_HISTORY_LEN {
+                        m.signal.snr_history.pop_front();
+                    }
+                    let snr = m.signal.peak_to_nf_db;
+                    m.signal.snr_history.push_back(snr);
+                }
                 m.radio.rx_enabled
             };
             if rx_enabled && !hw_rx_active {
@@ -189,7 +201,9 @@ pub fn spawn_rx_task(
                 match device.start_rx(hardware::rx_callback, user_param) {
                     Ok(()) => {
                         hw_rx_active = true;
-                        state.lock().unwrap_or_else(|e| e.into_inner()).push_log("RX streaming started");
+                        let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                        m.radio.rx_start_time = Some(Instant::now());
+                        m.push_log("RX streaming started");
                     }
                     Err(e) => {
                         let msg = format!("Error starting RX: {}", e);
@@ -202,6 +216,7 @@ pub fn spawn_rx_task(
                 let result = device.stop_rx();
                 hw_rx_active = false;
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                m.radio.rx_start_time = None;
                 match result {
                     Ok(()) => m.push_log("RX streaming stopped"),
                     Err(e) => m.push_log(format!("Error stopping RX: {}", e)),

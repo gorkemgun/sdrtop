@@ -286,6 +286,35 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
             ],
         };
+        // Micro main — the [0] field-mode entry view. A single self-contained
+        // panel that manages its own zones, plus the footer.
+        let micro_main = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "micro_panel".into(), position: Body,   height: None, width_pct: None },
+                PanelSpec { name: "footer".into(),      position: Bottom, height: None, width_pct: None },
+            ],
+        };
+        // Micro signal — [0] cycle step 2: large SNR view for antenna aiming.
+        let micro_signal = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "micro_signal_panel".into(), position: Body,   height: None, width_pct: None },
+                PanelSpec { name: "footer".into(),             position: Bottom, height: None, width_pct: None },
+            ],
+        };
+        // Micro gain — [0] cycle step 3: gain-staging view for fast setup.
+        let micro_gain = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "micro_gain_panel".into(), position: Body,   height: None, width_pct: None },
+                PanelSpec { name: "footer".into(),           position: Bottom, height: None, width_pct: None },
+            ],
+        };
+        // Micro health — [0] cycle step 4: hardware monitoring for long sessions.
+        let micro_health = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "micro_health_panel".into(), position: Body,   height: None, width_pct: None },
+                PanelSpec { name: "footer".into(),             position: Bottom, height: None, width_pct: None },
+            ],
+        };
         let mut presets = HashMap::new();
         presets.insert("spectrum".into(), spectrum);
         presets.insert("waterfall".into(), waterfall);
@@ -296,6 +325,10 @@ impl LayoutConfig {
         presets.insert("lab_iq".into(), lab_iq);
         presets.insert("lab_rf".into(), lab_rf);
         presets.insert("lab_signal".into(), lab_signal);
+        presets.insert("micro_main".into(), micro_main);
+        presets.insert("micro_signal".into(), micro_signal);
+        presets.insert("micro_gain".into(), micro_gain);
+        presets.insert("micro_health".into(), micro_health);
         Self { active_preset: "spectrum_waterfall".into(), presets }
     }
 
@@ -394,6 +427,30 @@ mod tests {
             let names: Vec<&str> = p.panels.iter().map(|s| s.name.as_str()).collect();
             assert!(names.contains(&"header"), "{name} missing header");
             assert!(names.contains(&"footer"), "{name} missing footer");
+        }
+    }
+
+    #[test]
+    fn default_config_has_micro_main() {
+        let cfg = LayoutConfig::default_config();
+        let p = cfg.presets.get("micro_main").expect("micro_main preset present");
+        let names: Vec<&str> = p.panels.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["micro_panel", "footer"]);
+    }
+
+    #[test]
+    fn default_config_has_full_micro_cycle() {
+        // Every step of the [0] cycle must have a defined preset + its dedicated panel.
+        let cfg = LayoutConfig::default_config();
+        for (preset, panel) in [
+            ("micro_main",   "micro_panel"),
+            ("micro_signal", "micro_signal_panel"),
+            ("micro_gain",   "micro_gain_panel"),
+            ("micro_health", "micro_health_panel"),
+        ] {
+            let p = cfg.presets.get(preset).unwrap_or_else(|| panic!("missing {preset}"));
+            assert_eq!(p.panels.first().map(|s| s.name.as_str()), Some(panel), "{preset} body panel");
+            assert_eq!(p.panels.last().map(|s| s.name.as_str()), Some("footer"), "{preset} footer");
         }
     }
 

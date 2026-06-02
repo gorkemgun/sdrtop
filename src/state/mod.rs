@@ -1,5 +1,6 @@
 mod acc;
 mod iq;
+mod micro;
 mod observer;
 mod radio;
 mod signal;
@@ -10,6 +11,7 @@ mod waterfall;
 
 pub(crate) use acc::Accumulators;
 pub use iq::IqState;
+pub use micro::MicroView;
 pub use observer::ObserverState;
 pub use radio::RadioState;
 pub use signal::SignalState;
@@ -19,6 +21,8 @@ pub use ui::{InputMode, UiState};
 pub use waterfall::{FftFrame, WaterfallState};
 
 pub const THROUGHPUT_HISTORY_LEN: usize = 64;
+/// SNR history depth — ~10 samples at the rx task's ~500 ms cadence ≈ 5 s window.
+pub const SNR_HISTORY_LEN: usize = 10;
 pub const DEFAULT_LNA_GAIN: u32 = 16;
 pub const DEFAULT_VGA_GAIN: u32 = 20;
 pub const DEFAULT_FREQUENCY: u64 = 2_400_000_000;

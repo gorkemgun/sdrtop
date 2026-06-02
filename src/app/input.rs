@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::hardware;
-use crate::state::{InputMode, SdrMetrics, SpectrumMarker};
+use crate::state::{InputMode, MicroView, SdrMetrics, SpectrumMarker};
 use crate::ui::{self, spectrum::{fmt_spectrum_step, next_spectrum_step, prev_spectrum_step}};
 use crate::ui::waterfall::{next_wf_stride, prev_wf_stride, next_wf_zoom, prev_wf_zoom};
 
@@ -376,7 +376,7 @@ fn handle_global(
         KeyCode::Char('7') => { try_set_preset(engine, state, "lab_rf"); }
         KeyCode::Char('8') => { try_set_preset(engine, state, "lab_timing"); }
         KeyCode::Char('9') => { try_set_preset(engine, state, "lab_signal"); }
-        KeyCode::Char('0') => { try_set_preset(engine, state, "micro_main"); }
+        KeyCode::Char('0') => { cycle_micro(engine, state); }
         KeyCode::Char('w') => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             m.waterfall.buffer.paused = !m.waterfall.buffer.paused;
@@ -495,6 +495,26 @@ fn try_set_preset(engine: &mut ui::LayoutEngine, state: &Arc<Mutex<SdrMetrics>>,
         m.push_log(format!("Preset '{}' not yet available", name));
     }
     KeyAction::Continue
+}
+
+/// The `[0]` micro-ecosystem cycle. Entering from a non-micro preset lands on
+/// `micro_main`; pressing `[0]` again while already in a micro preset advances
+/// to the next view. A target whose preset is not yet defined is logged and
+/// skipped (micro_view does not advance), so the cycle never strands the user on
+/// a blank view while the micro presets are still being built out.
+fn cycle_micro(engine: &mut ui::LayoutEngine, state: &Arc<Mutex<SdrMetrics>>) {
+    // Sweep is a future capability — not part of the cycle yet.
+    const SWEEP_ACTIVE: bool = false;
+    let in_micro = engine.active_preset().starts_with("micro_");
+    let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+    let target = if in_micro { m.ui.micro_view.next(SWEEP_ACTIVE) } else { MicroView::Main };
+    if engine.has_preset(target.preset_name()) {
+        m.ui.micro_view = target;
+        engine.set_preset(target.preset_name());
+        m.push_log(format!("Micro: {} ({}/{})", target.label(), target.position(), MicroView::total(SWEEP_ACTIVE)));
+    } else {
+        m.push_log(format!("Preset '{}' not yet available", target.preset_name()));
+    }
 }
 
 // ── Text input modes ──────────────────────────────────────────────────────────

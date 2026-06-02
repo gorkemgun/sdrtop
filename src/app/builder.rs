@@ -46,6 +46,10 @@ impl App {
         registry.register(ui::SignalMetricsPanel);
         registry.register(ui::IqHistogramPanel);
         registry.register(ui::ObserverPanel);
+        registry.register(ui::MicroPanel);
+        registry.register(ui::MicroSignalPanel);
+        registry.register(ui::MicroGainPanel);
+        registry.register(ui::MicroHealthPanel);
 
         let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
         for panel in registry.panels_iter() {
@@ -97,6 +101,7 @@ impl App {
                 amp_enabled:         cfg.radio.amp_enabled,
                 rx_enabled:          false,
                 hw_streaming:        false,
+                rx_start_time:       None,
                 bytes_since_last_poll: 0,
                 last_poll_time:      Instant::now(),
                 current_throughput_bps: 0,
@@ -112,6 +117,7 @@ impl App {
                 occupied_bw_hz: 0, usb_errors_session: 0,
                 usb_errors_last_poll: 0,
                 usb_error_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
+                snr_history: std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
             },
             iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, cb_period_us: 0, cb_jitter_us: 0, jitter_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), iq_amplitude_hist: [0u64; 32], buf_fill_pct: 0.0, buf_fill_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), phase_imbalance_deg: 0.0 },
             observer: ObserverState::default(),
@@ -192,6 +198,7 @@ impl App {
                 amp_enabled:         cfg.radio.amp_enabled,
                 rx_enabled:          false,
                 hw_streaming:        false,
+                rx_start_time:       None,
                 bytes_since_last_poll: 0,
                 last_poll_time:      Instant::now(),
                 current_throughput_bps: 0,
@@ -207,6 +214,7 @@ impl App {
                 occupied_bw_hz: 0, usb_errors_session: 0,
                 usb_errors_last_poll: 0,
                 usb_error_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
+                snr_history: std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
             },
             iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, cb_period_us: 0, cb_jitter_us: 0, jitter_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), iq_amplitude_hist: [0u64; 32], buf_fill_pct: 0.0, buf_fill_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), phase_imbalance_deg: 0.0 },
             observer: ObserverState {

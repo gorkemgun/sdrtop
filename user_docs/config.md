@@ -93,9 +93,11 @@ panels = [
   | `7` | `lab_rf`      | Built-in |
   | `8` | `lab_timing`  | Free — define it yourself |
   | `9` | `lab_signal`  | Built-in |
-  | `0` | `micro_main`  | Free — define it yourself |
+  | `0` | `micro_main`  | Built-in (micro field mode) |
 
-  Keys `6`, `7`, and `9` already map to built-in lab presets. The free slots (`8`, `0`) do nothing until you define a preset with the matching name — for example, adding `[presets.lab_timing]` makes the `8` key switch to it. (Pressing a number key whose preset isn't defined just logs a note and does nothing.) If you override any existing name — built-in or reserved — your version replaces it.
+  Keys `6`, `7`, `9`, and `0` already map to built-in presets. The free slot (`8`) does nothing until you define a preset with the matching name — for example, adding `[presets.lab_timing]` makes the `8` key switch to it. (Pressing a number key whose preset isn't defined just logs a note and does nothing.) If you override any existing name — built-in or reserved — your version replaces it.
+
+  > **Micro field mode (`0`):** Pressing `0` enters a compact, single-panel layout designed for small screens and SSH sessions. Pressing `0` again cycles through the micro views (signal, gain, health) as they become available.
 
 ---
 

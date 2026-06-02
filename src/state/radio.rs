@@ -12,6 +12,9 @@ pub struct RadioState {
     pub amp_enabled:         bool,
     pub rx_enabled:          bool,
     pub hw_streaming:        bool,
+    /// When the current RX session started — `Some` while streaming, `None` when
+    /// stopped. Drives the micro_health session timer.
+    pub rx_start_time:       Option<Instant>,
     pub bytes_since_last_poll: u64,
     pub last_poll_time:      Instant,
     pub current_throughput_bps: u64,
