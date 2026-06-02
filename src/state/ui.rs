@@ -21,6 +21,9 @@ pub struct UiState {
     /// footer can show it. The engine owns the authoritative value; this is a
     /// render-time mirror.
     pub active_preset:          String,
+    /// Names of all defined presets, synced each frame alongside active_preset.
+    /// Lets the footer build the lab map from presets that actually exist.
+    pub preset_names:           Vec<String>,
     pub log:                    VecDeque<Arc<str>>,
 }
 
@@ -41,6 +44,7 @@ impl Default for UiState {
             focused_panel:          None,
             focused_panel_bindings: &[],
             active_preset:          String::new(),
+            preset_names:           Vec::new(),
             log:                    VecDeque::new(),
         }
     }

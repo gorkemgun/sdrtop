@@ -86,6 +86,7 @@ impl App {
         // Mirror the engine's active preset into the cloned snapshot so the
         // footer can render it without reaching into the engine.
         m.ui.active_preset = self.engine.active_preset().to_string();
+        m.ui.preset_names = self.engine.preset_names();
         let hide_footer = !self.show_footer
             && m.ui.input_mode == crate::state::InputMode::Normal;
         self.engine.set_panel_hidden("footer", hide_footer);

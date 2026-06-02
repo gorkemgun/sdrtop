@@ -21,6 +21,17 @@ const NORMAL_ITEMS: &[&str] = &[
 /// Width (terminal columns) below which the preset name is shown in short form.
 const NARROW_COLS: u16 = 60;
 
+/// The lab preset family, in reserved number-key order. The footer shows these
+/// as a navigation map when one of them is the active preset; only the ones
+/// that actually exist (synced into `preset_names`) are listed.
+const LAB_FAMILY: &[(&str, &str)] = &[
+    ("5", "lab"),
+    ("6", "lab_iq"),
+    ("7", "lab_rf"),
+    ("8", "lab_timing"),
+    ("9", "lab_signal"),
+];
+
 /// Display label for a preset in the footer. Narrow terminals get an
 /// abbreviated form for the few long names; everything else passes through.
 fn preset_label(name: &str, narrow: bool) -> &str {
@@ -36,11 +47,36 @@ fn preset_label(name: &str, narrow: bool) -> &str {
     }
 }
 
-/// The fixed normal-mode items plus the dynamic `[P] {preset}` entry.
-fn normal_items(active_preset: &str, available_width: u16) -> Vec<String> {
+/// Whether `name` belongs to the lab preset family.
+fn is_lab_preset(name: &str) -> bool {
+    LAB_FAMILY.iter().any(|(_, n)| *n == name)
+}
+
+/// Navigation map for the lab family: one entry per defined lab preset, with
+/// the active one marked `▸`. Returns empty if none are available.
+fn lab_map_items(active: &str, available: &[String]) -> Vec<String> {
+    LAB_FAMILY.iter()
+        .filter(|(_, name)| available.iter().any(|p| p == name))
+        .map(|(key, name)| {
+            if *name == active {
+                format!("[{}]▸{}", key, name)
+            } else {
+                format!("[{}] {}", key, name)
+            }
+        })
+        .collect()
+}
+
+/// The fixed normal-mode items, followed by either the lab navigation map (when
+/// in a lab preset) or the `[P] {preset}` hint otherwise.
+fn normal_items(active_preset: &str, available: &[String], available_width: u16) -> Vec<String> {
     let narrow = available_width < NARROW_COLS;
     let mut items: Vec<String> = NORMAL_ITEMS.iter().map(|s| s.to_string()).collect();
-    items.push(format!("[P] {}", preset_label(active_preset, narrow)));
+    if is_lab_preset(active_preset) {
+        items.extend(lab_map_items(active_preset, available));
+    } else {
+        items.push(format!("[P] {}", preset_label(active_preset, narrow)));
+    }
     items
 }
 
@@ -82,7 +118,7 @@ pub fn compute_footer_height(available_width: u16, state: &SdrMetrics) -> u16 {
     let n = if state.ui.focused_panel.is_some() {
         count_lines(&focus_items(state), FOCUS_SEP, inner_w)
     } else {
-        count_lines(&normal_items(&state.ui.active_preset, available_width), NORMAL_SEP, inner_w)
+        count_lines(&normal_items(&state.ui.active_preset, &state.ui.preset_names, available_width), NORMAL_SEP, inner_w)
     };
     (n as u16 + 2).min(MAX_CONTENT_LINES + 2).max(3)
 }
@@ -136,7 +172,7 @@ impl Panel for FooterPanel {
                         }
                         (wrapped, theme.border_focused)
                     } else {
-                        let items = normal_items(&m.ui.active_preset, area.width);
+                        let items = normal_items(&m.ui.active_preset, &m.ui.preset_names, area.width);
                         let mut wrapped = wrap_items(&items, NORMAL_SEP, inner_w);
                         wrapped.truncate(max_lines.max(1));
                         (wrapped, theme.border_dim)
@@ -212,14 +248,32 @@ mod tests {
 
     #[test]
     fn normal_items_appends_preset_entry() {
-        let items = normal_items("lab", 120);
-        assert_eq!(items.last().map(String::as_str), Some("[P] lab"));
+        let items = normal_items("main", &[], 120);
+        assert_eq!(items.last().map(String::as_str), Some("[P] main"));
         assert_eq!(items.len(), NORMAL_ITEMS.len() + 1);
     }
 
     #[test]
     fn normal_items_uses_short_preset_when_narrow() {
-        let items = normal_items("spectrum_waterfall", 50);
+        let items = normal_items("spectrum_waterfall", &[], 50);
         assert_eq!(items.last().map(String::as_str), Some("[P] spec+wf"));
+    }
+
+    #[test]
+    fn lab_map_lists_only_available_presets_with_active_marked() {
+        let available = vec!["lab".to_string(), "lab_iq".to_string(), "lab_rf".to_string(), "lab_signal".to_string()];
+        let map = lab_map_items("lab_iq", &available);
+        // lab_timing [8] is not available → excluded.
+        assert_eq!(map, vec!["[5] lab", "[6]▸lab_iq", "[7] lab_rf", "[9] lab_signal"]);
+    }
+
+    #[test]
+    fn normal_items_shows_lab_map_in_lab_preset() {
+        let available = vec!["lab".to_string(), "lab_iq".to_string()];
+        let items = normal_items("lab_iq", &available, 120);
+        // No [P] entry in lab mode; the map entries are appended instead.
+        assert!(items.iter().all(|i| !i.starts_with("[P]")));
+        assert!(items.contains(&"[6]▸lab_iq".to_string()));
+        assert!(items.contains(&"[5] lab".to_string()));
     }
 }

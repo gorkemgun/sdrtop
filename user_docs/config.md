@@ -87,15 +87,15 @@ panels = [
 - It automatically joins the `p` cycle (presets are cycled in alphabetical order).
 - If you name it after a reserved number-key slot, that key switches to it directly:
 
-  | Key | Reserved name |
-  |-----|---------------|
-  | `6` | `lab_iq`      |
-  | `7` | `lab_rf`      |
-  | `8` | `lab_timing`  |
-  | `9` | `lab_signal`  |
-  | `0` | `micro_main`  |
+  | Key | Reserved name | Status |
+  |-----|---------------|--------|
+  | `6` | `lab_iq`      | Built-in |
+  | `7` | `lab_rf`      | Built-in |
+  | `8` | `lab_timing`  | Free — define it yourself |
+  | `9` | `lab_signal`  | Built-in |
+  | `0` | `micro_main`  | Free — define it yourself |
 
-  For example, defining `[presets.lab_iq]` makes the `6` key switch to it. (Pressing a number key whose preset isn't defined just logs a note and does nothing.) If you override a built-in name (`main`, `spectrum`, `waterfall`, `spectrum_waterfall`, `lab`), your version replaces it.
+  Keys `6`, `7`, and `9` already map to built-in lab presets. The free slots (`8`, `0`) do nothing until you define a preset with the matching name — for example, adding `[presets.lab_timing]` makes the `8` key switch to it. (Pressing a number key whose preset isn't defined just logs a note and does nothing.) If you override any existing name — built-in or reserved — your version replaces it.
 
 ---
 

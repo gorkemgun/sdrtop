@@ -237,6 +237,19 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),           position: Bottom, height: None,    width_pct: None     },
             ],
         };
+        // Lab IQ — I/Q diagnostics focus: constellation/imbalance left, amplitude
+        // histogram centre, spectrum reference right.
+        let lab_iq = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header".into(),         position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "iq_diagnostics".into(), position: Left,   height: None,    width_pct: Some(35) },
+                PanelSpec { name: "iq_histogram".into(),   position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "spectrum".into(),       position: Right,  height: None,    width_pct: Some(35) },
+                PanelSpec { name: "signal_strip".into(),   position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "log".into(),            position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
+            ],
+        };
         let main = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),       position: Top,    height: Some(5), width_pct: None },
@@ -247,6 +260,32 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),        position: Bottom, height: None,    width_pct: None },
             ],
         };
+        // Lab RF — front-end / gain chain focus: RF chain + NF/MDS left, spectrum
+        // centre, hardware health right.
+        let lab_rf = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header".into(),          position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "rf_chain".into(),        position: Left,   height: None,    width_pct: Some(30) },
+                PanelSpec { name: "spectrum".into(),        position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "hardware_health".into(), position: Right,  height: None,    width_pct: Some(32) },
+                PanelSpec { name: "signal_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "log".into(),             position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),          position: Bottom, height: None,    width_pct: None     },
+            ],
+        };
+        // Lab signal — signal-quality focus: spectrum + metrics on top, waterfall
+        // history below.
+        let lab_signal = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header".into(),         position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "spectrum".into(),       position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "signal_metrics".into(), position: Right,  height: None,    width_pct: Some(28) },
+                PanelSpec { name: "waterfall".into(),      position: Bottom, height: Some(8), width_pct: None     },
+                PanelSpec { name: "signal_strip".into(),   position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "log".into(),            position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
+            ],
+        };
         let mut presets = HashMap::new();
         presets.insert("spectrum".into(), spectrum);
         presets.insert("waterfall".into(), waterfall);
@@ -254,6 +293,9 @@ impl LayoutConfig {
         presets.insert("lab".into(), lab);
         presets.insert("observer".into(), observer);
         presets.insert("main".into(), main);
+        presets.insert("lab_iq".into(), lab_iq);
+        presets.insert("lab_rf".into(), lab_rf);
+        presets.insert("lab_signal".into(), lab_signal);
         Self { active_preset: "spectrum_waterfall".into(), presets }
     }
 
@@ -340,6 +382,19 @@ mod tests {
         let restored: AppConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(restored.radio.lna_gain, 24);
         assert_eq!(restored.display.active_preset, "spectrum");
+    }
+
+    #[test]
+    fn default_config_has_lab_presets() {
+        let cfg = LayoutConfig::default_config();
+        for name in ["lab_iq", "lab_rf", "lab_signal"] {
+            let p = cfg.presets.get(name).unwrap_or_else(|| panic!("missing preset {name}"));
+            assert!(!p.panels.is_empty(), "{name} has no panels");
+            // Every lab preset carries a header and a footer.
+            let names: Vec<&str> = p.panels.iter().map(|s| s.name.as_str()).collect();
+            assert!(names.contains(&"header"), "{name} missing header");
+            assert!(names.contains(&"footer"), "{name} missing footer");
+        }
     }
 
     #[test]

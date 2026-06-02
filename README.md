@@ -37,7 +37,7 @@ I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clon
 - **IQ histogram** — ADC amplitude distribution with Low/Mid/Clip breakdown and PAPR (signal-type fingerprint); flags clipping and dynamic range issues
 - **Observer mode** — device identity and owner process when another app holds the radio
 - **Six themes** — `sdr` · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
-- **Layout presets** — five presets, switch on the fly with number keys or cycle with `p`
+- **Layout presets** — general + specialised lab layouts, switch on the fly with number keys or cycle with `p`; define your own in the config
 
 ---
 
@@ -90,7 +90,8 @@ Press `Space` to start receiving. Press `?` for the key reference. Press `q` to 
 | `e`        | Focus spectrum panel           |
 | `l`        | Focus waterfall panel          |
 | `1`–`5`    | Switch built-in layout preset  |
-| `6`–`9`, `0` | Switch to a custom preset (if defined — see below) |
+| `6` / `7` / `9` | Lab presets: IQ / RF / signal |
+| `8`, `0`   | Reserved (custom preset slots — see below) |
 | `p`        | Cycle presets                  |
 | `Tab`      | Toggle footer bar              |
 | `?`        | Help overlay                   |

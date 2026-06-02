@@ -30,6 +30,12 @@ impl LayoutEngine {
         &self.config.active_preset
     }
 
+    /// Names of all defined presets (built-in + user). Used by the footer to
+    /// show only the lab presets that actually exist.
+    pub fn preset_names(&self) -> Vec<String> {
+        self.config.presets.keys().cloned().collect()
+    }
+
     pub fn cycle_preset(&mut self) {
         let mut names: Vec<String> = self.config.presets.keys().cloned().collect();
         names.sort();
