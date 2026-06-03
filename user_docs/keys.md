@@ -73,6 +73,23 @@ Press `l` to enter focus mode on the waterfall panel.
 
 ---
 
+## Lab panel focus modes
+
+Some diagnostics panels in the lab presets support a focus mode that adds a few
+panel-specific actions. Press the focus key to enter (the panel border
+highlights and the footer shows its keys); `Esc` exits.
+
+| Key | Panel | What it adds |
+|-----|-------|--------------|
+| `i` | IQ Diagnostics (`[6]` lab_iq) | `C` — log a snapshot of the current DC offset, IQ imbalance and phase |
+| `v` | Hardware Health (`[5]`/`[7]` labs) | `R` — reset the session drop counter · `C` — clear the trend sparklines |
+| `t` | Timing (`[8]` lab_timing) | `R` — reset the session jitter peak · `C` — clear the jitter / throughput history |
+
+The RF chain has no separate focus mode — its gain controls are the regular
+global keys (`↑`/`↓` LNA, `[`/`]` VGA, `a` AMP, `r` reset), which work everywhere.
+
+---
+
 ## Tips
 
 - If you're not sure what a reading means, the `?` overlay shows a quick summary while you use the app.

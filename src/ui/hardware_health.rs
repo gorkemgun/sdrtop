@@ -20,6 +20,10 @@ fn threshold_color(value: f64, warn: f64, crit: f64, theme: &crate::Theme) -> Co
 impl Panel for HardwareHealthPanel {
     fn name(&self) -> &'static str { "hardware_health" }
     fn min_size(&self) -> (u16, u16) { (30, 18) }
+    fn focus_key(&self) -> Option<char> { Some('v') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("R", "Reset drop counter"), ("C", "Clear history")]
+    }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let stale = !state.radio.hw_streaming;

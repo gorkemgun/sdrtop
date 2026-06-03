@@ -51,9 +51,12 @@ fn handle_normal(
     let focused = engine.focused_panel_name().map(|s| s.to_string());
 
     match focused.as_deref() {
-        Some("spectrum")  => handle_spectrum_focus(key, state, device, engine, show_help, show_footer, focus_keys),
-        Some("waterfall") => handle_waterfall_focus(key, state, engine, show_help, show_footer, focus_keys),
-        _                 => handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("spectrum")        => handle_spectrum_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("waterfall")       => handle_waterfall_focus(key, state, engine, show_help, show_footer, focus_keys),
+        Some("iq_diagnostics")  => handle_iq_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("hardware_health") => handle_health_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("timing_panel")    => handle_timing_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        _                       => handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
 }
 
@@ -289,6 +292,96 @@ fn handle_waterfall_focus(
             m.waterfall.scroll_offset = m.waterfall.scroll_offset.saturating_sub(1);
         }
         _ => return handle_global_no_device(key, state, engine, show_help, show_footer, focus_keys),
+    }
+    KeyAction::Continue
+}
+
+// ── Lab panel focus keys ──────────────────────────────────────────────────────
+//
+// Each lab panel's focus mode adds only panel-specific actions; every other key
+// falls through to the global handler (so Esc, Space, gain, etc. keep working).
+// `rf_chain` deliberately has no focus mode — its gain controls are already the
+// global [↑↓]/[[]]/[A]/[R] bindings, so a focus mode would only duplicate them.
+
+/// `iq_diagnostics` focus: `[C]` logs a one-line snapshot of the current IQ
+/// balance figures as a reference capture.
+fn handle_iq_focus(
+    key: KeyEvent,
+    state: &Arc<Mutex<SdrMetrics>>,
+    device: Option<&Arc<hardware::Device>>,
+    engine: &mut ui::LayoutEngine,
+    show_help: &mut bool,
+    show_footer: &mut bool,
+    focus_keys: &HashMap<char, &'static str>,
+) -> KeyAction {
+    if let KeyCode::Char('c') = key.code {
+        let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+        let (dci, dcq, imb, ph) = (m.iq.dc_offset_i, m.iq.dc_offset_q, m.iq.iq_imbalance_db, m.iq.phase_imbalance_deg);
+        m.push_log(format!(
+            "IQ snapshot — DC I:{:+.3} Q:{:+.3} · imbalance {:+.1} dB · phase {:+.1}°",
+            dci, dcq, imb, ph
+        ));
+        return KeyAction::Continue;
+    }
+    handle_global(key, state, device, engine, show_help, show_footer, focus_keys)
+}
+
+/// `hardware_health` focus (`[V]`): `[R]` resets the session drop counter, `[C]`
+/// clears the trend sparkline histories.
+fn handle_health_focus(
+    key: KeyEvent,
+    state: &Arc<Mutex<SdrMetrics>>,
+    device: Option<&Arc<hardware::Device>>,
+    engine: &mut ui::LayoutEngine,
+    show_help: &mut bool,
+    show_footer: &mut bool,
+    focus_keys: &HashMap<char, &'static str>,
+) -> KeyAction {
+    match key.code {
+        KeyCode::Char('r') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.signal.total_drops_session = 0;
+            m.push_log("Session drop counter reset");
+        }
+        KeyCode::Char('c') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.signal.drop_history.clear();
+            m.signal.saturation_history.clear();
+            m.signal.usb_error_history.clear();
+            m.iq.buf_fill_history.clear();
+            m.system.cpu_history.clear();
+            m.push_log("Health trend history cleared");
+        }
+        _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
+    }
+    KeyAction::Continue
+}
+
+/// `timing_panel` focus (`[T]`): `[R]` resets the session jitter peak, `[C]`
+/// clears the jitter / throughput / sample-rate histories.
+fn handle_timing_focus(
+    key: KeyEvent,
+    state: &Arc<Mutex<SdrMetrics>>,
+    device: Option<&Arc<hardware::Device>>,
+    engine: &mut ui::LayoutEngine,
+    show_help: &mut bool,
+    show_footer: &mut bool,
+    focus_keys: &HashMap<char, &'static str>,
+) -> KeyAction {
+    match key.code {
+        KeyCode::Char('r') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.timing.jitter_session_max_us = 0;
+            m.push_log("Jitter session peak reset");
+        }
+        KeyCode::Char('c') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.iq.jitter_history.clear();
+            m.radio.throughput_history.clear();
+            m.radio.sample_rate_history.clear();
+            m.push_log("Timing trend history cleared");
+        }
+        _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
     KeyAction::Continue
 }

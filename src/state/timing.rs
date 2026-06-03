@@ -78,7 +78,12 @@ pub struct TimingState {
     pub cb_jitter_us:         u64,
     pub jitter_p95_us:        u64,
     pub jitter_p99_us:        u64,
+    /// Largest callback jitter seen in the most recent poll window.
     pub jitter_max_us:        u64,
+    /// Largest callback jitter seen since RX start (or the last `[R]` reset in the
+    /// timing panel's focus mode). Carried forward by the rx task across windows,
+    /// so a one-off spike that scrolls out of the window stays visible.
+    pub jitter_session_max_us: u64,
     /// Sample-rate offset (actual vs configured), in ppm.
     pub sr_delta_ppm:         i64,
     pub throughput_mean_mbps: f64,
@@ -128,6 +133,9 @@ impl TimingState {
             jitter_p95_us,
             jitter_p99_us,
             jitter_max_us,
+            // Session peak is carried forward by the caller (rx task), not derived
+            // from this window — start at 0 here.
+            jitter_session_max_us: 0,
             sr_delta_ppm,
             throughput_mean_mbps,
             throughput_std_mbps,

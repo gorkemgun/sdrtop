@@ -26,6 +26,10 @@ const SPARK_W: usize = 18;
 impl Panel for TimingPanel {
     fn name(&self) -> &'static str { "timing_panel" }
     fn min_size(&self) -> (u16, u16) { (40, 12) }
+    fn focus_key(&self) -> Option<char> { Some('t') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("R", "Reset jitter peak"), ("C", "Clear history")]
+    }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let border = if focused { theme.border_focused } else { theme.border_default };
@@ -108,14 +112,14 @@ impl Panel for TimingPanel {
         };
         f.render_widget(Paragraph::new(Line::from(jitter_line)), rows[3]);
 
-        // p95 / p99 / max.
+        // p95 / p99 (current window) + session peak (reset with [R] in focus mode).
         let pct_line = if stale {
             vec![Span::raw(" "), lbl("         "), dash()]
         } else {
             vec![
                 Span::raw(" "), lbl("         "),
                 Span::styled(
-                    format!("p95 {}  p99 {}  max {} µs", t.jitter_p95_us, t.jitter_p99_us, t.jitter_max_us),
+                    format!("p95 {}  p99 {}  peak {} µs", t.jitter_p95_us, t.jitter_p99_us, t.jitter_session_max_us),
                     Style::default().fg(theme.value),
                 ),
             ]

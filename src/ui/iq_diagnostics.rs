@@ -113,6 +113,10 @@ fn dc_spike_dbfs(dc_mag: f64) -> Option<f64> {
 impl Panel for IqDiagnosticsPanel {
     fn name(&self) -> &'static str { "iq_diagnostics" }
     fn min_size(&self) -> (u16, u16) { (30, 12) }
+    fn focus_key(&self) -> Option<char> { Some('i') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("C", "Snapshot to log")]
+    }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let stale = !state.radio.hw_streaming;

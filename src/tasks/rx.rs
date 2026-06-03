@@ -212,6 +212,9 @@ pub fn spawn_rx_task(
                 }
                 let tp_std = if tp_count > 1 { (tp_m2 / (tp_count - 1) as f64).sqrt() } else { 0.0 };
                 let jitter_snapshot: Vec<u64> = m.iq.jitter_history.iter().copied().collect();
+                // Carry the session jitter peak across the wholesale rebuild — it is
+                // reset on RX start and by the timing panel's [R] focus binding.
+                let prev_peak = m.timing.jitter_session_max_us;
                 m.timing = crate::state::TimingState::compute(
                     m.iq.cb_period_us,
                     m.radio.config_sample_rate,
@@ -222,6 +225,7 @@ pub fn spawn_rx_task(
                     tp_mean,
                     tp_std,
                 );
+                m.timing.jitter_session_max_us = prev_peak.max(m.timing.jitter_max_us);
 
                 m.radio.rx_enabled
             };
@@ -234,6 +238,7 @@ pub fn spawn_rx_task(
                         tp_count = 0; tp_mean = 0.0; tp_m2 = 0.0;
                         let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                         m.radio.rx_start_time = Some(Instant::now());
+                        m.timing.jitter_session_max_us = 0;
                         m.push_log("RX streaming started");
                     }
                     Err(e) => {

@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 pub fn render_help(f: &mut Frame) {
-    let area = centered_rect(62, 32, f.size());
+    let area = centered_rect(62, 34, f.size());
 
     let text = "\
  [Q]        Quit\n\
@@ -28,6 +28,7 @@ pub fn render_help(f: &mut Frame) {
  [W]        Pause / resume waterfall\n\
  [E]        Focus spectrum panel (expand / zoom)\n\
    Esc      Exit spectrum focus\n\
+ [I]/[V]/[T] Focus lab panel: IQ / health / timing\n\
  [?]        Toggle this help\n\
  [Tab]      Toggle footer bar\n\
 \n\
