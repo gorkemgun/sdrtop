@@ -286,6 +286,19 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
             ],
         };
+        // Lab timing — host-side stream-timing diagnostics: callback period /
+        // jitter, sample-rate accuracy and throughput on the left, hardware health
+        // centre.
+        let lab_timing = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header".into(),          position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "timing_panel".into(),    position: Left,   height: None,    width_pct: Some(45) },
+                PanelSpec { name: "hardware_health".into(), position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "signal_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "log".into(),             position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),          position: Bottom, height: None,    width_pct: None     },
+            ],
+        };
         // Micro main — the [0] field-mode entry view. A single self-contained
         // panel that manages its own zones, plus the footer.
         let micro_main = PresetConfig {
@@ -325,6 +338,7 @@ impl LayoutConfig {
         presets.insert("lab_iq".into(), lab_iq);
         presets.insert("lab_rf".into(), lab_rf);
         presets.insert("lab_signal".into(), lab_signal);
+        presets.insert("lab_timing".into(), lab_timing);
         presets.insert("micro_main".into(), micro_main);
         presets.insert("micro_signal".into(), micro_signal);
         presets.insert("micro_gain".into(), micro_gain);
@@ -420,7 +434,7 @@ mod tests {
     #[test]
     fn default_config_has_lab_presets() {
         let cfg = LayoutConfig::default_config();
-        for name in ["lab_iq", "lab_rf", "lab_signal"] {
+        for name in ["lab_iq", "lab_rf", "lab_signal", "lab_timing"] {
             let p = cfg.presets.get(name).unwrap_or_else(|| panic!("missing preset {name}"));
             assert!(!p.panels.is_empty(), "{name} has no panels");
             // Every lab preset carries a header and a footer.
@@ -428,6 +442,15 @@ mod tests {
             assert!(names.contains(&"header"), "{name} missing header");
             assert!(names.contains(&"footer"), "{name} missing footer");
         }
+    }
+
+    #[test]
+    fn default_config_lab_timing_has_timing_panel() {
+        let cfg = LayoutConfig::default_config();
+        let p = cfg.presets.get("lab_timing").expect("lab_timing preset present");
+        let names: Vec<&str> = p.panels.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"timing_panel"), "lab_timing missing timing_panel");
+        assert!(names.contains(&"hardware_health"), "lab_timing missing hardware_health");
     }
 
     #[test]

@@ -84,7 +84,7 @@ panels = [
 | `right`  | Right column of the body       | `width_pct` (% of body) |
 | `body`   | Centre column (fills remaining space) | — |
 
-**Available panel names:** `header`, `spectrum`, `waterfall`, `log`, `footer`, `signal_strip`, `rf_chain`, `iq_diagnostics`, `iq_histogram`, `hardware_health`, `signal_metrics`, `system_resources`.
+**Available panel names:** `header`, `spectrum`, `waterfall`, `log`, `footer`, `signal_strip`, `rf_chain`, `iq_diagnostics`, `iq_histogram`, `hardware_health`, `signal_metrics`, `system_resources`, `timing_panel`, `micro_panel`, `micro_signal_panel`, `micro_gain_panel`, `micro_health_panel`.
 
 See [Advanced Features](advanced.md#defining-custom-presets) for the full guide to creating and managing custom presets.
 

@@ -27,6 +27,7 @@ pub mod spectrum;
 pub mod system_resources;
 pub mod telemetry;
 pub mod throughput;
+pub mod timing_panel;
 pub mod usb_sr;
 pub mod waterfall;
 
@@ -53,4 +54,5 @@ pub use system_resources::SystemResourcesPanel;
 pub use waterfall::WaterfallPanel;
 pub use telemetry::TelemetryPanel;
 pub use throughput::ThroughputPanel;
+pub use timing_panel::TimingPanel;
 pub use usb_sr::UsbSrPanel;

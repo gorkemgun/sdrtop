@@ -18,9 +18,8 @@
 | `e` | Enter spectrum focus mode |
 | `l` | Enter waterfall focus mode |
 | `1`–`5` | Switch built-in layout preset |
-| `6` / `7` / `9` | Lab presets — IQ, RF, signal (specialised diagnostics layouts) |
+| `6` / `7` / `8` / `9` | Lab presets — IQ, RF, timing, signal (specialised diagnostics layouts) |
 | `0` | Micro field-mode view — compact layout for small screens / SSH; press again to cycle micro views |
-| `8` | Reserved custom-preset slot (see [Configuration](config.md#custom-layout-presets)) |
 | `p` | Cycle through presets |
 | `Tab` | Show or hide the footer bar |
 | `?` | Show the help overlay |

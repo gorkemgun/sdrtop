@@ -23,6 +23,8 @@ pub fn render_help(f: &mut Frame) {
  [3]        Preset: waterfall\n\
  [4]        Preset: spectrum+waterfall\n\
  [5]        Preset: lab\n\
+ [6]/[7]/[8]/[9] Lab: IQ / RF / timing / signal\n\
+ [0]        Micro field-mode (press again to cycle)\n\
  [W]        Pause / resume waterfall\n\
  [E]        Focus spectrum panel (expand / zoom)\n\
    Esc      Exit spectrum focus\n\

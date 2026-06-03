@@ -9,7 +9,7 @@ use crate::hardware;
 use crate::signal::FftWorker;
 use crate::state::{
     Accumulators, IqState, ObserverState, RadioState, SdrMetrics,
-    SignalState, SpectrumState, SystemState, UiState, WaterfallState,
+    SignalState, SpectrumState, SystemState, TimingState, UiState, WaterfallState,
     THROUGHPUT_HISTORY_LEN,
 };
 use crate::tasks;
@@ -50,6 +50,7 @@ impl App {
         registry.register(ui::MicroSignalPanel);
         registry.register(ui::MicroGainPanel);
         registry.register(ui::MicroHealthPanel);
+        registry.register(ui::TimingPanel);
 
         let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
         for panel in registry.panels_iter() {
@@ -134,6 +135,7 @@ impl App {
                 process_cpu_pct: 0.0, process_rss_mb: 0,
                 cpu_history: std::collections::VecDeque::with_capacity(crate::state::THROUGHPUT_HISTORY_LEN),
             },
+            timing: TimingState::default(),
             ui:  UiState::default(),
             acc: Accumulators::default(),
         }));
@@ -240,6 +242,7 @@ impl App {
                 process_cpu_pct: 0.0, process_rss_mb: 0,
                 cpu_history: std::collections::VecDeque::with_capacity(crate::state::THROUGHPUT_HISTORY_LEN),
             },
+            timing: TimingState::default(),
             ui:  UiState::default(),
             acc: Accumulators::default(),
         }));

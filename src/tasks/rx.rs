@@ -17,6 +17,11 @@ pub fn spawn_rx_task(
         let mut hw_rx_active = false;
         // Throttles SNR history sampling to ~500 ms regardless of the 200 ms poll.
         let mut last_snr_push = Instant::now();
+        // Online Welford accumulator for throughput (binary MB/s), reset each RX
+        // session so the timing panel reports per-session mean / std-dev.
+        let mut tp_count: u64 = 0;
+        let mut tp_mean:  f64 = 0.0;
+        let mut tp_m2:    f64 = 0.0;
 
         loop {
             // Single is_streaming() call per iteration — result used for both the
@@ -194,6 +199,30 @@ pub fn spawn_rx_task(
                     let snr = m.signal.peak_to_nf_db;
                     m.signal.snr_history.push_back(snr);
                 }
+
+                // Timing accuracy: fold this window's throughput into the running
+                // Welford accumulator, then rebuild the TimingState snapshot from
+                // the latest jitter / sample-rate / drop measurements.
+                if hw_streaming {
+                    let mbps = m.radio.current_throughput_bps as f64 / 1024.0 / 1024.0;
+                    tp_count += 1;
+                    let delta = mbps - tp_mean;
+                    tp_mean += delta / tp_count as f64;
+                    tp_m2  += delta * (mbps - tp_mean);
+                }
+                let tp_std = if tp_count > 1 { (tp_m2 / (tp_count - 1) as f64).sqrt() } else { 0.0 };
+                let jitter_snapshot: Vec<u64> = m.iq.jitter_history.iter().copied().collect();
+                m.timing = crate::state::TimingState::compute(
+                    m.iq.cb_period_us,
+                    m.radio.config_sample_rate,
+                    &jitter_snapshot,
+                    m.iq.cb_jitter_us,
+                    m.radio.actual_sample_rate,
+                    m.signal.drops_per_sec,
+                    tp_mean,
+                    tp_std,
+                );
+
                 m.radio.rx_enabled
             };
             if rx_enabled && !hw_rx_active {
@@ -201,6 +230,8 @@ pub fn spawn_rx_task(
                 match device.start_rx(hardware::rx_callback, user_param) {
                     Ok(()) => {
                         hw_rx_active = true;
+                        // Fresh per-session throughput statistics.
+                        tp_count = 0; tp_mean = 0.0; tp_m2 = 0.0;
                         let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                         m.radio.rx_start_time = Some(Instant::now());
                         m.push_log("RX streaming started");

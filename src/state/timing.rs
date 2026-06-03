@@ -1,0 +1,216 @@
+//! `TimingState` — host-side timing accuracy of the RX stream, derived by the
+//! `rx` polling task and rendered by the `timing_panel` (`lab_timing`, `[8]`).
+//!
+//! Everything here is measured against the host monotonic clock: the per-callback
+//! period and its jitter come from the timestamps the RX callback records, the
+//! sample-rate offset from the observed throughput, and the throughput mean/std
+//! from an online Welford accumulator the task keeps across polls. None of it
+//! needs hardware support beyond the bytes already flowing.
+
+/// Complex samples delivered per HackRF USB transfer: the libhackrf transfer
+/// buffer is 262 144 bytes of interleaved 8-bit I/Q, i.e. 131 072 IQ pairs. The
+/// expected callback period is this many samples divided by the sample rate.
+pub const HACKRF_SAMPLES_PER_TRANSFER: u64 = 131_072;
+
+/// One-glance verdict on stream timing. Ordered best → worst.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TimingQuality {
+    #[default]
+    Excellent,
+    Good,
+    Marginal,
+    Poor,
+}
+
+impl TimingQuality {
+    /// Decision tree over the p99 jitter (as a fraction of the expected callback
+    /// period), the sample-rate offset, and whether samples are being dropped.
+    /// A longer expected period tolerates proportionally more absolute jitter, so
+    /// the jitter test is relative rather than a fixed microsecond threshold.
+    pub fn classify(jitter_p99_us: u64, cb_period_expected: u64, sr_delta_ppm: i64, drops_per_sec: u64) -> Self {
+        // No timing data yet (not streaming / first poll) reads as the best case
+        // rather than alarming the user with a red verdict on an idle radio.
+        if cb_period_expected == 0 {
+            return TimingQuality::Excellent;
+        }
+        let ratio = jitter_p99_us as f64 / cb_period_expected as f64;
+        let ppm = sr_delta_ppm.unsigned_abs();
+        if drops_per_sec > 0 || ratio > 0.50 || ppm > 500 {
+            TimingQuality::Poor
+        } else if ratio > 0.25 || ppm > 200 {
+            TimingQuality::Marginal
+        } else if ratio > 0.10 || ppm > 50 {
+            TimingQuality::Good
+        } else {
+            TimingQuality::Excellent
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TimingQuality::Excellent => "EXCELLENT",
+            TimingQuality::Good      => "GOOD",
+            TimingQuality::Marginal  => "MARGINAL",
+            TimingQuality::Poor      => "POOR",
+        }
+    }
+
+    /// Severity 0 (best) → 3 (worst); the panel maps this to a theme color.
+    pub fn severity(self) -> u8 {
+        match self {
+            TimingQuality::Excellent => 0,
+            TimingQuality::Good      => 1,
+            TimingQuality::Marginal  => 2,
+            TimingQuality::Poor      => 3,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct TimingState {
+    /// Measured mean time between RX callbacks (µs).
+    pub cb_period_us:         u64,
+    /// Expected callback period at the configured sample rate (µs).
+    pub cb_period_expected:   u64,
+    /// Signed offset of the measured period from expected, in ppm.
+    pub cb_period_delta_ppm:  i64,
+    /// Std-dev of the callback period over the last poll window (µs).
+    pub cb_jitter_us:         u64,
+    pub jitter_p95_us:        u64,
+    pub jitter_p99_us:        u64,
+    pub jitter_max_us:        u64,
+    /// Sample-rate offset (actual vs configured), in ppm.
+    pub sr_delta_ppm:         i64,
+    pub throughput_mean_mbps: f64,
+    pub throughput_std_mbps:  f64,
+    pub timing_quality:       TimingQuality,
+}
+
+impl TimingState {
+    /// Build the snapshot from the latest poll-window measurements. The throughput
+    /// mean/std come from the task's running Welford accumulator; everything else
+    /// is derived here so the math stays in one testable place.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute(
+        cb_period_us: u64,
+        config_sample_rate: f64,
+        jitter: &[u64],
+        cb_jitter_us: u64,
+        actual_sample_rate: u32,
+        drops_per_sec: u64,
+        throughput_mean_mbps: f64,
+        throughput_std_mbps: f64,
+    ) -> Self {
+        let cb_period_expected = if config_sample_rate > 0.0 {
+            (HACKRF_SAMPLES_PER_TRANSFER as f64 / config_sample_rate * 1e6).round() as u64
+        } else {
+            0
+        };
+        let cb_period_delta_ppm = if cb_period_expected > 0 && cb_period_us > 0 {
+            ((cb_period_us as f64 - cb_period_expected as f64) / cb_period_expected as f64 * 1e6).round() as i64
+        } else {
+            0
+        };
+        let jitter_p95_us = percentile_u64(jitter, 95.0);
+        let jitter_p99_us = percentile_u64(jitter, 99.0);
+        let jitter_max_us = jitter.iter().copied().max().unwrap_or(0);
+        let sr_delta_ppm = if config_sample_rate > 0.0 && actual_sample_rate > 0 {
+            ((actual_sample_rate as f64 - config_sample_rate) / config_sample_rate * 1e6).round() as i64
+        } else {
+            0
+        };
+        let timing_quality = TimingQuality::classify(jitter_p99_us, cb_period_expected, sr_delta_ppm, drops_per_sec);
+        Self {
+            cb_period_us,
+            cb_period_expected,
+            cb_period_delta_ppm,
+            cb_jitter_us,
+            jitter_p95_us,
+            jitter_p99_us,
+            jitter_max_us,
+            sr_delta_ppm,
+            throughput_mean_mbps,
+            throughput_std_mbps,
+            timing_quality,
+        }
+    }
+}
+
+/// Nearest-rank percentile of a small unsorted sample set. Copies and sorts —
+/// the window is bounded (≤ `THROUGHPUT_HISTORY_LEN`), so this stays cheap.
+/// `p` is a percentage in `0.0..=100.0`. Empty input yields 0.
+pub fn percentile_u64(samples: &[u64], p: f64) -> u64 {
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut v: Vec<u64> = samples.to_vec();
+    v.sort_unstable();
+    let rank = ((p / 100.0) * (v.len() - 1) as f64).round() as usize;
+    v[rank.min(v.len() - 1)]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentile_edges_and_ranks() {
+        assert_eq!(percentile_u64(&[], 95.0), 0);
+        assert_eq!(percentile_u64(&[42], 99.0), 42);
+        let data = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+        // Nearest-rank: p95 over 10 samples → rank round(0.95*9)=9 → 100.
+        assert_eq!(percentile_u64(&data, 95.0), 100);
+        assert_eq!(percentile_u64(&data, 50.0), 60); // round(0.5*9)=5 → data[5]
+        // Unsorted input is handled.
+        assert_eq!(percentile_u64(&[100, 10, 50], 0.0), 10);
+        assert_eq!(percentile_u64(&[100, 10, 50], 100.0), 100);
+    }
+
+    #[test]
+    fn expected_period_from_sample_rate() {
+        // 10 Msps → 131072 / 10e6 = 13107.2 µs ≈ 13107.
+        let t = TimingState::compute(13_100, 10_000_000.0, &[40, 50, 60], 50, 10_000_000, 0, 19.5, 0.2);
+        assert_eq!(t.cb_period_expected, 13_107);
+        // Measured slightly under expected → negative ppm.
+        assert!(t.cb_period_delta_ppm < 0, "got {}", t.cb_period_delta_ppm);
+    }
+
+    #[test]
+    fn sr_delta_ppm_sign_and_magnitude() {
+        // actual 9.998 MHz vs configured 10.000 MHz → -200 ppm.
+        let t = TimingState::compute(13_107, 10_000_000.0, &[10], 10, 9_998_000, 0, 19.5, 0.2);
+        assert_eq!(t.sr_delta_ppm, -200);
+    }
+
+    #[test]
+    fn no_data_is_excellent_not_alarming() {
+        let t = TimingState::compute(0, 0.0, &[], 0, 0, 0, 0.0, 0.0);
+        assert_eq!(t.cb_period_expected, 0);
+        assert_eq!(t.timing_quality, TimingQuality::Excellent);
+    }
+
+    #[test]
+    fn quality_decision_tree() {
+        let exp = 13_107u64;
+        // Clean stream.
+        assert_eq!(TimingQuality::classify(500, exp, 10, 0), TimingQuality::Excellent);
+        // Mild jitter (~11% of period) → Good.
+        assert_eq!(TimingQuality::classify(1_500, exp, 0, 0), TimingQuality::Good);
+        // Sample-rate offset alone pushes to Good / Marginal.
+        assert_eq!(TimingQuality::classify(0, exp, 120, 0), TimingQuality::Good);
+        assert_eq!(TimingQuality::classify(0, exp, 300, 0), TimingQuality::Marginal);
+        // Any drops → Poor regardless of jitter.
+        assert_eq!(TimingQuality::classify(0, exp, 0, 5), TimingQuality::Poor);
+        // Severe jitter (>50%) → Poor.
+        assert_eq!(TimingQuality::classify(7_000, exp, 0, 0), TimingQuality::Poor);
+    }
+
+    #[test]
+    fn jitter_percentiles_populated() {
+        let jitter = [10u64, 20, 30, 40, 200];
+        let t = TimingState::compute(13_107, 10_000_000.0, &jitter, 35, 10_000_000, 0, 19.5, 0.2);
+        assert_eq!(t.jitter_max_us, 200);
+        assert!(t.jitter_p95_us >= t.jitter_p95_us.min(t.jitter_p99_us));
+        assert_eq!(t.jitter_p99_us, 200);
+    }
+}

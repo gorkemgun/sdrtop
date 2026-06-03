@@ -6,6 +6,7 @@ mod radio;
 mod signal;
 mod spectrum;
 mod system;
+mod timing;
 mod ui;
 mod waterfall;
 
@@ -17,6 +18,7 @@ pub use radio::RadioState;
 pub use signal::SignalState;
 pub use spectrum::{SpectrumMarker, SpectrumState};
 pub use system::SystemState;
+pub use timing::{TimingQuality, TimingState};
 pub use ui::{InputMode, UiState};
 pub use waterfall::{FftFrame, WaterfallState};
 
@@ -37,6 +39,7 @@ pub struct SdrMetrics {
     pub spectrum: SpectrumState,
     pub waterfall: WaterfallState,
     pub system:   SystemState,
+    pub timing:   TimingState,
     pub ui:       UiState,
     pub(crate) acc: Accumulators,
 }
