@@ -86,7 +86,7 @@ lists the extra keys; `Esc` exits.
 | `i` | **I**Q Diagnostics (`[5]` lab_iq) | `C` — log a snapshot of the current DC offset, IQ imbalance and phase |
 | `v` | Hardware **V**itals (`[6]` lab_rf / `[7]` lab_timing) | `R` — reset the session drop counter · `C` — clear the trend sparklines |
 | `t` | **T**iming (`[7]` lab_timing) | `R` — reset the session jitter peak · `C` — clear the jitter / throughput history |
-| `g` | Sweep `[G]` (`[9]` lab_sweep) | `←/→` — move cursor · `M` — peak/mean curve · `+/-` — dwell time · `Enter` — tune to the cursor frequency |
+| `g` | Sweep `[G]` (`[9]` lab_sweep) | `←/→` — move cursor · `[` / `]` — set start / stop frequency · `M` — peak/mean curve · `+/-` — dwell time · `Enter` — tune to the cursor frequency |
 
 The RF chain has no separate focus mode — its gain controls are the regular
 global keys (`↑`/`↓` LNA, `[`/`]` VGA, `a` AMP, `r` reset), which work everywhere.

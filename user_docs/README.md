@@ -2,6 +2,8 @@
 
 Welcome. This is the plain-language guide to using sdrtop.
 
+> **Status:** the interactive TUI is feature-complete (spectrum, waterfall, the lab presets, the sweep scanner, and the micro field views). Until **RTL-SDR** support arrives, work is focused on **bug-fixing and UI polish** — see [What's New](whats-new.md).
+
 ---
 
 ## Contents

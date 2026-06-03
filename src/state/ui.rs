@@ -11,6 +11,8 @@ pub enum InputMode {
     FrequencyInput,
     SampleRateInput,
     MarkerNameInput,
+    SweepStartInput,
+    SweepStopInput,
 }
 
 #[derive(Clone)]

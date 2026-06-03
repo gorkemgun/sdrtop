@@ -185,6 +185,14 @@ impl Panel for FooterPanel {
                     vec![format!(" Sample rate (2–20 MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)],
                     theme.status_warn,
                 ),
+                InputMode::SweepStartInput => (
+                    vec![format!(" Sweep START (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)],
+                    theme.status_warn,
+                ),
+                InputMode::SweepStopInput => (
+                    vec![format!(" Sweep STOP (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)],
+                    theme.status_warn,
+                ),
                 InputMode::MarkerNameInput => {
                     let freq_str = m.spectrum.pending_marker
                         .map(|f| format!("{:.3} MHz", f as f64 / 1_000_000.0))

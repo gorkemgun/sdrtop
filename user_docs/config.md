@@ -72,10 +72,11 @@ dwell_ms = 200         # measure each position for 200 ms (50–2000)
 ```
 
 The step between positions is derived from the sample rate automatically (about
-90 % of it, for a small overlap). While in the sweep panel's focus mode (`g`),
-`+` / `-` nudge the dwell live, `←` / `→` move the cursor, `M` toggles peak/mean,
-and `Enter` jumps the radio to the cursor frequency. Your last band and dwell are
-saved on quit.
+90 % of it, for a small overlap). You don't have to edit the config to change the
+band — while in the sweep panel's focus mode (`g`), `[` and `]` prompt for the
+start and stop frequency in MHz, `+` / `-` nudge the dwell live, `←` / `→` move
+the cursor, `M` toggles peak/mean, and `Enter` jumps the radio to the cursor
+frequency. Your last band and dwell are saved on quit.
 
 A sweep cycle takes a couple of seconds, so it's for *finding* signals, not
 real-time monitoring — once you spot one, `Enter` tunes to it.

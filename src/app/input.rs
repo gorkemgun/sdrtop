@@ -34,6 +34,8 @@ pub fn handle_key(
         InputMode::FrequencyInput  => { handle_freq_input(key, state, device); KeyAction::Continue }
         InputMode::SampleRateInput => { handle_sr_input(key, state, device);   KeyAction::Continue }
         InputMode::MarkerNameInput => { handle_marker_input(key, state);        KeyAction::Continue }
+        InputMode::SweepStartInput => { handle_sweep_range_input(key, state, true);  KeyAction::Continue }
+        InputMode::SweepStopInput  => { handle_sweep_range_input(key, state, false); KeyAction::Continue }
     }
 }
 
@@ -429,6 +431,18 @@ fn handle_sweep_focus(
             let d = m.sweep.config.dwell_ms;
             m.push_log(format!("Sweep dwell → {} ms", d));
         }
+        KeyCode::Char('[') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.ui.input_mode = InputMode::SweepStartInput;
+            m.ui.input_buf.clear();
+            m.push_log("Enter sweep START frequency in MHz, then Enter");
+        }
+        KeyCode::Char(']') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.ui.input_mode = InputMode::SweepStopInput;
+            m.ui.input_buf.clear();
+            m.push_log("Enter sweep STOP frequency in MHz, then Enter");
+        }
         KeyCode::Enter => {
             // Resolve the cursor frequency, stash it as the jump target, then leave
             // lab_sweep — the sweep_task tunes there as it stops.
@@ -772,6 +786,61 @@ fn handle_sr_input(
                         let bad = m.ui.input_buf.clone();
                         m.push_log(format!("Invalid sample rate: '{}' (valid: 2–20 MHz)", bad));
                     }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Sweep START / STOP frequency entry (MHz), reached from the sweep panel's
+/// `[` / `]` focus keys. Validates the new bound against the other one and the
+/// HackRF tuning range before committing, and clears the stale frame so the next
+/// cycle rebuilds over the new band.
+fn handle_sweep_range_input(key: KeyEvent, state: &Arc<Mutex<SdrMetrics>>, is_start: bool) {
+    match key.code {
+        KeyCode::Esc => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.ui.input_mode = InputMode::Normal;
+            m.ui.input_buf.clear();
+            m.push_log("Sweep range input cancelled");
+        }
+        KeyCode::Backspace => { state.lock().unwrap_or_else(|e| e.into_inner()).ui.input_buf.pop(); }
+        KeyCode::Char(c) if c.is_ascii_digit() || c == '.' => {
+            state.lock().unwrap_or_else(|e| e.into_inner()).ui.input_buf.push(c);
+        }
+        KeyCode::Enter => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let parsed = m.ui.input_buf.parse::<f64>().ok()
+                .filter(|&mhz| mhz > 0.0)
+                .map(|mhz| (mhz * 1_000_000.0) as u64)
+                .filter(|&hz| (1_000_000..=6_000_000_000).contains(&hz));
+            match parsed {
+                Some(hz) => {
+                    let (start, stop) = (m.sweep.config.start_hz, m.sweep.config.stop_hz);
+                    let ordered = if is_start { hz < stop } else { hz > start };
+                    if ordered {
+                        if is_start { m.sweep.config.start_hz = hz; } else { m.sweep.config.stop_hz = hz; }
+                        m.sweep.cycle_count = 0;
+                        m.sweep.positions_done = 0;
+                        m.sweep.current_frame = None;
+                        m.sweep.cursor_frac = None;
+                        m.ui.input_mode = InputMode::Normal;
+                        m.ui.input_buf.clear();
+                        m.push_log(format!(
+                            "Sweep {} → {:.3} MHz",
+                            if is_start { "START" } else { "STOP" }, hz as f64 / 1e6
+                        ));
+                    } else {
+                        m.push_log(format!(
+                            "Invalid: START must be below STOP (now {:.1}–{:.1} MHz)",
+                            start as f64 / 1e6, stop as f64 / 1e6
+                        ));
+                    }
+                }
+                None => {
+                    let bad = m.ui.input_buf.clone();
+                    m.push_log(format!("Invalid frequency: '{}' (1–6000 MHz)", bad));
                 }
             }
         }

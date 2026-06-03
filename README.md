@@ -14,6 +14,7 @@ I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clon
 > [!IMPORTANT]
 > **Project Status:** `sdrtop` is currently in an **early development stage**. 
 > * At the moment, **it only supports the HackRF One**. Support for other devices is planned.
+> * The **interactive TUI is feature-complete** — spectrum, waterfall, the lab presets (IQ, RF, timing, signal, sweep), and the micro field-mode ecosystem are all in. Until **RTL-SDR support** lands, the focus is on **bug-fixing and polishing the UI** rather than new features.
 > * **Known Issues:** Plenty 😄... You might run into some performance issues.
 
 **[Full user guide](user_docs/README.md)**
@@ -151,6 +152,9 @@ You can also define your own `[presets.*]` layouts in the config — they merge 
 
 ## Roadmap
 
+### Current focus
+With the TUI feature set in place, the work right now is **stability and UI polish** — fixing bugs and refining the existing screens — until RTL-SDR support arrives.
+
 ### Near term
 - [ ] RTL-SDR support — R820T / R828D / E4000 (most common dongle, highest impact)
 
@@ -160,7 +164,7 @@ You can also define your own `[presets.*]` layouts in the config — they merge 
 - [ ] LimeSDR / bladeRF / SDRplay / PlutoSDR via SoapySDR
 
 ### App
-- [ ] Frequency scanner mode
+- [x] Frequency scanner mode — the `lab_sweep` / `micro_sweep` scanner
 - [ ] Signal recording to file
 - [ ] In-app config editing (no hand-editing TOML)
 
