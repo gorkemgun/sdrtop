@@ -56,6 +56,7 @@ fn handle_normal(
         Some("iq_diagnostics")  => handle_iq_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         Some("hardware_health") => handle_health_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         Some("timing_panel")    => handle_timing_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("sweep_panel")     => handle_sweep_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         _                       => handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
 }
@@ -386,6 +387,76 @@ fn handle_timing_focus(
     KeyAction::Continue
 }
 
+/// `sweep_panel` focus (`[G]`): cursor with `←/→`, peak/mean with `M`, dwell with
+/// `+/-`, and `[Enter]` to leave the sweep tuned to the cursor frequency.
+fn handle_sweep_focus(
+    key: KeyEvent,
+    state: &Arc<Mutex<SdrMetrics>>,
+    device: Option<&Arc<hardware::Device>>,
+    engine: &mut ui::LayoutEngine,
+    show_help: &mut bool,
+    show_footer: &mut bool,
+    focus_keys: &HashMap<char, &'static str>,
+) -> KeyAction {
+    /// Cursor step as a fraction of the swept band per key press.
+    const CURSOR_STEP: f64 = 0.01;
+    match key.code {
+        KeyCode::Left => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let cur = m.sweep.cursor_frac.unwrap_or(0.5);
+            m.sweep.cursor_frac = Some((cur - CURSOR_STEP).clamp(0.0, 1.0));
+        }
+        KeyCode::Right => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let cur = m.sweep.cursor_frac.unwrap_or(0.5);
+            m.sweep.cursor_frac = Some((cur + CURSOR_STEP).clamp(0.0, 1.0));
+        }
+        KeyCode::Char('m') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.sweep.show_peak = !m.sweep.show_peak;
+            let mode = if m.sweep.show_peak { "peak" } else { "mean" };
+            m.push_log(format!("Sweep: {} curve", mode));
+        }
+        KeyCode::Char('+') | KeyCode::Char('=') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.sweep.config.dwell_ms = (m.sweep.config.dwell_ms + 50).min(2000);
+            let d = m.sweep.config.dwell_ms;
+            m.push_log(format!("Sweep dwell → {} ms", d));
+        }
+        KeyCode::Char('-') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.sweep.config.dwell_ms = m.sweep.config.dwell_ms.saturating_sub(50).max(50);
+            let d = m.sweep.config.dwell_ms;
+            m.push_log(format!("Sweep dwell → {} ms", d));
+        }
+        KeyCode::Enter => {
+            // Resolve the cursor frequency, stash it as the jump target, then leave
+            // lab_sweep — the sweep_task tunes there as it stops.
+            let target = {
+                let m = state.lock().unwrap_or_else(|e| e.into_inner());
+                match (m.sweep.cursor_frac, m.sweep.current_frame.as_ref()) {
+                    (Some(fr), Some(f)) => Some(f.freq_at_fraction(fr)),
+                    _ => None,
+                }
+            };
+            if let Some(hz) = target {
+                {
+                    let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                    m.sweep.pending_tune = Some(hz);
+                }
+                engine.clear_focus();
+                engine.set_preset("spectrum_waterfall");
+                let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                m.ui.focused_panel = None;
+                m.ui.focused_panel_bindings = &[];
+                m.push_log(format!("Jumping to {:.3} MHz from sweep…", hz as f64 / 1e6));
+            }
+        }
+        _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
+    }
+    KeyAction::Continue
+}
+
 // ── Global keys (no panel focus) ─────────────────────────────────────────────
 
 fn handle_global(
@@ -598,8 +669,8 @@ fn try_set_preset(engine: &mut ui::LayoutEngine, state: &Arc<Mutex<SdrMetrics>>,
 /// skipped (micro_view does not advance), so the cycle never strands the user on
 /// a blank view while the micro presets are still being built out.
 fn cycle_micro(engine: &mut ui::LayoutEngine, state: &Arc<Mutex<SdrMetrics>>) {
-    // Sweep is a future capability — not part of the cycle yet.
-    const SWEEP_ACTIVE: bool = false;
+    // The sweep step is part of the cycle: entering micro_sweep starts a scan.
+    const SWEEP_ACTIVE: bool = true;
     let in_micro = engine.active_preset().starts_with("micro_");
     let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
     let target = if in_micro { m.ui.micro_view.next(SWEEP_ACTIVE) } else { MicroView::Main };

@@ -82,6 +82,28 @@ impl ThemeConfig {
     fn default_base() -> String { "sdr".into() }
 }
 
+fn default_sweep_start() -> u64 { 400_000_000 }
+fn default_sweep_stop()  -> u64 { 500_000_000 }
+fn default_sweep_dwell() -> u64 { 200 }
+
+/// `[sweep]` config for the `lab_sweep` / `micro_sweep` scanner. Read at startup;
+/// the dwell can also be nudged live with `+`/`-` in the sweep panel's focus mode.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct SweepSettings {
+    #[serde(default = "default_sweep_start")]
+    pub start_hz: u64,
+    #[serde(default = "default_sweep_stop")]
+    pub stop_hz: u64,
+    #[serde(default = "default_sweep_dwell")]
+    pub dwell_ms: u64,
+}
+
+impl Default for SweepSettings {
+    fn default() -> Self {
+        Self { start_hz: default_sweep_start(), stop_hz: default_sweep_stop(), dwell_ms: default_sweep_dwell() }
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct AppConfig {
     #[serde(default)]
@@ -90,6 +112,8 @@ pub struct AppConfig {
     pub display: DisplayConfig,
     #[serde(default)]
     pub theme: ThemeConfig,
+    #[serde(default)]
+    pub sweep: SweepSettings,
     /// User-defined layout presets, merged into the built-in set at startup.
     /// A preset here with the same name as a built-in overrides it. Preserved
     /// verbatim across save so hand-written presets survive a quit.
@@ -287,6 +311,19 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),          position: Bottom, height: None,    width_pct: None     },
             ],
         };
+        // Lab sweep — frequency-scanner mode: the wide sweep curve fills the body,
+        // cursor metrics on the right, sweep status strip below. Compact header
+        // (gain matters less while sweeping).
+        let lab_sweep = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header".into(),         position: Top,    height: Some(3), width_pct: None     },
+                PanelSpec { name: "sweep_panel".into(),    position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "signal_metrics".into(), position: Right,  height: None,    width_pct: Some(22) },
+                PanelSpec { name: "sweep_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "log".into(),            position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
+            ],
+        };
         // Micro main — the [0] field-mode entry view. A single self-contained
         // panel that manages its own zones, plus the footer.
         let micro_main = PresetConfig {
@@ -316,6 +353,13 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),             position: Bottom, height: None, width_pct: None },
             ],
         };
+        // Micro sweep — [0] cycle step 5: field scanner glance (starts a sweep).
+        let micro_sweep = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "micro_sweep_panel".into(), position: Body,   height: None, width_pct: None },
+                PanelSpec { name: "footer".into(),            position: Bottom, height: None, width_pct: None },
+            ],
+        };
         let mut presets = HashMap::new();
         presets.insert("spectrum".into(), spectrum);
         presets.insert("waterfall".into(), waterfall);
@@ -326,10 +370,12 @@ impl LayoutConfig {
         presets.insert("lab_rf".into(), lab_rf);
         presets.insert("lab_signal".into(), lab_signal);
         presets.insert("lab_timing".into(), lab_timing);
+        presets.insert("lab_sweep".into(), lab_sweep);
         presets.insert("micro_main".into(), micro_main);
         presets.insert("micro_signal".into(), micro_signal);
         presets.insert("micro_gain".into(), micro_gain);
         presets.insert("micro_health".into(), micro_health);
+        presets.insert("micro_sweep".into(), micro_sweep);
         Self { active_preset: "spectrum_waterfall".into(), presets }
     }
 
@@ -429,6 +475,15 @@ mod tests {
             assert!(names.contains(&"header"), "{name} missing header");
             assert!(names.contains(&"footer"), "{name} missing footer");
         }
+    }
+
+    #[test]
+    fn default_config_lab_sweep_has_sweep_panels() {
+        let cfg = LayoutConfig::default_config();
+        let p = cfg.presets.get("lab_sweep").expect("lab_sweep preset present");
+        let names: Vec<&str> = p.panels.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"sweep_panel"), "lab_sweep missing sweep_panel");
+        assert!(names.contains(&"sweep_strip"), "lab_sweep missing sweep_strip");
     }
 
     #[test]

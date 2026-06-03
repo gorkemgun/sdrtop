@@ -1,9 +1,11 @@
 mod observer;
 mod rx;
+mod sweep;
 mod system;
 
 pub use observer::spawn_observer_task;
 pub use rx::spawn_rx_task;
+pub use sweep::spawn_sweep_task;
 pub use system::spawn_sys_resource_task;
 
 pub fn fmt_duration(secs: u64) -> String {

@@ -59,8 +59,8 @@ fn is_micro_preset(name: &str) -> bool {
 /// Condensed footer for the micro ecosystem: the essential field keys plus the
 /// `[0]▸{next}` hint and the `N/M` cycle position.
 fn micro_items(view: MicroView, narrow: bool) -> Vec<String> {
-    // Sweep is a future capability — not in the cycle yet.
-    let sweep_active = false;
+    // The sweep step is part of the [0] cycle.
+    let sweep_active = true;
     let next  = view.next(sweep_active);
     let total = MicroView::total(sweep_active);
     let pos   = view.position();
@@ -294,10 +294,10 @@ mod tests {
     #[test]
     fn micro_preset_shows_condensed_footer_with_next_and_position() {
         // From micro_main (Main), the [0] hint points at the next view (signal)
-        // and the position reads 1/4.
+        // and the position reads 1/5 (the cycle includes the sweep step).
         let items = normal_items("micro_main", &[], MicroView::Main, 120);
         assert!(items.iter().any(|i| i == "[0]▸signal"));
-        assert!(items.iter().any(|i| i == "micro 1/4"));
+        assert!(items.iter().any(|i| i == "micro 1/5"));
         // No [P] hint and none of the long normal items in micro mode.
         assert!(items.iter().all(|i| !i.starts_with("[P]")));
         assert!(!items.contains(&"[R] Reset".to_string()));
@@ -307,7 +307,7 @@ mod tests {
     fn micro_footer_narrow_is_more_compact() {
         let items = normal_items("micro_signal", &[], MicroView::Signal, 50);
         assert!(items.iter().any(|i| i == "[0]▸gain"));
-        assert!(items.iter().any(|i| i == "2/4"));
+        assert!(items.iter().any(|i| i == "2/5"));
     }
 
     #[test]

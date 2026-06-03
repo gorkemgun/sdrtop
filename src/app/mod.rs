@@ -82,10 +82,19 @@ impl App {
     }
 
     fn draw<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
-        let mut m = self.state.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        // Sweep mode is owned by the `lab_sweep` preset: keep the real state's
+        // `sweep.active` in sync with the active preset so the sweep_task starts
+        // and stops with it, then take the render snapshot.
+        let active_preset = self.engine.active_preset().to_string();
+        let sweep_active = active_preset == "lab_sweep" || active_preset == "micro_sweep";
+        let mut m = {
+            let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            guard.sweep.active = sweep_active;
+            guard.clone()
+        };
         // Mirror the engine's active preset into the cloned snapshot so the
         // footer can render it without reaching into the engine.
-        m.ui.active_preset = self.engine.active_preset().to_string();
+        m.ui.active_preset = active_preset;
         m.ui.preset_names = self.engine.preset_names();
         let hide_footer = !self.show_footer
             && m.ui.input_mode == crate::state::InputMode::Normal;
@@ -100,11 +109,11 @@ impl App {
     fn save_config(&self) {
         if self.device.is_none() { return; }
         let Some(path) = &self.config_path else { return };
-        let (freq, rate, lna, vga, amp, wf_rows, markers) = {
+        let (freq, rate, lna, vga, amp, wf_rows, markers, sweep_cfg) = {
             let m = self.state.lock().unwrap_or_else(|e| e.into_inner());
             (m.radio.frequency, m.radio.config_sample_rate, m.radio.lna_gain,
              m.radio.vga_gain, m.radio.amp_enabled, m.waterfall.buffer.max_rows,
-             m.spectrum.markers.clone())
+             m.spectrum.markers.clone(), m.sweep.config.clone())
         };
         let cfg = AppConfig {
             radio: RadioConfig { frequency_hz: freq, sample_rate: rate, lna_gain: lna, vga_gain: vga, amp_enabled: amp },
@@ -114,6 +123,11 @@ impl App {
                 spectrum_markers:   markers,
             },
             theme: crate::config::ThemeConfig { base: self.theme.name.to_string(), ..Default::default() },
+            sweep: crate::config::SweepSettings {
+                start_hz: sweep_cfg.start_hz,
+                stop_hz:  sweep_cfg.stop_hz,
+                dwell_ms: sweep_cfg.dwell_ms,
+            },
             presets: self.user_presets.clone(),
         };
         let _ = cfg.save(path);

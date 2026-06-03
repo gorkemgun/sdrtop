@@ -20,3 +20,28 @@ pub const BAND_PLAN: &[(u64, u64, &str)] = &[
     (3_400_000_000, 3_475_000_000, "3.4G"),
     (5_650_000_000, 5_850_000_000, "5.8G"),
 ];
+
+/// The most specific (narrowest) known band containing `freq_hz`, if any.
+/// Narrower allocations win so e.g. ISM433 is reported over the wider 70cm.
+pub fn band_at(freq_hz: u64) -> Option<&'static str> {
+    BAND_PLAN
+        .iter()
+        .filter(|(start, end, _)| freq_hz >= *start && freq_hz < *end)
+        .min_by_key(|(start, end, _)| end - start)
+        .map(|(_, _, name)| *name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn band_at_picks_narrowest_match() {
+        // 433.92 MHz sits in both 70cm and ISM433 → the narrower ISM433 wins.
+        assert_eq!(band_at(433_920_000), Some("ISM433"));
+        // FM broadcast.
+        assert_eq!(band_at(100_000_000), Some("FM"));
+        // Nothing allocated here.
+        assert_eq!(band_at(420_000_000), None);
+    }
+}

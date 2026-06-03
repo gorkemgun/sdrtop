@@ -178,6 +178,7 @@ Then sdrtop will regain control.
 | `6` | `lab_rf` | RF-focused lab view (RF chain + spectrum + hardware vitals) |
 | `7` | `lab_timing` | Stream-timing diagnostics (timing panel + hardware vitals) |
 | `8` | `lab_signal` | Signal-quality view (spectrum + signal metrics + waterfall) |
+| `9` | `lab_sweep` | Frequency scanner — sweep a band wider than one window |
 | `0` | `micro_main` | Compact field-mode view (adapts to small screens) |
 
 ### Micro mode
@@ -189,6 +190,7 @@ Press `0` again to cycle through available micro views:
 - **Signal view** — simplified spectrum or IQ metrics
 - **Gain view** — LNA/VGA, gains, sample rate
 - **Health view** — drops, USB errors, CPU, buffer fill
+- **Sweep view** — starts a band scan and lists the strongest signals with band-plan names
 
 The layout adapts to your terminal width, keeping everything readable even in narrow panes.
 

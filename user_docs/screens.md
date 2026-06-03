@@ -118,6 +118,7 @@ Switch between preset layouts with number keys. Each preset rearranges which pan
 | `6` | Lab RF — RF chain · spectrum · hardware vitals ([guide](lab.md)) |
 | `7` | Lab Timing — stream-timing diagnostics · hardware vitals ([guide](lab.md)) |
 | `8` | Lab Signal — spectrum · signal metrics · waterfall ([guide](lab.md)) |
+| `9` | Lab Sweep — frequency scanner across a wide band ([guide](lab.md)) |
 | `p` | Cycle through presets |
 
 The **lab presets** have their own detailed walkthrough: **[The Lab Presets](lab.md)**.

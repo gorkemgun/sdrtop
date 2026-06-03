@@ -9,8 +9,8 @@ use crate::hardware;
 use crate::signal::FftWorker;
 use crate::state::{
     Accumulators, IqState, ObserverState, RadioState, SdrMetrics,
-    SignalState, SpectrumState, SystemState, TimingState, UiState, WaterfallState,
-    THROUGHPUT_HISTORY_LEN,
+    SignalState, SpectrumState, SweepConfig, SweepState, SystemState, TimingState, UiState,
+    WaterfallState, THROUGHPUT_HISTORY_LEN,
 };
 use crate::tasks;
 use crate::ui;
@@ -51,6 +51,9 @@ impl App {
         registry.register(ui::MicroGainPanel);
         registry.register(ui::MicroHealthPanel);
         registry.register(ui::TimingPanel);
+        registry.register(ui::SweepPanel);
+        registry.register(ui::SweepStripPanel);
+        registry.register(ui::MicroSweepPanel);
 
         let mut focus_keys: HashMap<char, &'static str> = HashMap::new();
         for panel in registry.panels_iter() {
@@ -136,6 +139,15 @@ impl App {
                 cpu_history: std::collections::VecDeque::with_capacity(crate::state::THROUGHPUT_HISTORY_LEN),
             },
             timing: TimingState::default(),
+            sweep: SweepState {
+                config: SweepConfig {
+                    start_hz: cfg.sweep.start_hz,
+                    stop_hz:  cfg.sweep.stop_hz,
+                    step_hz:  0,
+                    dwell_ms: cfg.sweep.dwell_ms,
+                },
+                ..SweepState::default()
+            },
             ui:  UiState::default(),
             acc: Accumulators::default(),
         }));
@@ -161,6 +173,7 @@ impl App {
         std::thread::spawn(move || FftWorker::new(sample_rx, fft_state).run());
 
         tasks::spawn_rx_task(Arc::clone(&state), Arc::clone(&device), Arc::clone(&rx_ctx));
+        tasks::spawn_sweep_task(Arc::clone(&state), Arc::clone(&device));
         tasks::spawn_sys_resource_task(Arc::clone(&state));
 
         let (engine, focus_keys) = Self::build_ui(&board_name, &serial, &cfg.display.active_preset, &cfg.presets);
@@ -243,6 +256,15 @@ impl App {
                 cpu_history: std::collections::VecDeque::with_capacity(crate::state::THROUGHPUT_HISTORY_LEN),
             },
             timing: TimingState::default(),
+            sweep: SweepState {
+                config: SweepConfig {
+                    start_hz: cfg.sweep.start_hz,
+                    stop_hz:  cfg.sweep.stop_hz,
+                    step_hz:  0,
+                    dwell_ms: cfg.sweep.dwell_ms,
+                },
+                ..SweepState::default()
+            },
             ui:  UiState::default(),
             acc: Accumulators::default(),
         }));

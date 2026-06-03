@@ -22,12 +22,12 @@ pub fn render_help(f: &mut Frame) {
  [2]        Preset: spectrum\n\
  [3]        Preset: waterfall\n\
  [4]        Preset: spectrum+waterfall\n\
- [5]/[6]/[7]/[8] Lab: IQ / RF / timing / signal\n\
+ [5]-[9]    Lab: IQ / RF / timing / signal / sweep\n\
  [0]        Micro field-mode (press again to cycle)\n\
  [W]        Pause / resume waterfall\n\
  [E]        Focus spectrum panel (expand / zoom)\n\
    Esc      Exit spectrum focus\n\
- [I]/[V]/[T] Focus lab panel: IQ / vitals / timing\n\
+ [I][V][T][G] Focus lab: IQ / vitals / timing / sweep\n\
  [?]        Toggle this help\n\
  [Tab]      Toggle footer bar\n\
 \n\

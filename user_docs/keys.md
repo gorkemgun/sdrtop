@@ -18,8 +18,8 @@
 | `e` | Enter spectrum focus mode |
 | `l` | Enter waterfall focus mode |
 | `1`–`4` | Switch built-in layout preset |
-| `5` / `6` / `7` / `8` | Lab presets — IQ, RF, timing, signal (specialised diagnostics layouts) |
-| `0` | Micro field-mode view — compact layout for small screens / SSH; press again to cycle micro views |
+| `5` / `6` / `7` / `8` / `9` | Lab presets — IQ, RF, timing, signal, sweep (specialised diagnostics layouts) |
+| `0` | Micro field-mode view — compact layout for small screens / SSH; press again to cycle (signal → gain → health → sweep) |
 | `p` | Cycle through presets |
 | `Tab` | Show or hide the footer bar |
 | `?` | Show the help overlay |
@@ -86,6 +86,7 @@ lists the extra keys; `Esc` exits.
 | `i` | **I**Q Diagnostics (`[5]` lab_iq) | `C` — log a snapshot of the current DC offset, IQ imbalance and phase |
 | `v` | Hardware **V**itals (`[6]` lab_rf / `[7]` lab_timing) | `R` — reset the session drop counter · `C` — clear the trend sparklines |
 | `t` | **T**iming (`[7]` lab_timing) | `R` — reset the session jitter peak · `C` — clear the jitter / throughput history |
+| `g` | Sweep `[G]` (`[9]` lab_sweep) | `←/→` — move cursor · `M` — peak/mean curve · `+/-` — dwell time · `Enter` — tune to the cursor frequency |
 
 The RF chain has no separate focus mode — its gain controls are the regular
 global keys (`↑`/`↓` LNA, `[`/`]` VGA, `a` AMP, `r` reset), which work everywhere.

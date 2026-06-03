@@ -5,6 +5,7 @@ mod observer;
 mod radio;
 mod signal;
 mod spectrum;
+mod sweep;
 mod system;
 mod timing;
 mod ui;
@@ -17,6 +18,7 @@ pub use observer::ObserverState;
 pub use radio::RadioState;
 pub use signal::SignalState;
 pub use spectrum::{SpectrumMarker, SpectrumState};
+pub use sweep::{SweepConfig, SweepFrame, SweepState, SWEEP_SETTLING_MS};
 pub use system::SystemState;
 pub use timing::{TimingQuality, TimingState};
 pub use ui::{InputMode, UiState};
@@ -40,6 +42,7 @@ pub struct SdrMetrics {
     pub waterfall: WaterfallState,
     pub system:   SystemState,
     pub timing:   TimingState,
+    pub sweep:    SweepState,
     pub ui:       UiState,
     pub(crate) acc: Accumulators,
 }

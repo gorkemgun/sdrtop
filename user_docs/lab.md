@@ -12,6 +12,7 @@ The measurements are split across four focused presets, each on its own number k
 | `6` | **Lab RF** | RF chain (NF / MDS) + spectrum + hardware vitals |
 | `7` | **Lab Timing** | stream-timing diagnostics + hardware vitals |
 | `8` | **Lab Signal** | spectrum + signal metrics + waterfall |
+| `9` | **Lab Sweep** | frequency scanner across a band wider than one window |
 
 This guide explains each measurement below; the heading notes which preset to open for it. Every panel turns its border and title **[STALE]** when RX is not streaming, so you always know whether you're looking at live data or a frozen snapshot.
 
@@ -111,6 +112,22 @@ Whether the capture chain is keeping up, with a trend sparkline under each metri
 - **USB errors** — zero-length USB transfers, usually a cable or hub problem. Coloured by recent rate, not session total, so a single old glitch doesn't pin it red forever.
 - **SR** — configured versus actually-measured sample rate, e.g. `20.000 → 19.847 MHz (−0.8%)`. A large gap means USB can't sustain the requested rate. Shows `→ ---` when not streaming.
 - **BUF fill** — receive-buffer fill percentage with history. A leading indicator: if this trends upward toward 100%, drops are about to start.
+
+---
+
+## Sweep  ·  *Lab Sweep (`9`)*
+
+The HackRF sees only as much spectrum at once as the sample rate covers (±10 MHz
+at 20 Msps). **Lab Sweep** maps a wider band by retuning across it: at each step
+it measures briefly, records the peak and mean level, then moves on, stitching
+the results into one curve with frequency on the x-axis. Known bands are labelled
+from the band plan, and the cursor reads out the level and band at any point.
+
+Because a full cycle takes a couple of seconds, sweep is for *finding* a signal,
+not watching it — once you spot one, focus the panel with `g` and press `Enter`
+to tune straight to the cursor frequency in normal RX. Set the band and dwell in
+the config (see [Configuration → Sweep scanner](config.md#sweep-scanner)). The
+`micro_sweep` step in the `0` cycle gives the same scan as a compact field list.
 
 ---
 

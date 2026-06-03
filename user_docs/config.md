@@ -58,6 +58,30 @@ You can add as many as you like. You can also place them from within sdrtop usin
 
 ---
 
+## Sweep scanner
+
+The `lab_sweep` preset (`9`) and the `micro_sweep` field view scan a band wider
+than one sample-rate window by retuning across it. The band and dwell time are
+set in the config:
+
+```toml
+[sweep]
+start_hz = 400000000   # scan from 400 MHz
+stop_hz  = 500000000   # scan to 500 MHz
+dwell_ms = 200         # measure each position for 200 ms (50–2000)
+```
+
+The step between positions is derived from the sample rate automatically (about
+90 % of it, for a small overlap). While in the sweep panel's focus mode (`g`),
+`+` / `-` nudge the dwell live, `←` / `→` move the cursor, `M` toggles peak/mean,
+and `Enter` jumps the radio to the cursor frequency. Your last band and dwell are
+saved on quit.
+
+A sweep cycle takes a couple of seconds, so it's for *finding* signals, not
+real-time monitoring — once you spot one, `Enter` tunes to it.
+
+---
+
 ## Custom layout presets
 
 A *preset* is a named arrangement of panels. sdrtop ships with built-in presets you switch between with the number keys, but you can also define your own in the config file. Your presets are merged with the built-in ones at startup, and they survive a save — sdrtop never erases hand-written presets.
@@ -86,7 +110,7 @@ panels = [
 | `right`  | Right column of the body       | `width_pct` (% of body) |
 | `body`   | Centre column (fills remaining space) | — |
 
-**Available panel names:** `header`, `spectrum`, `waterfall`, `log`, `footer`, `signal_strip`, `rf_chain`, `iq_diagnostics`, `iq_histogram`, `hardware_health`, `signal_metrics`, `system_resources`, `timing_panel`, `micro_panel`, `micro_signal_panel`, `micro_gain_panel`, `micro_health_panel`.
+**Available panel names:** `header`, `spectrum`, `waterfall`, `log`, `footer`, `signal_strip`, `rf_chain`, `iq_diagnostics`, `iq_histogram`, `hardware_health`, `signal_metrics`, `system_resources`, `timing_panel`, `sweep_panel`, `sweep_strip`, `micro_panel`, `micro_signal_panel`, `micro_gain_panel`, `micro_health_panel`, `micro_sweep_panel`.
 
 See [Advanced Features](advanced.md#defining-custom-presets) for the full guide to creating and managing custom presets.
 
