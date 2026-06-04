@@ -408,7 +408,11 @@ impl Panel for SpectrumPanel {
                     let center_len    = 2 + freq_str.chars().count();
                     let right_info_w  = right_info.chars().count();
                     let dashes        = (ind_area.width as usize).saturating_sub(center_len + right_info_w);
-                    let left_arm      = dashes / 2;
+                    // Center the ◀ freq ▶ handle in the panel. The trailing
+                    // right_info sits to the right of the handle, so the left arm
+                    // must balance right_arm + right_info_w — not just half the
+                    // dashes — or the handle drifts left of center.
+                    let left_arm      = ((ind_area.width as usize).saturating_sub(center_len) / 2).min(dashes);
                     let right_arm     = dashes - left_arm;
                     let line  = Line::from(vec![
                         Span::styled("─".repeat(left_arm), Style::default().fg(theme.border_dim)),
