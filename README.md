@@ -34,7 +34,7 @@ It's a one-person project built in my spare time — and honestly, I made it for
 
 ## Gallery
 
-![sdrtop in motion](/user_docs/pics/sdrtop.gif)
+![sdrtop in motion|697](/user_docs/pics/sdrtopvid.gif)
 
 Screenshots, split by device — more to come. Got a clean capture on your hardware? Drop it in [`user_docs/pics/`](user_docs/pics/) and send a PR (RTL-SDR shots from different tuners especially welcome).
 
