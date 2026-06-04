@@ -54,8 +54,12 @@ impl WaterfallBuffer {
         }
     }
 
-    pub fn push(&mut self, bins: &[f32]) {
-        if self.paused || self.max_rows == 0 { return; }
+    /// Accumulate one FFT frame. Returns `true` when this call materialized a
+    /// new row (i.e. the stride was reached), `false` while still accumulating
+    /// or when paused. Callers use the signal to pace the spectrum display in
+    /// lockstep with the waterfall.
+    pub fn push(&mut self, bins: &[f32]) -> bool {
+        if self.paused || self.max_rows == 0 { return false; }
 
         if self.acc_count == 0 || self.acc_bins.len() != bins.len() {
             // Reuse existing capacity — resize only when the bin count changes.
@@ -76,7 +80,9 @@ impl WaterfallBuffer {
             if self.rows.len() >= self.max_rows { self.rows.pop_back(); }
             self.rows.push_front((Instant::now(), averaged));
             self.acc_count = 0;
+            return true;
         }
+        false
     }
 
     pub fn set_row_stride(&mut self, stride: usize) {
@@ -159,5 +165,30 @@ mod tests {
         buf.push(&[5.0]);
         assert_eq!(buf.rows.len(), 1);
         assert_eq!(*buf.rows[0].1, vec![5.0]);
+    }
+
+    #[test]
+    fn push_returns_true_only_when_row_materializes() {
+        let mut buf = WaterfallBuffer::new(8);
+        // Stride 1: every push materializes a row.
+        assert!(buf.push(&[1.0]));
+        assert!(buf.push(&[2.0]));
+    }
+
+    #[test]
+    fn push_returns_false_while_accumulating() {
+        let mut buf = WaterfallBuffer::new(8);
+        buf.set_row_stride(2);
+        assert!(!buf.push(&[1.0]), "first of a stride-2 pair accumulates only");
+        assert!(buf.push(&[3.0]), "second of the pair materializes the averaged row");
+        assert!(!buf.push(&[5.0]));
+        assert!(buf.push(&[7.0]));
+    }
+
+    #[test]
+    fn paused_push_returns_false() {
+        let mut buf = WaterfallBuffer::new(8);
+        buf.paused = true;
+        assert!(!buf.push(&[1.0]));
     }
 }

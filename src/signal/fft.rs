@@ -63,8 +63,20 @@ impl FftWorker {
         // Throttle state writes to ~30 fps — EMA runs on every frame for accuracy,
         // but the expensive analysis + state lock fires at display rate only.
         const UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(33);
+        // Pace the drawn spectrum to the *visible* waterfall: each waterfall
+        // character row packs this many data rows (half-block ▀), so the spectrum
+        // refreshes once per visible line rather than every FFT frame, keeping the
+        // two panels moving in lockstep. Signal metrics stay at full rate.
+        const ROWS_PER_WATERFALL_LINE: u32 = 2;
+        // Never let the drawn frame age past the panels' 500 ms STALE threshold,
+        // even at large frames/row strides.
+        const SPECTRUM_STALE_GUARD: std::time::Duration = std::time::Duration::from_millis(400);
         let mut last_state_update = std::time::Instant::now()
             .checked_sub(UPDATE_INTERVAL)
+            .unwrap_or_else(std::time::Instant::now);
+        let mut rows_since_spectrum: u32 = 0;
+        let mut last_spectrum_update = std::time::Instant::now()
+            .checked_sub(SPECTRUM_STALE_GUARD)
             .unwrap_or_else(std::time::Instant::now);
 
         while let Ok(chunk) = self.sample_rx.recv() {
@@ -232,34 +244,51 @@ impl FftWorker {
                         }
                     }
 
-                    // Reclaim the Vec allocations from the previous FftFrame before
-                    // overwriting it.  We hold the mutex, so refcount == 1 and
-                    // try_unwrap is guaranteed to succeed — no heap alloc needed.
-                    let (mut bins_vec, mut peak_vec) = match m.waterfall.last_fft.take() {
-                        Some(old) => (
-                            Arc::try_unwrap(old.bins_dbfs).unwrap_or_else(|_| vec![0.0_f32; n]),
-                            Arc::try_unwrap(old.peak_hold).unwrap_or_else(|_| vec![0.0_f32; n]),
-                        ),
-                        None => (vec![0.0_f32; n], vec![0.0_f32; n]),
-                    };
-                    bins_vec.copy_from_slice(&smoothed);
-                    peak_vec.copy_from_slice(&peak);
-                    let bins_arc = Arc::new(bins_vec);
-                    let peak_arc = Arc::new(peak_vec);
+                    // Advance the waterfall every display frame.
+                    let row_materialized = m.waterfall.buffer.push(&smoothed);
+                    if row_materialized {
+                        rows_since_spectrum += 1;
+                    }
 
-                    m.waterfall.last_fft = Some(FftFrame {
-                        bins_dbfs: bins_arc,
-                        peak_hold: peak_arc,
-                        noise_floor,
-                        center_freq_hz,
-                        sample_rate,
-                        timestamp: std::time::Instant::now(),
-                        peak_to_nf_db,
-                        channel_power_dbfs,
-                        occupied_bw_hz,
-                        enbw_hz: enbw_coeff * sample_rate / n as f64,
-                    });
-                    m.waterfall.buffer.push(&smoothed);
+                    // Refresh the drawn spectrum once per visible waterfall line
+                    // (or sooner if it would otherwise age toward STALE). This is
+                    // the only display-paced write; the metrics above ran at full
+                    // rate.
+                    if m.waterfall.last_fft.is_none()
+                        || rows_since_spectrum >= ROWS_PER_WATERFALL_LINE
+                        || last_spectrum_update.elapsed() >= SPECTRUM_STALE_GUARD
+                    {
+                        rows_since_spectrum = 0;
+                        last_spectrum_update = std::time::Instant::now();
+
+                        // Reclaim the Vec allocations from the previous FftFrame
+                        // before overwriting it.  We hold the mutex, so refcount == 1
+                        // and try_unwrap is guaranteed to succeed — no heap alloc.
+                        let (mut bins_vec, mut peak_vec) = match m.waterfall.last_fft.take() {
+                            Some(old) => (
+                                Arc::try_unwrap(old.bins_dbfs).unwrap_or_else(|_| vec![0.0_f32; n]),
+                                Arc::try_unwrap(old.peak_hold).unwrap_or_else(|_| vec![0.0_f32; n]),
+                            ),
+                            None => (vec![0.0_f32; n], vec![0.0_f32; n]),
+                        };
+                        bins_vec.copy_from_slice(&smoothed);
+                        peak_vec.copy_from_slice(&peak);
+                        let bins_arc = Arc::new(bins_vec);
+                        let peak_arc = Arc::new(peak_vec);
+
+                        m.waterfall.last_fft = Some(FftFrame {
+                            bins_dbfs: bins_arc,
+                            peak_hold: peak_arc,
+                            noise_floor,
+                            center_freq_hz,
+                            sample_rate,
+                            timestamp: std::time::Instant::now(),
+                            peak_to_nf_db,
+                            channel_power_dbfs,
+                            occupied_bw_hz,
+                            enbw_hz: enbw_coeff * sample_rate / n as f64,
+                        });
+                    }
                 }
             }
 
