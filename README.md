@@ -11,13 +11,13 @@
 
 I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clone. It delivers raw, real-time metrics (spectrum, waterfall, ADC health, gain chain) right inside the terminal. It's lightweight, distraction-free, and fits perfectly into a tmux pane, an SSH session, or the custom screen of your cyberdeck.
 
-It's a one-person project built in my spare time — and honestly, I made it for *you*. Use it however you like, beat on it, and don't be shy: open issues, dig through the code, and if you've got a good idea, send it my way as a pull request or just a message. This is an open table, not my private garage. (Fair warning: since it's a labor of love, you'll catch my sense of humor sprinkled through these docs. You'll live. Probably.)
+It's a one-person project built in my spare time — and honestly, I made it for *you*. Use it however you like, beat on it, and don't be shy: open issues, dig through the code, and if you've got a good idea, send it my way as a pull request or just a message. This is an open table, not my private garage.
 
 > [!IMPORTANT]
 > **Project Status:** `sdrtop` is currently in an **early development stage**. 
 > * At the moment, **it only supports the HackRF One**. Support for other devices is planned.
 > * The **interactive TUI is feature-complete** — spectrum, waterfall, the lab presets (IQ, RF, timing, signal, sweep), and the micro field-mode ecosystem are all in. Until **RTL-SDR support** lands, the focus is on **polishing the UI, sharpening the radio math, and fixing bugs** rather than new features.
-> * **Known Issues:** Plenty 😄 You might hit performance hiccups. If something looks broken, it's either a bug or an undocumented feature — flip a coin, then open an issue.
+> * **Known Issues:** Plenty 😄 You might hit performance glitches. If something looks broken, it's either a bug or an undocumented feature, flip a coin, then open an issue.
 
 ### 📖 Documentation
 
@@ -232,13 +232,13 @@ No pressure, but if this scratches an itch for you, this is where it goes.
 <br>
 
 ```
-               .
-              /=\
-         (    |#|    )
-        ((    |#|    ))
-       (((    |#|    )))
-        ((    |#|    ))
-         (    |#|    )
+                .
+               /=\
+          (    |#|    )
+         ((    |#|    ))
+        (((    |#|    )))
+         ((    |#|    ))
+          (    |#|    )
                |#|
               /|#|\
              / |#| \
