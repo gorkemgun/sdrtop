@@ -35,7 +35,9 @@ It's a one-person project built in my spare time, and honestly, I made it for *y
 
 ## Gallery
 
-<img src="user_docs/pics/sdrtopvid.gif" width="697" alt="sdrtop in motion">
+<p align="center">
+  <img src="user_docs/pics/sdrtopvid.gif" width="100%" alt="sdrtop in motion">
+</p>
 
 *It's a terminal app, so brace yourself for the visual spectacle of monospace text in color. The only special effects are honest dBFS numbers.*
 
