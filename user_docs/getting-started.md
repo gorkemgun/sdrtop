@@ -33,7 +33,7 @@ sudo emerge net-wireless/hackrf net-wireless/rtl-sdr
 nix-shell -p hackrf rtl-sdr pkg-config
 ```
 
-> RTL-SDR support is **experimental** — see [Supported Hardware](hardware.md). Note that sdrtop currently links *both* libraries at build time, so install `librtlsdr` even if you only own a HackRF (and vice-versa). At runtime it's happy with whichever radio you actually plug in.
+> RTL-SDR support is **new** (community-contributed, confirmed on hardware) — see [Supported Hardware](hardware.md). Note that sdrtop currently links *both* libraries at build time, so install `librtlsdr` even if you only own a HackRF (and vice-versa). At runtime it's happy with whichever radio you actually plug in.
 
 You also need Rust installed. If you don't have it yet:
 

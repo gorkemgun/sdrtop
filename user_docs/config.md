@@ -34,7 +34,7 @@ waterfall_max_rows = 64       # how many rows of history the waterfall keeps
 base = "nord"   # which color theme to use
 ```
 
-> The config is **device-agnostic** — the same file works for a HackRF or an RTL-SDR. Any value outside the active device's range is clamped into it at startup rather than rejected, so a config saved on a HackRF (e.g. 2.4 GHz / 10 Msps) still boots an RTL-SDR at a legal frequency and rate instead of failing. With both radios connected, pick one with `--device hackrf|rtlsdr`. RTL-SDR support is **experimental** — see [Supported Hardware](hardware.md).
+> The config is **device-agnostic** — the same file works for a HackRF or an RTL-SDR. Any value outside the active device's range is clamped into it at startup rather than rejected, so a config saved on a HackRF (e.g. 2.4 GHz / 10 Msps) still boots an RTL-SDR at a legal frequency and rate instead of failing. With both radios connected, pick one with `--device hackrf|rtlsdr`. RTL-SDR support is **new** — see [Supported Hardware](hardware.md).
 
 ---
 
