@@ -56,7 +56,7 @@ sdrtop stopped being a one-device app.
 - **RTL-SDR support** (R820T / R828D / E4000) lands alongside the HackRF One, behind a clean `SdrDevice` abstraction layer — the HackRF path is untouched, the RTL path shares the same RX → FFT → UI pipeline
 - The UI **adapts to the hardware**: HackRF's LNA/VGA/AMP vs RTL-SDR's single tuner gain + AGC, the right frequency and sample-rate ranges, and N/A where a measurement doesn't apply (no BB filter, no Friis NF)
 - Plug in more than one radio and a **device picker** greets you at launch; `--device hackrf|rtlsdr` pins one
-- **Status: experimental.** It works on the developer's dongle — FM reception, gain, AGC, sweep all confirmed — but the RTL world is a zoo of clones. **This is the part that needs you:** run it, and [open an issue](../../../issues) with how it went. Real-world reports are what graduate it from 🧪 to ✅.
+- **Status: experimental.** It was community-contributed and confirmed on the contributor's hardware (FM, gain, AGC, sweep) — but I don't have an RTL-SDR to verify it here, and the RTL world is a zoo of clones. **This is the part that needs you:** run it, and [open an issue](../../../issues) with how it went. Real-world reports graduate it from 🧪 to ✅.
 
 ---
 

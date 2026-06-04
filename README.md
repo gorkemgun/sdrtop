@@ -16,7 +16,7 @@ It's a one-person project built in my spare time — and honestly, I made it for
 
 > [!IMPORTANT]
 > **Project Status:** `sdrtop` is currently in an **early development stage**. 
-> * **RTL-SDR support has just landed** 🎉 (R820T / R828D / E4000) right alongside the HackRF One. It's tested and working on *my* dongle — but it's **fresh and experimental**: there are a hundred RTL clones out there and I've only met one of them. **It needs real-world testing and your feedback.** If you run it on an RTL-SDR, please [open an issue](../../issues) and tell me how it went — whether it sang or fell flat on its face.
+> * **RTL-SDR support has just landed** 🎉 (R820T / R828D / E4000) right alongside the HackRF One — contributed by the community and tested on the contributor's hardware. It's **experimental**: I don't own an RTL-SDR yet, so I can't verify it myself. **That's exactly why it needs your testing and feedback.** If you run it on one, please [open an issue](../../issues) and tell me how it went.
 > * The **interactive TUI is feature-complete** — spectrum, waterfall, the lab presets (IQ, RF, timing, signal, sweep), and the micro field-mode ecosystem are all in. The focus stays on **polishing the UI, sharpening the radio math, and fixing bugs** rather than piling on new features.
 > * **Known Issues:** Plenty 😄 You might hit performance glitches. If something looks broken, it's either a bug or an undocumented feature, flip a coin, then open an issue.
 
@@ -173,7 +173,7 @@ base = "nord"
 | Device                                 | Status            | Notes                                     |
 | -------------------------------------- | ----------------- | ----------------------------------------- |
 | HackRF One                             | ✅ Full support    | All diagnostics, gain stages, ADC metrics |
-| RTL-SDR (R820T, E4000, R828D)          | 🧪 Experimental   | Just landed — works on my dongle, **needs testing & feedback** |
+| RTL-SDR (R820T, E4000, R828D)          | 🧪 Experimental   | Just landed (community-contributed) — **needs wider testing & feedback** |
 | PortaPack H4M (Mayhem)                 | 🔧 In development | Telemetry panel via CDC/ACM serial        |
 | Airspy Mini / Airspy HF+               | 🔲 Planned        | Needs hardware                            |
 | HackRF Pro                             | 🔲 Planned        | Needs hardware                            |
@@ -196,7 +196,7 @@ The feature set is in. So the whole focus has shifted to **making what's already
 No shiny new features until this list feels done. Quality arc, not a feature sprint. ✨
 
 ### Just landed 🎉
-- [x] **RTL-SDR support** — R820T / R828D / E4000, the most common dongle on Earth, behind a clean device-abstraction layer ✅ *in, and experimental.* It works on my hardware; now it needs **testing on the wild zoo of RTL clones, and your feedback**. Bug reports welcome and genuinely useful.
+- [x] **RTL-SDR support** — R820T / R828D / E4000, the most common dongle on Earth, behind a clean device-abstraction layer ✅ *in, and experimental.* Community-contributed and tested on the contributor's hardware; I can't verify it here (no RTL-SDR yet), so it needs **testing across the wild zoo of clones, and your feedback**.
 
 ### Hardware pipeline
 - [ ] Airspy Mini / Airspy HF+ Discovery
@@ -212,7 +212,7 @@ No shiny new features until this list feels done. Quality arc, not a feature spr
 
 ## Supporting the project
 
-`sdrtop` is built to support every SDR device out there, but that requires actually owning them. Development runs on a HackRF One, an RTL-SDR dongle, and a PortaPack H4M. The **RTL-SDR backend is now in** — the most common SDR hardware in the world, and the most impactful single addition this project could make. (Mission accomplished; now it just needs you to break it on *your* dongle.)
+`sdrtop` is built to support every SDR device out there, but that requires actually owning them. Development here runs on a HackRF One and a PortaPack H4M. The **RTL-SDR backend is now in** (community-contributed) — the most common SDR hardware in the world, and the most impactful single addition this project could make. I don't have an RTL-SDR to test it on myself yet, so a dongle is next on my buy list — until then it's on you lot to break it on *yours*.
 
 The more expensive hardware (Airspy, LimeSDR, SDRplay) I'm saving toward, but that takes longer. If you use `sdrtop` and want to see support for your device sooner, contributions go directly toward hardware purchases. Every device that arrives gets a proper backend: tested on real hardware, documented, shipped.
 

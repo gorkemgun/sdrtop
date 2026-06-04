@@ -9,12 +9,12 @@
 | Device | Status |
 |--------|--------|
 | HackRF One | Fully supported — spectrum, waterfall, all diagnostics |
-| RTL-SDR (R820T / R828D / E4000) | 🧪 **Experimental — just landed.** Full spectrum / waterfall / lab stack, single tuner gain + AGC. Works on the developer's dongle; **needs testing & feedback** |
+| RTL-SDR (R820T / R828D / E4000) | 🧪 **Experimental — just landed.** Full spectrum / waterfall / lab stack, single tuner gain + AGC. Community-contributed; **needs wider testing & feedback** |
 | PortaPack H4M (Mayhem) | In development — telemetry panel via USB serial |
 
 sdrtop is built and tested on real hardware. Support is only added after physical testing — no guessing from documentation alone. Datasheets have been known to fib; an oscilloscope rarely does.
 
-> **A word on the RTL-SDR backend:** it's new, and there's a whole zoo of RTL clones with subtly different tuners and quirks. It's been verified on real hardware (FM-broadcast reception, tuner gain, AGC, sweep), but yours might behave differently. If you run sdrtop on an RTL-SDR, please [open an issue](../../../issues) with what worked and what didn't — that feedback is exactly what turns "experimental" into "fully supported."
+> **A word on the RTL-SDR backend:** it was community-contributed and verified on the contributor's hardware (FM reception, tuner gain, AGC, sweep). I don't own an RTL-SDR yet, so I can't test it here — and there's a whole zoo of clones with different tuners and quirks. If you run sdrtop on one, please [open an issue](../../../issues) with what worked and what didn't; that's what turns 🧪 into ✅.
 
 ---
 
@@ -42,9 +42,9 @@ sdrtop needs **libhackrf 2023.01.1 or newer** (the version in Raspberry Pi OS Bo
 
 ## Supporting hardware development
 
-New device support requires physically owning and testing the hardware. Development runs on a HackRF One, an RTL-SDR dongle, and a PortaPack H4M.
+New device support requires physically owning and testing the hardware. Development here runs on a HackRF One and a PortaPack H4M.
 
-The **RTL-SDR backend is now in** — by far the most common SDR dongle, and the biggest single jump in who can use sdrtop. It's experimental for now, so testing and feedback are what carry it the rest of the way. After that come Airspy and the wider SoapySDR ecosystem.
+The **RTL-SDR backend is now in** (community-contributed) — by far the most common SDR dongle, and the biggest single jump in who can use sdrtop. It stays experimental until I can get a dongle and verify it myself, so your testing and feedback carry it the rest of the way. After that come Airspy and the wider SoapySDR ecosystem.
 
 If you'd like to support this, contributions go directly toward hardware purchases:
 
