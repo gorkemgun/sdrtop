@@ -4,6 +4,7 @@
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-linux-lightgrey?logo=linux&logoColor=white)]()
 [![HackRF One](https://img.shields.io/badge/hardware-HackRF%20One-brightgreen)](https://greatscottgadgets.com/hackrf/one/)
+[![RTL-SDR](https://img.shields.io/badge/hardware-RTL--SDR-yellow)](https://www.rtl-sdr.com/)
 [![PortaPack](https://img.shields.io/badge/hardware-PortaPack%20H4M-blueviolet)](https://github.com/portapack-mayhem/mayhem-firmware)
 [![Development Stage](https://img.shields.io/badge/stage-early%20development-red)]()
 
@@ -15,8 +16,8 @@ It's a one-person project built in my spare time — and honestly, I made it for
 
 > [!IMPORTANT]
 > **Project Status:** `sdrtop` is currently in an **early development stage**. 
-> * At the moment, **it only supports the HackRF One**. Support for other devices is planned.
-> * The **interactive TUI is feature-complete** — spectrum, waterfall, the lab presets (IQ, RF, timing, signal, sweep), and the micro field-mode ecosystem are all in. Until **RTL-SDR support** lands, the focus is on **polishing the UI, sharpening the radio math, and fixing bugs** rather than new features.
+> * **RTL-SDR support has just landed** 🎉 (R820T / R828D / E4000) right alongside the HackRF One. It's tested and working on *my* dongle — but it's **fresh and experimental**: there are a hundred RTL clones out there and I've only met one of them. **It needs real-world testing and your feedback.** If you run it on an RTL-SDR, please [open an issue](../../issues) and tell me how it went — whether it sang or fell flat on its face.
+> * The **interactive TUI is feature-complete** — spectrum, waterfall, the lab presets (IQ, RF, timing, signal, sweep), and the micro field-mode ecosystem are all in. The focus stays on **polishing the UI, sharpening the radio math, and fixing bugs** rather than piling on new features.
 > * **Known Issues:** Plenty 😄 You might hit performance glitches. If something looks broken, it's either a bug or an undocumented feature, flip a coin, then open an issue.
 
 ### 📖 Documentation
@@ -69,18 +70,18 @@ Everything your radio knows about itself, in real time, without leaving the term
 
 ## Quick start
 
-**Requirements:** Linux · HackRF One · `libhackrf` + `pkg-config` · Rust stable
+**Requirements:** Linux · HackRF One *or* RTL-SDR · `libhackrf` + `librtlsdr` + `pkg-config` · Rust stable
 
 ### Arch
 
 ```sh
 # Arch
-sudo pacman -S hackrf pkgconf rust
+sudo pacman -S hackrf rtl-sdr pkgconf rust
 ```
 ### Debian / Ubuntu
 
 ```sh
-sudo apt install libhackrf-dev pkg-config
+sudo apt install libhackrf-dev librtlsdr-dev pkg-config
 ```
 
 You also need Rust installed. If you don't have it yet:
@@ -124,6 +125,8 @@ Press `Space` to start receiving. Press `?` for the key reference. Press `q` to 
 | `?`        | Help overlay                   |
 | `q`        | Quit and save config           |
 
+> **On an RTL-SDR** the gain keys adapt to the hardware: `↑`/`↓` step the tuner's single discrete gain table and `a` toggles tuner **AGC** (there's no separate VGA stage, so `[`/`]` sit out). The UI relabels itself accordingly — no muscle memory to relearn. With more than one radio plugged in, a picker appears at launch; pin one with `--device hackrf|rtlsdr`.
+
 ---
 
 ## Config
@@ -133,10 +136,10 @@ Everything is saved automatically to `~/.config/sdrtop/config.toml` when you qui
 ```toml
 [radio]
 frequency_hz = 92800000      # tuned center frequency
-sample_rate  = 2000000.0     # 2–20 MHz
-lna_gain     = 24
-vga_gain     = 30
-amp_enabled  = false
+sample_rate  = 2000000.0     # HackRF 2–20 MHz · RTL-SDR 0.9–3.2 MHz
+lna_gain     = 24            # HackRF LNA / RTL-SDR tuner gain
+vga_gain     = 30            # HackRF only (ignored on RTL-SDR)
+amp_enabled  = false        # HackRF RF amp / RTL-SDR tuner AGC
 
 [display]
 active_preset      = "spectrum_waterfall"
@@ -170,8 +173,8 @@ base = "nord"
 | Device                                 | Status            | Notes                                     |
 | -------------------------------------- | ----------------- | ----------------------------------------- |
 | HackRF One                             | ✅ Full support    | All diagnostics, gain stages, ADC metrics |
+| RTL-SDR (R820T, E4000, R828D)          | 🧪 Experimental   | Just landed — works on my dongle, **needs testing & feedback** |
 | PortaPack H4M (Mayhem)                 | 🔧 In development | Telemetry panel via CDC/ACM serial        |
-| RTL-SDR (R820T, E4000, R828D)          | 🔲 Planned        | Most common SDR dongle                    |
 | Airspy Mini / Airspy HF+               | 🔲 Planned        | Needs hardware                            |
 | HackRF Pro                             | 🔲 Planned        | Needs hardware                            |
 | LimeSDR / bladeRF / SDRplay / PlutoSDR | 🔲 Planned        | Needs hardware                            |
@@ -192,8 +195,8 @@ The feature set is in. So the whole focus has shifted to **making what's already
 
 No shiny new features until this list feels done. Quality arc, not a feature sprint. ✨
 
-### Next big thing
-- [ ] **RTL-SDR support** — R820T / R828D / E4000, the most common dongle on Earth and the single highest-impact addition this project can make
+### Just landed 🎉
+- [x] **RTL-SDR support** — R820T / R828D / E4000, the most common dongle on Earth, behind a clean device-abstraction layer ✅ *in, and experimental.* It works on my hardware; now it needs **testing on the wild zoo of RTL clones, and your feedback**. Bug reports welcome and genuinely useful.
 
 ### Hardware pipeline
 - [ ] Airspy Mini / Airspy HF+ Discovery
@@ -209,9 +212,9 @@ No shiny new features until this list feels done. Quality arc, not a feature spr
 
 ## Supporting the project
 
-`sdrtop` is built to support every SDR device out there, but that requires actually owning them. Right now development runs on a HackRF One and a PortaPack H4M. The next device on the list is an **RTL-SDR dongle**, which I'm buying myself - it's the most common SDR hardware in the world and the most impactful single addition this project can make.
+`sdrtop` is built to support every SDR device out there, but that requires actually owning them. Development runs on a HackRF One, an RTL-SDR dongle, and a PortaPack H4M. The **RTL-SDR backend is now in** — the most common SDR hardware in the world, and the most impactful single addition this project could make. (Mission accomplished; now it just needs you to break it on *your* dongle.)
 
-The more expensive hardware (Airspy, LimeSDR, SDRplay) I'm saving toward as well, but that takes longer. If you use `sdrtop` and want to see support for your device sooner, contributions go directly toward hardware purchases. Every device that arrives gets a proper backend: tested on real hardware, documented, shipped.
+The more expensive hardware (Airspy, LimeSDR, SDRplay) I'm saving toward, but that takes longer. If you use `sdrtop` and want to see support for your device sooner, contributions go directly toward hardware purchases. Every device that arrives gets a proper backend: tested on real hardware, documented, shipped.
 
 | Device               | Why it matters                                                    | Price |
 | -------------------- | ----------------------------------------------------------------- | ----- |

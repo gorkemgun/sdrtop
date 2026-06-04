@@ -21,10 +21,10 @@ You can open and edit it by hand — it's plain text. Changes take effect next t
 ```toml
 [radio]
 frequency_hz = 92800000   # center frequency in Hz
-sample_rate  = 2000000.0  # samples per second (2–20 million)
-lna_gain     = 24         # LNA gain (0–40 dB, step 8)
-vga_gain     = 30         # VGA gain (0–62 dB, step 2)
-amp_enabled  = false      # RF amplifier on or off
+sample_rate  = 2000000.0  # samples/sec — HackRF 2–20M · RTL-SDR 0.9–3.2M
+lna_gain     = 24         # HackRF LNA (0–40 dB, step 8) / RTL-SDR tuner gain
+vga_gain     = 30         # VGA gain (0–62 dB, step 2) — HackRF only
+amp_enabled  = false      # HackRF RF amplifier / RTL-SDR tuner AGC
 
 [display]
 active_preset      = "main"   # which layout to use at startup
@@ -33,6 +33,8 @@ waterfall_max_rows = 64       # how many rows of history the waterfall keeps
 [theme]
 base = "nord"   # which color theme to use
 ```
+
+> The config is **device-agnostic** — the same file works for a HackRF or an RTL-SDR. Any value outside the active device's range is clamped into it at startup rather than rejected, so a config saved on a HackRF (e.g. 2.4 GHz / 10 Msps) still boots an RTL-SDR at a legal frequency and rate instead of failing. With both radios connected, pick one with `--device hackrf|rtlsdr`. RTL-SDR support is **experimental** — see [Supported Hardware](hardware.md).
 
 ---
 

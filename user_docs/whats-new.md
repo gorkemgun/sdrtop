@@ -4,7 +4,7 @@
 
 The story of sdrtop so far — not as a wall of dates, but as **checkpoints**: the big moments where the app levelled up. Each one is condensed to the essentials.
 
-> **Where we are now:** the interactive TUI is feature-complete. The current checkpoint is all about **polishing the UI, sharpening the radio math, and squashing bugs** — until **RTL-SDR** support lands. So if something looks off or behaves oddly, that's exactly what we're hunting.
+> **Where we are now:** the interactive TUI is feature-complete, and **RTL-SDR support has just landed** (experimental — see Checkpoint 9). The ongoing work is **polishing the UI, sharpening the radio math, and squashing bugs**. So if something looks off or behaves oddly, that's exactly what we're hunting.
 
 ---
 
@@ -48,8 +48,15 @@ Bench-engineer views for people who care about the numbers, not just the picture
 - **Frequency sweep** (`9`) — scan a band wider than one window can show; sdrtop stitches it into one curve with band-plan labels. Focus with `g`, set the band live with `s` / `e`, and press `Enter` on a peak to tune straight to it
 - **Micro field views** (`0`) — deliberately tiny single-glance read-outs (signal · gain · health · sweep) for slim splits, SSH sessions, and cyberdeck screens
 
-## 🔧 Checkpoint 8 — Polish (you are here)
-The feature list is closed for now. This checkpoint is about taste: refining layout and readability, **reworking the micro view's UI**, double-checking every radio calculation, and fixing the rough edges — the groundwork before **RTL-SDR** becomes the next big leap.
+## 🔧 Checkpoint 8 — Polish
+The feature list is closed for now. This checkpoint is about taste: refining layout and readability, **reworking the micro view's UI**, double-checking every radio calculation, and fixing the rough edges — the groundwork that made the next leap safe to land.
+
+## 🧪 Checkpoint 9 — A second radio (you are here)
+sdrtop stopped being a one-device app.
+- **RTL-SDR support** (R820T / R828D / E4000) lands alongside the HackRF One, behind a clean `SdrDevice` abstraction layer — the HackRF path is untouched, the RTL path shares the same RX → FFT → UI pipeline
+- The UI **adapts to the hardware**: HackRF's LNA/VGA/AMP vs RTL-SDR's single tuner gain + AGC, the right frequency and sample-rate ranges, and N/A where a measurement doesn't apply (no BB filter, no Friis NF)
+- Plug in more than one radio and a **device picker** greets you at launch; `--device hackrf|rtlsdr` pins one
+- **Status: experimental.** It works on the developer's dongle — FM reception, gain, AGC, sweep all confirmed — but the RTL world is a zoo of clones. **This is the part that needs you:** run it, and [open an issue](../../../issues) with how it went. Real-world reports are what graduate it from 🧪 to ✅.
 
 ---
 

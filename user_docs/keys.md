@@ -10,9 +10,9 @@
 |-----|-------------|
 | `Space` | Start or stop receiving |
 | `f` | Type a new center frequency (in MHz) |
-| `s` | Type a new sample rate (2–20 MHz) |
+| `s` | Type a new sample rate (HackRF 2–20 MHz · RTL-SDR 0.9–3.2 MHz) |
 | `r` | Reset all settings to defaults |
-| `a` | Toggle the RF amplifier on/off |
+| `a` | Toggle the RF amplifier (HackRF) / tuner AGC (RTL-SDR) |
 | `w` | Pause or resume the waterfall |
 | `h` | Freeze the spectrum (hold the current frame) |
 | `e` | Enter spectrum focus mode |
@@ -31,12 +31,14 @@
 
 | Key | What it does |
 |-----|-------------|
-| `↑` / `↓` | LNA gain up or down by 8 dB |
-| `[` / `]` | VGA gain up or down by 2 dB |
+| `↑` / `↓` | Primary gain up or down — HackRF LNA (±8 dB) / RTL-SDR tuner (next table step) |
+| `[` / `]` | VGA gain up or down by 2 dB (HackRF only) |
 
-LNA (Low Noise Amplifier) is the first gain stage — controls how much you amplify before the signal reaches the chip. VGA (Variable Gain Amplifier) is the second stage, fine-tuning the level further in.
+On a **HackRF**, LNA (Low Noise Amplifier) is the first gain stage — how much you amplify before the signal reaches the chip — and VGA (Variable Gain Amplifier) is the second stage, fine-tuning the level further in. A good starting point: LNA 24, VGA 30.
 
-A good starting point: LNA 24, VGA 30. If the spectrum is maxed out (everything near 0 dBFS), turn it down. If it's all noise at the bottom, try turning it up.
+On an **RTL-SDR** there's a single tuner gain that steps through a fixed table of values (the `↑`/`↓` keys walk it), and no VGA — so `[`/`]` simply do nothing. Instead of a VGA you have tuner **AGC**, toggled with `a`.
+
+Either way: if the spectrum is maxed out (everything near 0 dBFS), turn it down. If it's all noise at the bottom, try turning it up.
 
 ---
 
