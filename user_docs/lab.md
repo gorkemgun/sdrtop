@@ -27,7 +27,7 @@ The receiver's capability in the current configuration — what the hardware *ca
 **Top block — what you're tuned to:**
 
 - **Freq** — current centre frequency.
-- **λ / λ/4** — the wavelength and quarter-wavelength at that frequency. Handy in the field for cutting an antenna: at 433 MHz, λ/4 ≈ 17.3 cm; at 2.4 GHz, ≈ 3.1 cm.
+- **λ / λ/4** — the wavelength and quarter-wavelength at that frequency. Handy in the field for cutting an antenna: at 433 MHz, λ/4 ≈ 17.3 cm; at 2.4 GHz, ≈ 3.1 cm. Measure twice, cut once — copper doesn't grow back.
 - **Sample rate** — the configured rate (how wide a slice of spectrum you're capturing).
 - **BB filter** — the analog baseband filter bandwidth the HackRF picked for that rate.
 

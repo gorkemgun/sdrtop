@@ -46,3 +46,5 @@ value_hi      = "#ebcb8b"
 ```
 
 Any field you leave out keeps its default from the base theme.
+
+Six themes ought to be enough to argue about. If they aren't, the overrides are here so you can out-bikeshed me entirely — no judgment.

@@ -11,7 +11,7 @@
 | HackRF One | Fully supported — spectrum, waterfall, all diagnostics |
 | PortaPack H4M (Mayhem) | In development — telemetry panel via USB serial |
 
-sdrtop is built and tested on real hardware. Support is only added after physical testing — no guessing from documentation alone.
+sdrtop is built and tested on real hardware. Support is only added after physical testing — no guessing from documentation alone. Datasheets have been known to fib; an oscilloscope rarely does.
 
 ---
 

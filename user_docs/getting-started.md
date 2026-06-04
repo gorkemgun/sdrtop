@@ -50,7 +50,7 @@ cargo build --release
 ./target/release/sdrtop
 ```
 
-That's it. sdrtop will find your HackRF automatically.
+That's it. sdrtop will find your HackRF automatically. If it doesn't, that's what the [troubleshooting](troubleshooting.md) page is for — we've all been there at 2 a.m.
 
 ---
 

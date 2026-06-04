@@ -50,3 +50,19 @@ Bench-engineer views for people who care about the numbers, not just the picture
 
 ## 🔧 Checkpoint 8 — Polish (you are here)
 The feature list is closed for now. This checkpoint is about taste: refining layout and readability, **reworking the micro view's UI**, double-checking every radio calculation, and fixing the rough edges — the groundwork before **RTL-SDR** becomes the next big leap.
+
+---
+
+```
+  ┌─[ sdrtop · 2026 ]──────────────────────────────────
+  │  $ ./sdrtop --scan-for-hype
+  │  > 0 LLMs detected in the signal path
+  │  > no neural nets, no "AI-powered" sticker
+  │  > just honest FFTs and a person who likes radios
+  │  > carry on.
+  └────────────────────────────────────────────────────
+```
+
+In a year where everything claims to be AI-powered, sdrtop is proudly powered by
+math you can check yourself. The dBFS numbers are real, the bugs are mine. 📻
+

@@ -18,7 +18,7 @@ The **IQ Amplitude Distribution** in the Lab IQ preset (`5`) is your best friend
 - **Mid**: 60–80% (the healthy zone)
 - **Clip**: 0–5% (room for peaks, but not clipping)
 
-If you're clipping regularly, turn down VGA first (finer control), then LNA.
+If you're clipping regularly, turn down VGA first (finer control), then LNA. A clipped ADC doesn't politely round up — it just makes things up, and a confident lie is the worst kind of data.
 
 ### Gain settings by scenario
 

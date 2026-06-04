@@ -45,7 +45,7 @@
 
 **Problem:** You have multiple HackRF devices connected, and sdrtop asks you to choose one every startup.
 
-**Solution:** You can start sdrtop with a specific device by selecting it in the popup, or you can hardcode the device by its serial number in your config file (this feature is planned but not yet implemented). For now, just select your preferred device from the list.
+**Solution:** You can start sdrtop with a specific device by selecting it in the popup, or you can hardcode the device by its serial number in your config file (this feature is planned but not yet implemented — somewhere between "soon" and "when I get to it"). For now, just select your preferred device from the list.
 
 ---
 
