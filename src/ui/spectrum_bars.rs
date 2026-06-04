@@ -80,6 +80,10 @@ fn empty_floor(db: f32, y_min: f32, y_max: f32, rows: u16) -> u16 {
 pub struct VLine {
     pub col: u16,
     pub color: Color,
+    /// `true` draws the line over the full column height, through bar cells
+    /// (the cursor — always visible). `false` draws only in the empty region
+    /// above the bar, keeping the silhouette clean (markers / BW boundaries).
+    pub through_bars: bool,
 }
 
 /// Inputs for the overlay pass. Per-column slices share the bars length;
@@ -109,18 +113,28 @@ pub fn paint_overlays(buf: &mut Buffer, area: Rect, ov: &Overlays, y_min: f32, y
         (frac * (rows.saturating_sub(1)) as f32).round() as u16
     };
 
-    for (slice, glyph, color) in [
-        (ov.hold_db, "▔", ov.hold_color),
-        (ov.peak_db, "▔", ov.peak_color),
-    ] {
-        for (cx, &db_val) in slice.iter().enumerate().take(cols.min(slice.len())) {
-            let floor = empty_floor(ov.bar_db.get(cx).copied().unwrap_or(y_min), y_min, y_max, rows);
-            let r = row_of(db_val);
-            if r >= floor && r < rows {
-                let x = area.x + cx as u16;
-                let y = bottom - r;
-                buf.get_mut(x, y).set_symbol(glyph).set_fg(color);
-            }
+    // Hold ghost: a `▔` cap wherever the held frame sits above the live bar.
+    for (cx, &db_val) in ov.hold_db.iter().enumerate().take(cols.min(ov.hold_db.len())) {
+        let floor = empty_floor(ov.bar_db.get(cx).copied().unwrap_or(y_min), y_min, y_max, rows);
+        let r = row_of(db_val);
+        if r >= floor && r < rows {
+            let x = area.x + cx as u16;
+            let y = bottom - r;
+            buf.get_mut(x, y).set_symbol("▔").set_fg(ov.hold_color);
+        }
+    }
+
+    // Peak ticks: a fine `▔` cap ONLY where the peak rises at least one full
+    // cell above the live bar, placed at the peak's top row. Where the peak is
+    // level with the signal nothing is drawn, so it reads as scattered ticks
+    // rather than a continuous line.
+    for (cx, &db_val) in ov.peak_db.iter().enumerate().take(cols.min(ov.peak_db.len())) {
+        let bar_floor  = empty_floor(ov.bar_db.get(cx).copied().unwrap_or(y_min), y_min, y_max, rows);
+        let peak_floor = empty_floor(db_val, y_min, y_max, rows);
+        if peak_floor > bar_floor && peak_floor <= rows {
+            let x = area.x + cx as u16;
+            let y = bottom - (peak_floor - 1);
+            buf.get_mut(x, y).set_symbol("▔").set_fg(ov.peak_color);
         }
     }
 
@@ -146,8 +160,9 @@ pub fn paint_overlays(buf: &mut Buffer, area: Rect, ov: &Overlays, y_min: f32, y
             ov.bar_db.get(vl.col as usize).copied().unwrap_or(y_min),
             y_min, y_max, rows,
         );
+        let start = if vl.through_bars { 0 } else { floor };
         let x = area.x + vl.col;
-        for r in floor..rows {
+        for r in start..rows {
             let y = bottom - r;
             buf.get_mut(x, y).set_symbol("│").set_fg(vl.color);
         }
@@ -263,7 +278,7 @@ mod tests {
             bar_db: &[-55.0],
             peak_db: &[],
             hold_db: &[],
-            vlines: &[VLine { col: 0, color: Color::Yellow }],
+            vlines: &[VLine { col: 0, color: Color::Yellow, through_bars: false }],
             noise_floor: -200.0,
             peak_color: Color::White,
             hold_color: Color::DarkGray,
@@ -272,6 +287,53 @@ mod tests {
         paint_overlays(&mut buf, area, &ov, -90.0, -20.0);
         assert_eq!(sym(&buf, 0, 0), "│");
         assert_eq!(buf.get(0, 0).fg, Color::Yellow);
+        // Empty-region vline leaves the bar's bottom cell intact.
         assert_eq!(sym(&buf, 0, 3), "█");
+    }
+
+    #[test]
+    fn vline_through_bars_spans_full_height() {
+        let area = Rect::new(0, 0, 1, 4);
+        let mut buf = Buffer::empty(area);
+        let bars = vec![Bar { db: -55.0, color: Color::Red }]; // ~2 cells tall
+        paint_bars(&mut buf, area, &bars, -90.0, -20.0);
+        let ov = Overlays {
+            bar_db: &[-55.0],
+            peak_db: &[],
+            hold_db: &[],
+            vlines: &[VLine { col: 0, color: Color::Yellow, through_bars: true }],
+            noise_floor: -200.0,
+            peak_color: Color::White,
+            hold_color: Color::DarkGray,
+            noise_color: Color::Blue,
+        };
+        paint_overlays(&mut buf, area, &ov, -90.0, -20.0);
+        // Cursor is visible at every row, including over the bar's bottom cell.
+        for y in 0..4 {
+            assert_eq!(sym(&buf, 0, y), "│", "row {y}");
+            assert_eq!(buf.get(0, y).fg, Color::Yellow, "row {y}");
+        }
+    }
+
+    #[test]
+    fn peak_tick_hidden_when_level_with_bar() {
+        let area = Rect::new(0, 0, 1, 4);
+        let mut buf = Buffer::empty(area);
+        let bars = vec![Bar { db: -55.0, color: Color::Red }];
+        paint_bars(&mut buf, area, &bars, -90.0, -20.0);
+        let ov = Overlays {
+            bar_db: &[-55.0],
+            peak_db: &[-55.0], // peak equals the live signal → no tick
+            hold_db: &[],
+            vlines: &[],
+            noise_floor: -200.0,
+            peak_color: Color::White,
+            hold_color: Color::DarkGray,
+            noise_color: Color::Blue,
+        };
+        paint_overlays(&mut buf, area, &ov, -90.0, -20.0);
+        // The two empty rows above the 2-cell bar stay empty (no cap).
+        assert_eq!(sym(&buf, 0, 0), " ");
+        assert_eq!(sym(&buf, 0, 1), " ");
     }
 }

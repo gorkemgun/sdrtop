@@ -202,21 +202,23 @@ impl Panel for SpectrumPanel {
                     let mut vlines: Vec<VLine> = Vec::new();
                     for mk in &state.spectrum.markers {
                         if let Some(c) = freq_to_col(mk.freq_hz as f64) {
-                            vlines.push(VLine { col: c, color: theme.status_warn });
+                            vlines.push(VLine { col: c, color: theme.status_warn, through_bars: false });
                         }
                         if let Some(ch_bw) = mk.channel_bw_hz {
                             let half = ch_bw as f64 / 2.0;
                             if let Some(c) = freq_to_col(mk.freq_hz as f64 - half) {
-                                vlines.push(VLine { col: c, color: theme.border_accent });
+                                vlines.push(VLine { col: c, color: theme.border_accent, through_bars: false });
                             }
                             if let Some(c) = freq_to_col(mk.freq_hz as f64 + half) {
-                                vlines.push(VLine { col: c, color: theme.border_accent });
+                                vlines.push(VLine { col: c, color: theme.border_accent, through_bars: false });
                             }
                         }
                     }
+                    // Cursor spans the full height (through bars) so it stays
+                    // visible even on a tall signal.
                     if let Some(cf) = state.spectrum.cursor_freq {
                         if let Some(c) = freq_to_col(cf as f64) {
-                            vlines.push(VLine { col: c, color: theme.value_hi });
+                            vlines.push(VLine { col: c, color: theme.value_hi, through_bars: true });
                         }
                     }
 
@@ -226,7 +228,9 @@ impl Panel for SpectrumPanel {
                         hold_db:     &col_hold,
                         vlines:      &vlines,
                         noise_floor,
-                        peak_color:  theme.peak_hold,
+                        // Muted so lingering peaks read as fine scattered ticks,
+                        // not a bold line glued to the bar tops.
+                        peak_color:  theme.label,
                         hold_color:  theme.border_dim,
                         noise_color: theme.noise_floor,
                     };
