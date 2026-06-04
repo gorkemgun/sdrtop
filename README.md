@@ -14,7 +14,7 @@ I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clon
 > [!IMPORTANT]
 > **Project Status:** `sdrtop` is currently in an **early development stage**. 
 > * At the moment, **it only supports the HackRF One**. Support for other devices is planned.
-> * The **interactive TUI is feature-complete** — spectrum, waterfall, the lab presets (IQ, RF, timing, signal, sweep), and the micro field-mode ecosystem are all in. Until **RTL-SDR support** lands, the focus is on **bug-fixing and polishing the UI** rather than new features.
+> * The **interactive TUI is feature-complete** — spectrum, waterfall, the lab presets (IQ, RF, timing, signal, sweep), and the micro field-mode ecosystem are all in. Until **RTL-SDR support** lands, the focus is on **polishing the UI, sharpening the radio math, and fixing bugs** rather than new features.
 > * **Known Issues:** Plenty 😄... You might run into some performance issues.
 
 **[Full user guide](user_docs/README.md)**
@@ -29,16 +29,31 @@ I didn't want to cut corners, so this definitely isn't a lazy `hackrf_info` clon
 
 ## What it shows
 
-- **Spectrum analyzer** — FFT with EMA smoothing, peak hold, noise floor, dBFS axis, zoom, band plan overlay, frequency markers
-- **Waterfall** — scrolling spectrogram with truecolor / 256-color / 16-color support
-- **Signal strip** — live bar: P/NF · channel power · noise floor · ADC saturation · drops · buffer fill · IQ imbalance · RBW
-- **RF chain** — frequency + wavelength (λ, λ/4), visual gain chain, estimated noise figure (Friis), minimum detectable signal (MDS), ADC utilisation gauge, gain advisor
-- **IQ diagnostics** — DC offset (I/Q + magnitude gauge), DC spike level, amplitude/phase imbalance, image rejection ratio (IRR), contextual hint
-- **Hardware health** — drops, ADC saturation, CPU/RAM, USB errors, sample-rate accuracy, buffer fill (all with trend sparklines)
-- **IQ histogram** — ADC amplitude distribution with Low/Mid/Clip breakdown and PAPR (signal-type fingerprint); flags clipping and dynamic range issues
-- **Observer mode** — device identity and owner process when another app holds the radio
+Everything your radio knows about itself, in real time, without leaving the terminal.
+
+### Live spectrum & waterfall
+- **Spectrum analyzer** — FFT with EMA smoothing, peak hold, noise floor tracking, dBFS axis, zoom, band-plan overlay, and persistent frequency markers
+- **Waterfall** — scrolling spectrogram in truecolor / 256-color / 16-color, with adjustable color scale, history scroll-back, and frame averaging for longer time windows
+- **Focus modes** — press the highlighted letter in a panel's title to take it over: `e` spectrum, `l` waterfall, plus cursor read-outs, holds, and markers without ever touching the mouse
+
+### Bench-engineer measurements (the Lab presets)
+- **RF chain** — tuned frequency with wavelength (λ, λ/4 for cutting antennas), a visual gain chain, estimated **noise figure** (Friis), **minimum detectable signal** (MDS) in dBm, an ADC-utilisation gauge, and a gain advisor that tells you when you're starving or clipping the front end
+- **IQ diagnostics** — DC offset (I/Q + magnitude gauge), DC spike level, amplitude/phase imbalance, and **image rejection ratio** (IRR) — the number that tells you how clean your quadrature really is
+- **IQ histogram** — ADC amplitude distribution with a Low/Mid/Clip breakdown and **PAPR** (crest factor) that fingerprints the signal type at a glance
+- **Timing** — USB transfer cadence, throughput, and jitter with a quality verdict and session peak tracking
+- **Hardware vitals** — drops, ADC saturation, sdrtop's own CPU/RAM, USB errors, configured-vs-measured sample rate, and buffer fill — every one with a trend sparkline
+
+### Scanning & field views
+- **Frequency sweep** — scan a band wider than one window can show; sdrtop retunes across it, stitches the result into a single curve with band-plan labels, and lets you press `Enter` on a peak to tune straight to it
+- **Micro field views** — compact single-glance read-outs (signal · gain · health · sweep) for tiny panes and cyberdeck screens
+- **Signal strip** — one live bar with the essentials: P/NF · channel power · noise floor · ADC saturation · drops · buffer fill · IQ imbalance · RBW
+- **Observer mode** — if another app already holds the radio, sdrtop shows device identity, the owning process, and USB stats instead of falling over, then reclaims the device when it's free
+
+### Make it yours
 - **Six themes** — `sdr` · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
-- **Layout presets** — general + specialised lab layouts, switch on the fly with number keys or cycle with `p`; define your own in the config
+- **Layout presets** — general + specialised lab layouts; switch on the fly with the number keys, cycle with `p`, or define your own in the config
+
+> Every lab panel marks itself **[STALE]** the moment RX stops, so a frozen number is never mistaken for a live one.
 
 ---
 
@@ -152,19 +167,25 @@ You can also define your own `[presets.*]` layouts in the config — they merge 
 
 ## Roadmap
 
-### Current focus
-With the TUI feature set in place, the work right now is **stability and UI polish** — fixing bugs and refining the existing screens — until RTL-SDR support arrives.
+### Right now: polish over features
+The feature set is in. So the whole focus has shifted to **making what's already here genuinely good**:
 
-### Near term
-- [ ] RTL-SDR support — R820T / R828D / E4000 (most common dongle, highest impact)
+- [ ] **UI polish** — layout, spacing, color, readability, and the small edge cases that make a TUI feel hand-built instead of merely functional
+- [ ] **Sharper radio math** — auditing and refining the derived measurements (NF, MDS, IRR, PAPR, sample-rate accuracy, timing) so the numbers are not just present but *trustworthy*
+- [ ] **Bug fixes** — hunting down the rough edges before piling on anything new
+
+No new headline features land until this list feels done. *(2026 resolution: fewer features, more taste.)*
+
+### Next big thing
+- [ ] **RTL-SDR support** — R820T / R828D / E4000, the most common dongle on Earth and the single highest-impact addition this project can make
 
 ### Hardware pipeline
 - [ ] Airspy Mini / Airspy HF+ Discovery
 - [ ] HackRF Pro
 - [ ] LimeSDR / bladeRF / SDRplay / PlutoSDR via SoapySDR
 
-### App
-- [x] Frequency scanner mode — the `lab_sweep` / `micro_sweep` scanner
+### Later (once polish + RTL-SDR are home)
+- [x] Frequency scanner mode — the `lab_sweep` / `micro_sweep` scanner ✅ *done*
 - [ ] Signal recording to file
 - [ ] In-app config editing (no hand-editing TOML)
 
