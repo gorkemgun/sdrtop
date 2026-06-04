@@ -63,7 +63,7 @@ fn with_stderr_silenced<R>(f: impl FnOnce() -> R) -> R {
         if saved < 0 {
             return f();
         }
-        let devnull = libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_WRONLY);
+        let devnull = libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY);
         if devnull < 0 {
             libc::close(saved);
             return f();

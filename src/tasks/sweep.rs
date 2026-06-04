@@ -26,9 +26,10 @@ pub fn spawn_sweep_task(state: Arc<Mutex<SdrMetrics>>, device: Arc<dyn SdrDevice
         let mut saved_rx_enabled = false;
 
         loop {
-            let (active, config, sample_rate) = {
+            let (active, config, sample_rate, fmin, fmax) = {
                 let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                (m.sweep.active, m.sweep.config.clone(), m.radio.config_sample_rate)
+                (m.sweep.active, m.sweep.config.clone(), m.radio.config_sample_rate,
+                 m.caps.freq_min_hz, m.caps.freq_max_hz)
             };
 
             // ── Enter sweep: remember normal-RX state, force streaming on.
@@ -89,7 +90,7 @@ pub fn spawn_sweep_task(state: Arc<Mutex<SdrMetrics>>, device: Arc<dyn SdrDevice
                 if !state.lock().unwrap_or_else(|e| e.into_inner()).sweep.active {
                     break;
                 }
-                let hz = config.position_hz(i, sample_rate).clamp(1_000_000, 6_000_000_000);
+                let hz = config.position_hz(i, sample_rate).clamp(fmin, fmax);
                 let _ = device.set_frequency(hz);
                 {
                     // Tag m.radio.frequency too so the FFT worker stamps frames
