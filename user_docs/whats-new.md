@@ -2,57 +2,51 @@
 
 ← [Back](README.md)
 
-A plain-language summary of recent changes. Full technical details are in the [developer changelog](../dev_docs/CHANGELOG.md).
+The story of sdrtop so far — not as a wall of dates, but as **checkpoints**: the big moments where the app levelled up. Each one is condensed to the essentials. Full technical detail lives in the [developer changelog](../dev_docs/CHANGELOG.md).
+
+> **Where we are now:** the interactive TUI is feature-complete. The current checkpoint is all about **polishing the UI, sharpening the radio math, and squashing bugs** — until **RTL-SDR** support lands. So if something looks off or behaves oddly, that's exactly what we're hunting.
 
 ---
 
-## June 2026
+## ✅ Checkpoint 1 — It receives
+The foundation: talk to the HackRF safely, pull IQ off the wire, and show it.
+- Solid USB FFI layer with a clean shutdown on every exit path
+- Live **spectrum analyzer** — FFT with peak hold, noise floor, dBFS and frequency axes
+- Scrolling **waterfall** — truecolor / 256-color / 16-color, with a graceful fallback on basic terminals
 
-> **Where the project is:** the interactive TUI is now feature-complete. Until support for the **RTL-SDR** dongle lands, the focus is on **fixing bugs and polishing the UI** rather than adding features — so if something looks off or behaves oddly, that's exactly what we're hunting now.
+## ✅ Checkpoint 2 — It remembers
+sdrtop stopped being forgetful.
+- Settings (frequency, gains, sample rate, layout) **persist** across restarts in `~/.config/sdrtop/config.toml`
+- Atomic, safe saves; a missing or broken config just falls back to sane defaults
+- **Six themes** (`sdr`, `nord`, `dracula`, `gruvbox`, `catppuccin`, `solarized`) and switchable **layout presets**
 
-### Frequency scanner — Lab Sweep & micro sweep
-A new scanner sweeps a band wider than one window can show, stitching the result into a single curve with band-plan labels. Open it with `9` (**Lab Sweep**) or as the last step of the `0` micro cycle. Set the band right in the panel (`g` to focus, then `s` / `e` for start / end), and press `Enter` on a signal to tune straight to it. See **[The Lab Presets](lab.md)** (Sweep section) and **[Configuration → Sweep scanner](config.md#sweep-scanner)**.
+## ✅ Checkpoint 3 — It diagnoses
+The part that makes sdrtop more than a pretty spectrum.
+- **Hardware health** — drops, ADC saturation, USB errors, buffer fill, sample-rate accuracy
+- **RF chain** — gain stages, frequency + wavelength, estimated **noise figure** and **minimum detectable signal**
+- **IQ diagnostics** — DC offset, imbalance, **image rejection ratio**, plus an ADC amplitude **histogram**
 
-### Lab presets — bench-engineer views
-The lab presets (`5`–`8`: IQ, RF, timing, signal) carry a full set of derived measurements aimed at serious capture work. See **[The Lab Presets](lab.md)** for the complete walkthrough.
+## ✅ Checkpoint 4 — It plays nice
+Less crashing, more cooperating.
+- **Observer mode** — if another app already holds the radio, sdrtop watches what it can instead of falling over, then reclaims it when free
+- Live **sample-rate control** (`s`) without restarting
+- A big **performance overhaul** — far lower CPU/RAM at 30 fps, smooth even at high sample rates
 
-- **RF Chain** now shows the tuned frequency with its wavelength (λ and λ/4 for antenna cutting), a visual gain chain, an estimated **Noise Figure** (Friis), and the **Minimum Detectable Signal** in dBm. The unused CPLD line was removed.
-- **IQ Amplitude Distribution** added a Low/Mid/Clip percentage breakdown and **PAPR** (crest factor), which fingerprints the signal type at a glance.
-- **IQ Diagnostics** added a **DC spike** level (how tall the centre tone is) and **IRR** (image rejection ratio) — the key quadrature-quality number.
-- **Hardware Vitals** now tracks sdrtop's own **CPU and RAM**, the **configured-vs-measured sample rate**, and **buffer fill** with trend graphs. The old USB-callback jitter readout was replaced with these more actionable metrics.
+## ✅ Checkpoint 5 — It analyzes
+The spectrum and waterfall grew real tools, driven by a single highlighted **focus** key per panel.
+- **Spectrum focus** (`e`) — tune with `←`/`→`, **zoom**, **hold** a ghost frame to compare, a **cursor** read-out, **band-plan** labels, and named **markers** that persist
+- **Waterfall focus** (`l`) — adjustable color scale, scroll-back through history, and **frame averaging** to stretch the visible time window
 
-Every lab panel now clearly marks itself **[STALE]** when RX isn't streaming, so frozen data is never mistaken for live.
+## ✅ Checkpoint 6 — The lab bench
+Bench-engineer views for people who care about the numbers, not just the picture.
+- **Lab presets** `5`–`8`: IQ · RF · timing · signal
+- Derived measurements worth trusting: **NF**, **MDS**, **IRR**, **PAPR**, sample-rate accuracy, and USB **timing/jitter** with a quality verdict
+- **Hardware Vitals** now tracks sdrtop's own CPU/RAM with trend graphs
+- Every lab panel marks itself **[STALE]** the instant RX stops — a frozen number is never mistaken for a live one
 
----
+## ✅ Checkpoint 7 — It scans
+- **Frequency sweep** (`9`) — scan a band wider than one window can show; sdrtop stitches it into one curve with band-plan labels. Focus with `g`, set the band live with `s` / `e`, and press `Enter` on a peak to tune straight to it
+- **Micro field views** (`0`) — deliberately tiny single-glance read-outs (signal · gain · health · sweep) for slim splits, SSH sessions, and cyberdeck screens
 
-## May 2026
-
-### Waterfall focus mode
-You can now press `l` (the letter in "Waterfall") to enter focus mode on the waterfall panel. While focused:
-- `↑` / `↓` adjusts the color scale so faint or strong signals show more detail
-- `j` / `k` scrolls back through waterfall history
-- `[` / `]` slows the waterfall down by averaging multiple frames into one row — useful for seeing a longer time window
-- You can place a frequency cursor and see exactly what signal level was at that point and when
-
-### Spectrum analysis tools
-Several new tools in spectrum focus mode (`e`):
-- **Band plan overlay** — frequency band labels (FM, Aviation, Marine, ISM, GPS, etc.) appear on the spectrum when those bands are in view
-- **Zoom** — `↑` / `↓` in focus mode adjusts the dBFS range so you can zoom in on weak signals
-- **Hold** — press `h` to freeze the current spectrum as a ghost behind the live signal, useful for comparing
-- **Cursor** — `j` / `k` move a crosshair across the spectrum; frequency and signal level at that point are shown
-- **Markers** — press `m` to place a named vertical marker at the cursor; markers persist between sessions
-
-### Frequency navigation in spectrum focus
-While in spectrum focus mode, `←` / `→` now tune the center frequency. The step size is shown on screen and can be changed with `[` / `]` (1 kHz up to 10 MHz).
-
-### Observer mode
-If another app has the HackRF open, sdrtop now switches to observer mode instead of crashing. It shows what it can read without holding the radio (device info, which app is using it, USB stats). When the other app releases the radio, sdrtop picks it back up automatically.
-
-### Sample rate control
-Press `s` to type in a new sample rate (2–20 MHz) while the app is running.
-
-### Performance improvements
-The app is significantly smoother at high sample rates. CPU and memory usage at 30 fps are substantially lower than before.
-
-### Six themes, six layouts
-The full theme system and six layout presets are all live. Switch themes with `--theme <name>` at startup; switch layouts with number keys `1`–`6` while running.
+## 🔧 Checkpoint 8 — Polish (you are here)
+The feature list is closed for now. This checkpoint is about taste: refining layout and readability, **reworking the micro view's UI**, double-checking every radio calculation, and fixing the rough edges — the groundwork before **RTL-SDR** becomes the next big leap.
