@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::hardware::Device;
+use crate::hardware::board_rev_name;
 use crate::state::SdrMetrics;
 use crate::ui::panel::Panel;
 use crate::ui::rf_calc::{adc_utilisation_ratio, estimate_mds_dbm, estimate_nf_db, gain_advice};
@@ -56,6 +56,8 @@ impl Panel for RfChainPanel {
         f.render_widget(block, area);
 
         let bb_bw = state.radio.bb_filter_hz;
+        let gm    = &state.caps.gain;
+        let friis = state.caps.friis_applicable;
         let total_gain = state.radio.lna_gain as i32
             + state.radio.vga_gain as i32
             + if state.radio.amp_enabled { 14 } else { 0 };
@@ -100,8 +102,14 @@ impl Panel for RfChainPanel {
         let wl_str    = fmt_wavelength(state.radio.frequency);
         let sr_str    = format!("{:.3} MHz", state.radio.config_sample_rate / 1_000_000.0);
 
-        // Gain chain: AMP[14] → LNA[xx] → VGA[xx] = total dB
-        let chain_line = if state.radio.amp_enabled {
+        // Gain chain: single TUNER stage (RTL-SDR), else AMP[14] → LNA → VGA = total dB.
+        let chain_line = if gm.is_single() {
+            Line::from(vec![
+                Span::styled("TUNER", lbl),
+                Span::styled(format!("[{}]", state.radio.lna_gain), hi),
+                Span::styled(format!(" = {} dB", state.radio.lna_gain), Style::default().fg(theme.value_hi)),
+            ])
+        } else if state.radio.amp_enabled {
             Line::from(vec![
                 Span::styled("AMP", lbl),
                 Span::styled(format!("[{}]", 14), hi),
@@ -139,15 +147,24 @@ impl Panel for RfChainPanel {
             ]),
             Line::from(vec![
                 Span::styled(format!("{:<13}", "BB filter"),  lbl),
-                Span::styled(fmt_hz(bb_bw), val),
+                Span::styled(
+                    if state.caps.has_bb_filter { fmt_hz(bb_bw) } else { "N/A".to_string() },
+                    val),
             ]),
             Line::from(vec![Span::raw("")]),
             chain_line,
-            Line::from(vec![
-                Span::styled(format!("{:<13}", "Est. NF"),  lbl),
-                Span::styled(format!("~{:.1} dB", nf_db),  Style::default().fg(nf_color)),
-                Span::styled("  (Friis)", Style::default().fg(theme.border_dim)),
-            ]),
+            if friis {
+                Line::from(vec![
+                    Span::styled(format!("{:<13}", "Est. NF"),  lbl),
+                    Span::styled(format!("~{:.1} dB", nf_db),  Style::default().fg(nf_color)),
+                    Span::styled("  (Friis)", Style::default().fg(theme.border_dim)),
+                ])
+            } else {
+                Line::from(vec![
+                    Span::styled(format!("{:<13}", "Est. NF"),  lbl),
+                    Span::styled("N/A (single-tuner)", Style::default().fg(theme.stale)),
+                ])
+            },
             {
                 let (mds_str, mds_color) = match estimate_mds_dbm(bb_bw, nf_db) {
                     Some(mds) => {
@@ -166,11 +183,17 @@ impl Panel for RfChainPanel {
             Line::from(vec![Span::raw("")]),
             Line::from(vec![
                 Span::styled(format!("{:<13}", "Board"),   lbl),
-                Span::styled(Device::board_rev_name(state.system.board_rev), Style::default().fg(theme.border_dim)),
+                Span::styled(
+                    if friis { board_rev_name(state.system.board_rev).to_string() }
+                    else     { state.system.board_name.to_string() },
+                    Style::default().fg(theme.border_dim)),
             ]),
             Line::from(vec![
                 Span::styled(format!("{:<13}", "USB API"), lbl),
-                Span::styled(format!("{:#06x}", state.system.usb_api_version), Style::default().fg(theme.border_dim)),
+                Span::styled(
+                    if friis { format!("{:#06x}", state.system.usb_api_version) }
+                    else     { "—".to_string() },
+                    Style::default().fg(theme.border_dim)),
             ]),
             Line::from(vec![Span::raw("")]),
             Line::from(vec![

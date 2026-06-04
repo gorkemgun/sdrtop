@@ -52,6 +52,49 @@ fn default_config_path() -> Option<PathBuf> {
         .map(|h| PathBuf::from(h).join(".config/sdrtop/config.toml"))
 }
 
+fn log_path() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(".config/sdrtop/sdrtop.log"))
+        .unwrap_or_else(|| PathBuf::from("/tmp/sdrtop.log"))
+}
+
+/// Redirect stderr (fd 2) to a log file for the TUI session and return the saved
+/// original fd. Backend libraries are chatty on stderr — librtlsdr prints
+/// "Allocating zero-copy buffers", "Found … tuner", "[R82XX] PLL not locked!",
+/// some from its own read thread — which would scribble over the alternate
+/// screen. Sending it to a file keeps the TUI clean while preserving the output
+/// for debugging. Best-effort: returns `None` (and leaves stderr alone) on error.
+fn redirect_stderr_to_log() -> Option<i32> {
+    use std::os::unix::io::AsRawFd;
+    let path = log_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok()?;
+    unsafe {
+        let saved = libc::dup(libc::STDERR_FILENO);
+        if saved < 0 {
+            return None;
+        }
+        if libc::dup2(file.as_raw_fd(), libc::STDERR_FILENO) < 0 {
+            libc::close(saved);
+            return None;
+        }
+        // `file` drops here, closing its own fd; fd 2 keeps the open description.
+        Some(saved)
+    }
+}
+
+/// Restore the real stderr saved by [`redirect_stderr_to_log`].
+fn restore_stderr(saved: Option<i32>) {
+    if let Some(s) = saved {
+        unsafe {
+            libc::dup2(s, libc::STDERR_FILENO);
+            libc::close(s);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -69,13 +112,11 @@ async fn main() -> Result<()> {
 
     let theme = app_cfg.build_theme();
 
-    let device_serials = match hardware::Device::list_serials() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    };
+    let devices = hardware::list_all_devices();
+    if devices.is_empty() {
+        eprintln!("No SDR device found. Connect a HackRF or RTL-SDR and try again.");
+        std::process::exit(1);
+    }
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -83,16 +124,24 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let device_index = if device_serials.len() > 1 {
-        match ui::device_selector::run(device_serials, &theme, &mut terminal) {
-            Ok(Some(idx)) => idx,
+    // From here on the alternate screen is live — keep backend-library chatter
+    // off it by routing stderr to the log file until we tear the TUI down.
+    let saved_stderr = redirect_stderr_to_log();
+
+    let selected = if devices.len() > 1 {
+        let items: Vec<(usize, String)> =
+            devices.iter().enumerate().map(|(i, d)| (i, d.label.clone())).collect();
+        match ui::device_selector::run(items, &theme, &mut terminal) {
+            Ok(Some(pos)) => pos,
             Ok(None) => {
+                restore_stderr(saved_stderr);
                 disable_raw_mode()?;
                 execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
                 terminal.show_cursor()?;
                 return Ok(());
             }
             Err(e) => {
+                restore_stderr(saved_stderr);
                 disable_raw_mode()?;
                 execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
                 terminal.show_cursor()?;
@@ -101,12 +150,13 @@ async fn main() -> Result<()> {
             }
         }
     } else {
-        device_serials[0].0
+        0
     };
 
-    let mut app = match App::new(app_cfg, config_path, device_index) {
+    let mut app = match App::new(app_cfg, config_path, &devices[selected]) {
         Ok(a) => a,
         Err(e) => {
+            restore_stderr(saved_stderr);
             disable_raw_mode()?;
             execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
             terminal.show_cursor()?;
@@ -117,6 +167,7 @@ async fn main() -> Result<()> {
 
     let result = app.run(&mut terminal);
 
+    restore_stderr(saved_stderr);
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

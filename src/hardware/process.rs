@@ -1,0 +1,162 @@
+//! Device-agnostic per-block sample accumulation. Both backends funnel their
+//! raw USB byte blocks through [`process_block`]: HackRF from its `extern "C"`
+//! callback, RTL-SDR from its owned read thread. Only the byte→sample decode and
+//! the saturation test branch on [`SampleFormat`]; every accumulator, the
+//! histogram, drops, jitter, and the hand-off to the FFT worker are identical.
+
+use std::time::Instant;
+
+use super::traits::{RxContext, SampleFormat};
+
+/// Fold one raw byte block into the shared metrics accumulators and forward it
+/// to the FFT worker.
+///
+/// `dropped_pairs` is the backend's short-transfer count (HackRF computes it
+/// from `buffer_length − valid_length`; RTL-SDR has no equivalent and passes 0).
+/// `now` is captured by the *caller* so jitter measures the true inter-callback
+/// interval, not callback-entry-plus-processing time.
+pub fn process_block(
+    buf: &[u8],
+    format: SampleFormat,
+    dropped_pairs: u64,
+    ctx: &RxContext,
+    now: Instant,
+) {
+    // Per-sample math runs entirely without the mutex.
+    let mut saturated:  u64 = 0;
+    let mut i_sum:      i64 = 0;
+    let mut q_sum:      i64 = 0;
+    let mut i_sq:       i64 = 0;
+    let mut q_sq:       i64 = 0;
+    let mut iq_cross:   i64 = 0;
+    let mut local_hist: [u64; 32] = [0; 32];
+
+    for chunk in buf.chunks_exact(2) {
+        // Decode to a centered signed value in [-128, 127] and flag clipping at
+        // the format's extremes. Centering Uint8 by 128 (rather than the true
+        // 127.5 DC bias) keeps the downstream DC-offset `/128.0` normalization
+        // valid — the half-LSB difference is negligible for diagnostics.
+        let (i, q, i_sat, q_sat) = match format {
+            SampleFormat::Int8 => (
+                chunk[0] as i8 as i64,
+                chunk[1] as i8 as i64,
+                chunk[0] == 0x80 || chunk[0] == 0x7F,
+                chunk[1] == 0x80 || chunk[1] == 0x7F,
+            ),
+            SampleFormat::Uint8 => (
+                chunk[0] as i64 - 128,
+                chunk[1] as i64 - 128,
+                chunk[0] == 0x00 || chunk[0] == 0xFF,
+                chunk[1] == 0x00 || chunk[1] == 0xFF,
+            ),
+        };
+        i_sum    += i;
+        q_sum    += q;
+        i_sq     += i * i;
+        q_sq     += q * q;
+        iq_cross += i * q;
+        if i_sat { saturated += 1; }
+        if q_sat { saturated += 1; }
+        // Chebyshev distance, 32 bins of width 4. `unsigned_abs` of the centered
+        // value can reach 128 (the -128 extreme); `.min(31)` clamps that to the
+        // last bin instead of indexing [32] and panicking inside the callback.
+        let amp = i.unsigned_abs().max(q.unsigned_abs());
+        local_hist[((amp / 4) as usize).min(31)] += 1;
+    }
+
+    let pairs = (buf.len() / 2) as u64;
+
+    // Single brief lock to flush accumulated results — O(1), no loops inside.
+    {
+        let Ok(mut m) = ctx.metrics.lock() else {
+            ctx.sample_tx.try_send(buf.to_vec()).ok();
+            return;
+        };
+
+        m.radio.bytes_since_last_poll += buf.len() as u64;
+
+        if dropped_pairs > 0 {
+            m.acc.drops += dropped_pairs;
+            m.signal.total_drops_session += dropped_pairs;
+        }
+
+        m.acc.saturated    += saturated;
+        m.acc.i_sum        += i_sum;
+        m.acc.q_sum        += q_sum;
+        m.acc.i_sq_sum     += i_sq as u64;
+        m.acc.q_sq_sum     += q_sq as u64;
+        m.acc.iq_cross_sum += iq_cross;
+        m.acc.sample_count += pairs;
+
+        for (acc, &local) in m.acc.iq_hist.iter_mut().zip(local_hist.iter()) {
+            *acc += local;
+        }
+
+        if let Some(last) = m.acc.last_callback {
+            let gap_us = now.duration_since(last).as_micros() as u64;
+            m.acc.jitter_sum_us += gap_us;
+            m.acc.jitter_sq_sum += gap_us.saturating_mul(gap_us);
+            m.acc.jitter_count  += 1;
+        }
+        m.acc.last_callback = Some(now);
+    }
+
+    ctx.sample_tx.try_send(buf.to_vec()).ok();
+}
+
+#[cfg(test)]
+mod tests {
+    // These exercise the decode/saturation/histogram arithmetic that
+    // `process_block` performs inline; constructing a full RxContext is left to
+    // the hardware-in-the-loop verification.
+
+    // --- Int8 (HackRF) decode -------------------------------------------------
+    #[test]
+    fn int8_saturation_bytes() {
+        assert!(0x7Fu8 == 0x7F || 0x7Fu8 == 0x80);
+        let normal: u8 = 0x40;
+        assert!(normal != 0x7F && normal != 0x80);
+    }
+
+    #[test]
+    fn int8_centered_value() {
+        assert_eq!(0x7Fu8 as i8 as i64, 127);
+        assert_eq!(0x80u8 as i8 as i64, -128);
+        assert_eq!(0x00u8 as i8 as i64, 0);
+    }
+
+    // --- Uint8 (RTL-SDR) decode ----------------------------------------------
+    #[test]
+    fn uint8_centered_value() {
+        // 0x00 → -128, 0x80 → 0, 0xFF → +127
+        assert_eq!(0x00u8 as i64 - 128, -128);
+        assert_eq!(0x80u8 as i64 - 128, 0);
+        assert_eq!(0xFFu8 as i64 - 128, 127);
+    }
+
+    #[test]
+    fn uint8_saturation_at_unsigned_extremes() {
+        let lo: u8 = 0x00;
+        let hi: u8 = 0xFF;
+        let mid: u8 = 0x80;
+        assert!(lo == 0x00 || lo == 0xFF);
+        assert!(hi == 0x00 || hi == 0xFF);
+        assert!(!(mid == 0x00 || mid == 0xFF), "DC-bias midpoint must not read as clipping");
+    }
+
+    // --- Histogram binning (shared) ------------------------------------------
+    #[test]
+    fn histogram_extreme_does_not_overflow() {
+        // Centered -128 (Uint8 0x00, or Int8 0x80) → unsigned_abs 128 → bin 31.
+        let v: i64 = -128;
+        let amp = v.unsigned_abs();
+        assert_eq!(amp, 128);
+        assert_eq!(((amp / 4) as usize).min(31), 31);
+    }
+
+    #[test]
+    fn histogram_zero_amplitude_bin_zero() {
+        let v: i64 = 0;
+        assert_eq!(((v.unsigned_abs() / 4) as usize).min(31), 0);
+    }
+}

@@ -1,5 +1,44 @@
-pub mod device;
-pub mod ffi;
+pub mod hackrf;
+pub mod process;
+pub mod rtlsdr;
 pub mod sysfs;
+pub mod traits;
 
-pub use device::{rx_callback, compute_bb_filter_bw, Device, RxContext};
+pub use hackrf::{board_rev_name, compute_bb_filter_bw};
+pub use traits::{DeviceCapabilities, GainModel, RxContext, SampleFormat, SdrDevice};
+
+use std::sync::Arc;
+
+/// Which backend a [`DeviceListing`] / open request targets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceKind {
+    HackRf,
+    RtlSdr,
+}
+
+/// One enumerated device, before it is opened. `index` is the per-backend index
+/// the backend's `open(index)` expects. `label` is the human string shown in the
+/// device selector.
+#[derive(Clone, Debug)]
+pub struct DeviceListing {
+    pub kind:  DeviceKind,
+    pub index: usize,
+    pub label: String,
+}
+
+/// Every connected device across all compiled-in backends. Never fails: a
+/// backend with no devices (or an enumeration error) simply contributes nothing.
+pub fn list_all_devices() -> Vec<DeviceListing> {
+    let mut out = Vec::new();
+    out.extend(hackrf::list());
+    out.extend(rtlsdr::list());
+    out
+}
+
+/// Opens the device a listing points at, as a trait object.
+pub fn open_device(listing: &DeviceListing) -> anyhow::Result<Arc<dyn SdrDevice>> {
+    match listing.kind {
+        DeviceKind::HackRf => Ok(Arc::new(hackrf::HackRfDevice::open(listing.index)?)),
+        DeviceKind::RtlSdr => Ok(Arc::new(rtlsdr::RtlDevice::open(listing.index)?)),
+    }
+}

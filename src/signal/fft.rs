@@ -5,6 +5,7 @@ use num_complex::Complex;
 use rustfft::FftPlanner;
 
 use super::dsp::{self, WindowFn};
+use crate::hardware::SampleFormat;
 use crate::state::{FftFrame, SdrMetrics};
 
 const DB_FLOOR: f32 = -160.0;
@@ -16,10 +17,12 @@ pub struct FftWorker {
     pub window_fn: WindowFn,
     pub ema_alpha: f32,
     pub peak_decay_db: f32,
+    /// How to decode the raw bytes — set from the active device's capabilities.
+    pub format: SampleFormat,
 }
 
 impl FftWorker {
-    pub fn new(sample_rx: Receiver<Vec<u8>>, state: Arc<Mutex<SdrMetrics>>) -> Self {
+    pub fn new(sample_rx: Receiver<Vec<u8>>, state: Arc<Mutex<SdrMetrics>>, format: SampleFormat) -> Self {
         Self {
             sample_rx,
             state,
@@ -27,6 +30,7 @@ impl FftWorker {
             window_fn: WindowFn::Hann,
             ema_alpha: 0.2,
             peak_decay_db: 0.5,
+            format,
         }
     }
 
@@ -72,12 +76,25 @@ impl FftWorker {
             while buf.len() - buf_start >= frame_bytes {
                 let frame = &buf[buf_start..buf_start + frame_bytes];
 
-                // Convert to windowed complex samples in-place
-                for (i, (pair, &w)) in frame.chunks_exact(2).zip(window.iter()).enumerate() {
-                    samples[i] = Complex {
-                        re: pair[0] as i8 as f32 / 128.0 * w,
-                        im: pair[1] as i8 as f32 / 128.0 * w,
-                    };
+                // Convert to windowed complex samples in-place. Branch the
+                // byte→sample decode once per frame, not per sample.
+                match self.format {
+                    SampleFormat::Int8 => {
+                        for (i, (pair, &w)) in frame.chunks_exact(2).zip(window.iter()).enumerate() {
+                            samples[i] = Complex {
+                                re: pair[0] as i8 as f32 / 128.0 * w,
+                                im: pair[1] as i8 as f32 / 128.0 * w,
+                            };
+                        }
+                    }
+                    SampleFormat::Uint8 => {
+                        for (i, (pair, &w)) in frame.chunks_exact(2).zip(window.iter()).enumerate() {
+                            samples[i] = Complex {
+                                re: (pair[0] as f32 - 127.5) / 127.5 * w,
+                                im: (pair[1] as f32 - 127.5) / 127.5 * w,
+                            };
+                        }
+                    }
                 }
                 buf_start += frame_bytes;
 
@@ -290,6 +307,18 @@ mod tests {
         let byte: u8 = 0x80;
         let f = byte as i8 as f32 / 128.0;
         assert!((f - (-1.0)).abs() < 1e-6, "got {}", f);
+    }
+
+    #[test]
+    fn iq_byte_uint8_converts_correctly() {
+        // RTL-SDR unsigned-8-bit decode around the 127.5 DC bias maps the byte
+        // range symmetrically onto [-1, 1]: 0x00 → -1.0, 0x80 → ~0, 0xFF → +1.0.
+        let lo = (0x00u8 as f32 - 127.5) / 127.5;
+        let mid = (0x80u8 as f32 - 127.5) / 127.5;
+        let hi = (0xFFu8 as f32 - 127.5) / 127.5;
+        assert!((lo - (-1.0)).abs() < 1e-6, "lo = {}", lo);
+        assert!(mid.abs() < 0.01, "mid = {}", mid);
+        assert!((hi - 1.0).abs() < 1e-6, "hi = {}", hi);
     }
 
     #[test]

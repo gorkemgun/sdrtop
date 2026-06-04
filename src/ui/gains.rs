@@ -27,28 +27,44 @@ impl Panel for GainsPanel {
 
         let border_style = Style::default().fg(if focused { theme.border_focused } else { theme.border_dim });
 
+        let gm = &m.caps.gain;
+        let primary_max = gm.primary_max_db().max(1) as f32;
         let lna_gauge = Gauge::default()
             .block(
                 Block::default()
-                    .title(format!(" LNA Gain: {} dB ", m.radio.lna_gain))
+                    .title(format!(" {} Gain: {} dB ", gm.primary_label(), m.radio.lna_gain))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .border_style(border_style),
             )
             .gauge_style(Style::default().fg(theme.value_hi).add_modifier(Modifier::ITALIC))
-            .percent(((m.radio.lna_gain as f32 / 40.0) * 100.0) as u16);
+            .percent(((m.radio.lna_gain as f32 / primary_max) * 100.0).min(100.0) as u16);
         f.render_widget(lna_gauge, chunks[0]);
 
-        let vga_gauge = Gauge::default()
-            .block(
-                Block::default()
-                    .title(format!(" VGA Gain: {} dB ", m.radio.vga_gain))
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(border_style),
-            )
-            .gauge_style(Style::default().fg(theme.value).add_modifier(Modifier::ITALIC))
-            .percent(((m.radio.vga_gain as f32 / 62.0) * 100.0) as u16);
+        // VGA is HackRF-only; single-tuner devices (RTL-SDR) show it as N/A.
+        let vga_gauge = if gm.has_second_stage() {
+            Gauge::default()
+                .block(
+                    Block::default()
+                        .title(format!(" VGA Gain: {} dB ", m.radio.vga_gain))
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(border_style),
+                )
+                .gauge_style(Style::default().fg(theme.value).add_modifier(Modifier::ITALIC))
+                .percent(((m.radio.vga_gain as f32 / 62.0) * 100.0) as u16)
+        } else {
+            Gauge::default()
+                .block(
+                    Block::default()
+                        .title(" VGA Gain: N/A ")
+                        .borders(Borders::ALL)
+                        .border_type(BorderType::Rounded)
+                        .border_style(border_style),
+                )
+                .gauge_style(Style::default().fg(theme.stale))
+                .percent(0)
+        };
         f.render_widget(vga_gauge, chunks[1]);
 
         let sr_gauge = Gauge::default()
@@ -63,7 +79,7 @@ impl Panel for GainsPanel {
                     .border_style(border_style),
             )
             .gauge_style(Style::default().fg(theme.status_ok).add_modifier(Modifier::ITALIC))
-            .percent(((m.radio.actual_sample_rate as f32 / 20_000_000.0) * 100.0).min(100.0) as u16);
+            .percent(((m.radio.actual_sample_rate as f32 / m.caps.sample_rate_max_hz.max(1.0) as f32) * 100.0).min(100.0) as u16);
         f.render_widget(sr_gauge, chunks[2]);
 
         let sparkline_data: Vec<u64> = m.radio.throughput_history.iter().cloned().collect();

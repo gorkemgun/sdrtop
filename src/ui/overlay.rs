@@ -5,17 +5,31 @@ use ratatui::{
     Frame,
 };
 
-pub fn render_help(f: &mut Frame) {
+use crate::state::SdrMetrics;
+
+pub fn render_help(f: &mut Frame, m: &SdrMetrics) {
     let area = centered_rect(62, 32, f.size());
 
-    let text = "\
- [Q]        Quit\n\
- [SPACE]    Start / Stop RX\n\
+    // Gain controls depend on the device: HackRF's LNA/VGA/AMP vs RTL-SDR's
+    // single stepped tuner gain + AGC.
+    let gain_section = if m.caps.gain.is_single() {
+        "\
+ [↑] [↓]    Tuner gain  − / +  (discrete steps)\n\
+ [A]        Toggle tuner AGC"
+    } else {
+        "\
  [↑] [↓]    LNA gain  +8 / −8 dB  (0–40 dB)\n\
  [[] []]    VGA gain  −2 / +2 dB  (0–62 dB)\n\
- [A]        Toggle AMP\n\
+ [A]        Toggle AMP"
+    };
+
+    let text = format!(
+        "\
+ [Q]        Quit\n\
+ [SPACE]    Start / Stop RX\n\
+{gain_section}\n\
  [F]        Enter frequency (MHz)\n\
- [S]        Enter sample rate (2–20 MHz)\n\
+ [S]        Enter sample rate ({lo:.1}–{hi:.1} MHz)\n\
  [R]        Reset all to defaults\n\
  [P]        Cycle presets\n\
  [1]        Preset: main\n\
@@ -37,8 +51,11 @@ pub fn render_help(f: &mut Frame) {
    digits / .    type value\n\
    Backspace     delete last char\n\
    Enter         confirm\n\
-   Esc           cancel\
-";
+   Esc           cancel",
+        gain_section = gain_section,
+        lo = m.caps.sample_rate_min_hz / 1e6,
+        hi = m.caps.sample_rate_max_hz / 1e6,
+    );
 
     f.render_widget(Clear, area);
     f.render_widget(

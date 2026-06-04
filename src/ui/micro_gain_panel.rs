@@ -36,6 +36,7 @@ impl Panel for MicroGainPanel {
 
         let stale = !state.radio.hw_streaming;
         let r = &state.radio;
+        let gm = &state.caps.gain;
         let lbl  = |s: &'static str| Span::styled(s, Style::default().fg(theme.label));
         let dash = || Span::styled("---".to_string(), Style::default().fg(theme.stale));
 
@@ -66,14 +67,27 @@ impl Panel for MicroGainPanel {
             Span::styled(fmt_freq_mhz(r.frequency), Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
         ])), rows[0]);
 
-        // Gain bars (always valid — gain is configured even when stopped).
-        draw_hbar(f, rows[2], r.lna_gain as f64 / 40.0, " LNA  ", &format!("{} dB", r.lna_gain), theme.value, theme);
-        draw_hbar(f, rows[3], r.vga_gain as f64 / 62.0, " VGA  ", &format!("{} dB", r.vga_gain), theme.value, theme);
+        // Gain bars (always valid — gain is configured even when stopped). The
+        // primary stage is HackRF's LNA / RTL-SDR's tuner; the second stage (VGA)
+        // exists only on HackRF.
+        let primary_max = gm.primary_max_db().max(1) as f64;
+        draw_hbar(f, rows[2], r.lna_gain as f64 / primary_max,
+            &format!(" {}  ", gm.primary_label()), &format!("{} dB", r.lna_gain), theme.value, theme);
+        if gm.has_second_stage() {
+            draw_hbar(f, rows[3], r.vga_gain as f64 / 62.0, " VGA  ", &format!("{} dB", r.vga_gain), theme.value, theme);
+        } else {
+            f.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), lbl("VGA   "), dash()])), rows[3]);
+        }
 
-        // AMP + total gain.
-        let total_gain = r.lna_gain as i32 + r.vga_gain as i32 + if r.amp_enabled { 14 } else { 0 };
+        // Front-end boost (AMP / AGC) + total gain.
+        let total_gain = if gm.is_single() {
+            r.lna_gain as i32
+        } else {
+            r.lna_gain as i32 + r.vga_gain as i32 + if r.amp_enabled { 14 } else { 0 }
+        };
         f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), lbl("AMP  "),
+            Span::raw(" "),
+            Span::styled(format!("{}  ", gm.boost_label()), Style::default().fg(theme.label)),
             Span::styled(if r.amp_enabled { "ON " } else { "OFF" }, Style::default().fg(if r.amp_enabled { theme.status_ok } else { theme.value })),
             Span::raw("    "), lbl("Total: "),
             Span::styled(format!("{} dB", total_gain), Style::default().fg(theme.value_hi)),
@@ -93,25 +107,30 @@ impl Panel for MicroGainPanel {
         let sat_span = if stale { dash() } else { Span::styled(format!("{:.1}%", sat), Style::default().fg(sat_color(sat, theme))) };
         f.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), lbl("SAT       "), sat_span])), rows[7]);
 
-        // Estimated NF.
-        let nf = estimate_nf_db(r.amp_enabled, r.lna_gain);
-        let nf_color = if nf < 4.0 { theme.status_ok } else if nf < 8.0 { theme.status_warn } else { theme.status_crit };
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), lbl("Est. NF   "),
-            Span::styled(format!("~{:.1} dB", nf), Style::default().fg(nf_color)),
-        ])), rows[8]);
+        // Estimated NF + MDS — the Friis cascade model only applies to HackRF's
+        // known 3-stage front end; single-tuner devices (RTL-SDR) show N/A.
+        if state.caps.friis_applicable {
+            let nf = estimate_nf_db(r.amp_enabled, r.lna_gain);
+            let nf_color = if nf < 4.0 { theme.status_ok } else if nf < 8.0 { theme.status_warn } else { theme.status_crit };
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::raw(" "), lbl("Est. NF   "),
+                Span::styled(format!("~{:.1} dB", nf), Style::default().fg(nf_color)),
+            ])), rows[8]);
 
-        // MDS.
-        let (mds_str, mds_color) = match estimate_mds_dbm(r.bb_filter_hz, nf) {
-            Some(mds) => {
-                let c = if mds < -95.0 { theme.status_ok } else if mds < -85.0 { theme.status_warn } else { theme.status_crit };
-                (format!("~{:.0} dBm", mds), c)
-            }
-            None => ("---".to_string(), theme.stale),
-        };
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), lbl("MDS       "), Span::styled(mds_str, Style::default().fg(mds_color)),
-        ])), rows[9]);
+            let (mds_str, mds_color) = match estimate_mds_dbm(r.bb_filter_hz, nf) {
+                Some(mds) => {
+                    let c = if mds < -95.0 { theme.status_ok } else if mds < -85.0 { theme.status_warn } else { theme.status_crit };
+                    (format!("~{:.0} dBm", mds), c)
+                }
+                None => ("---".to_string(), theme.stale),
+            };
+            f.render_widget(Paragraph::new(Line::from(vec![
+                Span::raw(" "), lbl("MDS       "), Span::styled(mds_str, Style::default().fg(mds_color)),
+            ])), rows[9]);
+        } else {
+            f.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), lbl("Est. NF   "), dash()])), rows[8]);
+            f.render_widget(Paragraph::new(Line::from(vec![Span::raw(" "), lbl("MDS       "), dash()])), rows[9]);
+        }
 
         // Gain advisor — the headline verdict.
         let (advice_text, advice_sev) = if stale { ("--- (RX not streaming)", 0u8) } else { gain_advice(&state.iq.iq_amplitude_hist) };

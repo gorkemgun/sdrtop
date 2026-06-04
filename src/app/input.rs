@@ -19,10 +19,46 @@ pub enum KeyAction {
     Quit,
 }
 
+/// Next value for the primary front-end gain when stepping up/down: HackRF's LNA
+/// moves in 8 dB steps (0–40); RTL-SDR's single tuner gain walks its discrete
+/// table to the neighbouring entry.
+fn next_primary_gain(gain: &hardware::GainModel, current: u32, up: bool) -> u32 {
+    match gain {
+        hardware::GainModel::HackRf => {
+            if up { (current + 8).min(40) } else { current.saturating_sub(8) }
+        }
+        hardware::GainModel::RtlSingle { gain_steps_db, .. } => {
+            if gain_steps_db.is_empty() {
+                return current;
+            }
+            let idx = gain_steps_db
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, &g)| (g as i64 - current as i64).abs())
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let new_idx = if up {
+                (idx + 1).min(gain_steps_db.len() - 1)
+            } else {
+                idx.saturating_sub(1)
+            };
+            gain_steps_db[new_idx]
+        }
+    }
+}
+
+/// Label for the primary gain stage in log messages.
+fn primary_gain_label(gain: &hardware::GainModel) -> &'static str {
+    match gain {
+        hardware::GainModel::HackRf => "LNA",
+        hardware::GainModel::RtlSingle { .. } => "Tuner",
+    }
+}
+
 pub fn handle_key(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -44,7 +80,7 @@ pub fn handle_key(
 fn handle_normal(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -68,7 +104,7 @@ fn handle_normal(
 fn handle_spectrum_focus(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -77,9 +113,10 @@ fn handle_spectrum_focus(
     match key.code {
         KeyCode::Left => {
             if let Some(device) = device {
+                let fmin = device.capabilities().freq_min_hz;
                 let new_freq = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    m.radio.frequency.saturating_sub(m.spectrum.step_hz).max(1_000_000)
+                    m.radio.frequency.saturating_sub(m.spectrum.step_hz).max(fmin)
                 };
                 let result = device.set_frequency(new_freq);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -91,9 +128,10 @@ fn handle_spectrum_focus(
         }
         KeyCode::Right => {
             if let Some(device) = device {
+                let fmax = device.capabilities().freq_max_hz;
                 let new_freq = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
-                    (m.radio.frequency + m.spectrum.step_hz).min(6_000_000_000)
+                    (m.radio.frequency + m.spectrum.step_hz).min(fmax)
                 };
                 let result = device.set_frequency(new_freq);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -311,7 +349,7 @@ fn handle_waterfall_focus(
 fn handle_iq_focus(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -334,7 +372,7 @@ fn handle_iq_focus(
 fn handle_health_focus(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -365,7 +403,7 @@ fn handle_health_focus(
 fn handle_timing_focus(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -394,7 +432,7 @@ fn handle_timing_focus(
 fn handle_sweep_focus(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -476,7 +514,7 @@ fn handle_sweep_focus(
 fn handle_global(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
     engine: &mut ui::LayoutEngine,
     show_help: &mut bool,
     show_footer: &mut bool,
@@ -500,23 +538,33 @@ fn handle_global(
             m.radio.rx_enabled = !m.radio.rx_enabled;
         }
         KeyCode::Char('r') => {
-            use crate::state::{DEFAULT_FREQUENCY, DEFAULT_LNA_GAIN, DEFAULT_SAMPLE_RATE, DEFAULT_VGA_GAIN};
+            use crate::state::{DEFAULT_LNA_GAIN, DEFAULT_VGA_GAIN};
             if let Some(device) = device {
-                let (sr_result, bb_bw) = match device.set_sample_rate(DEFAULT_SAMPLE_RATE) {
+                // Reset to the active device's own defaults so RTL-SDR lands on a
+                // legal freq/rate instead of HackRF's 2.4 GHz / 10 Msps.
+                let caps = device.capabilities();
+                let def_freq = caps.default_frequency_hz;
+                let def_sr   = caps.default_sample_rate_hz;
+                let (sr_result, bb_bw) = match device.set_sample_rate(def_sr) {
                     Ok(bw) => (Ok(()), bw),
-                    Err(e) => (Err(e), crate::hardware::compute_bb_filter_bw(DEFAULT_SAMPLE_RATE)),
+                    Err(e) => (Err(e), crate::hardware::compute_bb_filter_bw(def_sr)),
                 };
                 let results = [
                     device.set_lna_gain(DEFAULT_LNA_GAIN),
                     device.set_vga_gain(DEFAULT_VGA_GAIN),
-                    device.set_frequency(DEFAULT_FREQUENCY),
+                    device.set_frequency(def_freq),
                     sr_result,
                     device.set_amp_enable(false),
                 ];
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 if results.iter().all(|r| r.is_ok()) {
-                    m.reset_to_defaults();
-                    m.radio.bb_filter_hz = bb_bw;
+                    m.radio.lna_gain           = DEFAULT_LNA_GAIN;
+                    m.radio.vga_gain           = DEFAULT_VGA_GAIN;
+                    m.radio.amp_enabled        = false;
+                    m.radio.frequency          = def_freq;
+                    m.radio.config_sample_rate = def_sr;
+                    m.radio.bb_filter_hz       = bb_bw;
+                    m.push_log("Settings reset to defaults");
                 } else {
                     for r in &results {
                         if let Err(e) = r { m.push_log(format!("Reset error: {}", e)); }
@@ -531,10 +579,14 @@ fn handle_global(
             m.push_log("Enter frequency in MHz, then press Enter");
         }
         KeyCode::Char('s') if device.is_some() => {
+            let (lo, hi) = {
+                let c = device.unwrap().capabilities();
+                (c.sample_rate_min_hz / 1e6, c.sample_rate_max_hz / 1e6)
+            };
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             m.ui.input_mode = InputMode::SampleRateInput;
             m.ui.input_buf.clear();
-            m.push_log("Enter sample rate in MHz (2–20), then press Enter");
+            m.push_log(format!("Enter sample rate in MHz ({:.1}–{:.1}), then press Enter", lo, hi));
         }
         KeyCode::Char('?') => *show_help = !*show_help,
         KeyCode::Tab       => *show_footer = !*show_footer,
@@ -579,59 +631,72 @@ fn handle_global(
         }
         KeyCode::Up => {
             if let Some(device) = device {
-                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); (m.radio.lna_gain + 8).min(40) };
+                let gain = &device.capabilities().gain;
+                let cur = { state.lock().unwrap_or_else(|e| e.into_inner()).radio.lna_gain };
+                let new_gain = next_primary_gain(gain, cur, true);
                 let result = device.set_lna_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("LNA gain → {} dB", new_gain)); }
-                    Err(e) => m.push_log(format!("LNA gain error: {}", e)),
+                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("{} gain → {} dB", primary_gain_label(gain), new_gain)); }
+                    Err(e) => m.push_log(format!("Gain error: {}", e)),
                 }
             }
         }
         KeyCode::Down => {
             if let Some(device) = device {
-                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); m.radio.lna_gain.saturating_sub(8) };
+                let gain = &device.capabilities().gain;
+                let cur = { state.lock().unwrap_or_else(|e| e.into_inner()).radio.lna_gain };
+                let new_gain = next_primary_gain(gain, cur, false);
                 let result = device.set_lna_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("LNA gain → {} dB", new_gain)); }
-                    Err(e) => m.push_log(format!("LNA gain error: {}", e)),
+                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("{} gain → {} dB", primary_gain_label(gain), new_gain)); }
+                    Err(e) => m.push_log(format!("Gain error: {}", e)),
                 }
             }
         }
+        // VGA is HackRF-only; on a single-tuner device (RTL-SDR) these keys no-op.
         KeyCode::Char('[') => {
             if let Some(device) = device {
-                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); m.radio.vga_gain.saturating_sub(2) };
-                let result = device.set_vga_gain(new_gain);
-                let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
-                match result {
-                    Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
-                    Err(e) => m.push_log(format!("VGA gain error: {}", e)),
+                if matches!(device.capabilities().gain, hardware::GainModel::HackRf) {
+                    let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); m.radio.vga_gain.saturating_sub(2) };
+                    let result = device.set_vga_gain(new_gain);
+                    let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                    match result {
+                        Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
+                        Err(e) => m.push_log(format!("VGA gain error: {}", e)),
+                    }
                 }
             }
         }
         KeyCode::Char(']') => {
             if let Some(device) = device {
-                let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); (m.radio.vga_gain + 2).min(62) };
-                let result = device.set_vga_gain(new_gain);
-                let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
-                match result {
-                    Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
-                    Err(e) => m.push_log(format!("VGA gain error: {}", e)),
+                if matches!(device.capabilities().gain, hardware::GainModel::HackRf) {
+                    let new_gain = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); (m.radio.vga_gain + 2).min(62) };
+                    let result = device.set_vga_gain(new_gain);
+                    let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                    match result {
+                        Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
+                        Err(e) => m.push_log(format!("VGA gain error: {}", e)),
+                    }
                 }
             }
         }
         KeyCode::Char('a') => {
             if let Some(device) = device {
+                // `amp_enabled` doubles as the front-end-boost toggle: HackRF's RF
+                // amp, RTL-SDR's tuner AGC. The label follows the gain model.
+                let is_rtl = matches!(device.capabilities().gain, hardware::GainModel::RtlSingle { .. });
                 let new_state = { let m = state.lock().unwrap_or_else(|e| e.into_inner()); !m.radio.amp_enabled };
-                let result = device.set_amp_enable(new_state);
+                let result = if is_rtl { device.set_tuner_agc(new_state) } else { device.set_amp_enable(new_state) };
+                let label = if is_rtl { "AGC" } else { "AMP" };
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
                     Ok(()) => {
                         m.radio.amp_enabled = new_state;
-                        m.push_log(format!("AMP {}", if new_state { "ON" } else { "OFF" }));
+                        m.push_log(format!("{} {}", label, if new_state { "ON" } else { "OFF" }));
                     }
-                    Err(e) => m.push_log(format!("AMP error: {}", e)),
+                    Err(e) => m.push_log(format!("{} error: {}", label, e)),
                 }
             }
         }
@@ -702,7 +767,7 @@ fn cycle_micro(engine: &mut ui::LayoutEngine, state: &Arc<Mutex<SdrMetrics>>) {
 fn handle_freq_input(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
 ) {
     match key.code {
         KeyCode::Esc => {
@@ -717,11 +782,14 @@ fn handle_freq_input(
         }
         KeyCode::Enter => {
             if let Some(device) = device {
+                let caps = device.capabilities();
+                // Clamp into the tuning range rather than rejecting (matches the
+                // arrow-key tuning, which already clamps).
                 let freq_hz: Option<u64> = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
                     m.ui.input_buf.parse::<f64>().ok()
                         .filter(|&mhz| mhz > 0.0)
-                        .map(|mhz| (mhz * 1_000_000.0) as u64)
+                        .map(|mhz| ((mhz * 1_000_000.0) as u64).clamp(caps.freq_min_hz, caps.freq_max_hz))
                 };
                 let result = freq_hz.map(|hz| device.set_frequency(hz));
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -735,7 +803,8 @@ fn handle_freq_input(
                     (Some(_), Some(Err(e))) => m.push_log(format!("Frequency error: {}", e)),
                     _ => {
                         let bad = m.ui.input_buf.clone();
-                        m.push_log(format!("Invalid frequency: '{}'", bad));
+                        m.push_log(format!("Invalid frequency: '{}' ({:.0}–{:.0} MHz)",
+                            bad, caps.freq_min_hz as f64 / 1e6, caps.freq_max_hz as f64 / 1e6));
                     }
                 }
             }
@@ -747,7 +816,7 @@ fn handle_freq_input(
 fn handle_sr_input(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
-    device: Option<&Arc<hardware::Device>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
 ) {
     match key.code {
         KeyCode::Esc => {
@@ -762,13 +831,18 @@ fn handle_sr_input(
         }
         KeyCode::Enter => {
             if let Some(device) = device {
+                let caps = device.capabilities();
+                let lo_hz = caps.sample_rate_min_hz;
+                let hi_hz = caps.sample_rate_max_hz;
+                // Clamp into the device's legal range rather than rejecting, so a
+                // boundary entry like "0.9" on RTL-SDR snaps up to a valid rate.
                 let rate_hz: Option<f64> = {
                     let m = state.lock().unwrap_or_else(|e| e.into_inner());
                     m.ui.input_buf.parse::<f64>().ok()
-                        .filter(|&mhz| (2.0..=20.0).contains(&mhz))
-                        .map(|mhz| mhz * 1_000_000.0)
+                        .filter(|&mhz| mhz > 0.0)
+                        .map(|mhz| (mhz * 1_000_000.0).clamp(lo_hz, hi_hz))
                 };
-                // Release lock before calling device — hackrf_set_sample_rate is a
+                // Release lock before calling device — set_sample_rate is a
                 // blocking USB control transfer; holding the mutex here deadlocks the
                 // rx_callback thread that needs the same lock to return.
                 let result = rate_hz.map(|hz| device.set_sample_rate(hz));
@@ -784,7 +858,8 @@ fn handle_sr_input(
                     (Some(_), Some(Err(e))) => m.push_log(format!("Sample rate error: {}", e)),
                     _ => {
                         let bad = m.ui.input_buf.clone();
-                        m.push_log(format!("Invalid sample rate: '{}' (valid: 2–20 MHz)", bad));
+                        m.push_log(format!("Invalid sample rate: '{}' (valid: {:.1}–{:.1} MHz)",
+                            bad, lo_hz / 1e6, hi_hz / 1e6));
                     }
                 }
             }
@@ -811,10 +886,12 @@ fn handle_sweep_range_input(key: KeyEvent, state: &Arc<Mutex<SdrMetrics>>, is_st
         }
         KeyCode::Enter => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let fmin = m.caps.freq_min_hz;
+            let fmax = m.caps.freq_max_hz;
             let parsed = m.ui.input_buf.parse::<f64>().ok()
                 .filter(|&mhz| mhz > 0.0)
                 .map(|mhz| (mhz * 1_000_000.0) as u64)
-                .filter(|&hz| (1_000_000..=6_000_000_000).contains(&hz));
+                .filter(|&hz| (fmin..=fmax).contains(&hz));
             match parsed {
                 Some(hz) => {
                     let (start, stop) = (m.sweep.config.start_hz, m.sweep.config.stop_hz);
@@ -840,7 +917,8 @@ fn handle_sweep_range_input(key: KeyEvent, state: &Arc<Mutex<SdrMetrics>>, is_st
                 }
                 None => {
                     let bad = m.ui.input_buf.clone();
-                    m.push_log(format!("Invalid frequency: '{}' (1–6000 MHz)", bad));
+                    m.push_log(format!("Invalid frequency: '{}' ({:.0}–{:.0} MHz)",
+                        bad, fmin as f64 / 1e6, fmax as f64 / 1e6));
                 }
             }
         }
