@@ -14,4 +14,11 @@ fn main() {
             e
         );
     }
+
+    // librtlsdr powers the RTL-SDR backend. Some distros ship the library
+    // without a .pc file, so fall back to a bare link directive (and let the
+    // linker error if it is genuinely missing) rather than failing the probe.
+    if pkg_config::probe_library("librtlsdr").is_err() {
+        println!("cargo:rustc-link-lib=rtlsdr");
+    }
 }

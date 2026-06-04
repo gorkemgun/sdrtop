@@ -99,6 +99,7 @@ impl TimingState {
     pub fn compute(
         cb_period_us: u64,
         config_sample_rate: f64,
+        samples_per_transfer: u64,
         jitter: &[u64],
         cb_jitter_us: u64,
         actual_sample_rate: u32,
@@ -107,7 +108,7 @@ impl TimingState {
         throughput_std_mbps: f64,
     ) -> Self {
         let cb_period_expected = if config_sample_rate > 0.0 {
-            (HACKRF_SAMPLES_PER_TRANSFER as f64 / config_sample_rate * 1e6).round() as u64
+            (samples_per_transfer as f64 / config_sample_rate * 1e6).round() as u64
         } else {
             0
         };
@@ -175,9 +176,16 @@ mod tests {
     }
 
     #[test]
+    fn expected_period_scales_with_transfer_size() {
+        // RTL-SDR: 8192 pairs / 2.4 Msps ≈ 3413 µs (vs HackRF's 131072-pair transfer).
+        let t = TimingState::compute(3_400, 2_400_000.0, 8_192, &[10], 10, 2_400_000, 0, 4.5, 0.1);
+        assert_eq!(t.cb_period_expected, 3_413);
+    }
+
+    #[test]
     fn expected_period_from_sample_rate() {
         // 10 Msps → 131072 / 10e6 = 13107.2 µs ≈ 13107.
-        let t = TimingState::compute(13_100, 10_000_000.0, &[40, 50, 60], 50, 10_000_000, 0, 19.5, 0.2);
+        let t = TimingState::compute(13_100, 10_000_000.0, HACKRF_SAMPLES_PER_TRANSFER, &[40, 50, 60], 50, 10_000_000, 0, 19.5, 0.2);
         assert_eq!(t.cb_period_expected, 13_107);
         // Measured slightly under expected → negative ppm.
         assert!(t.cb_period_delta_ppm < 0, "got {}", t.cb_period_delta_ppm);
@@ -186,13 +194,13 @@ mod tests {
     #[test]
     fn sr_delta_ppm_sign_and_magnitude() {
         // actual 9.998 MHz vs configured 10.000 MHz → -200 ppm.
-        let t = TimingState::compute(13_107, 10_000_000.0, &[10], 10, 9_998_000, 0, 19.5, 0.2);
+        let t = TimingState::compute(13_107, 10_000_000.0, HACKRF_SAMPLES_PER_TRANSFER, &[10], 10, 9_998_000, 0, 19.5, 0.2);
         assert_eq!(t.sr_delta_ppm, -200);
     }
 
     #[test]
     fn no_data_is_excellent_not_alarming() {
-        let t = TimingState::compute(0, 0.0, &[], 0, 0, 0, 0.0, 0.0);
+        let t = TimingState::compute(0, 0.0, HACKRF_SAMPLES_PER_TRANSFER, &[], 0, 0, 0, 0.0, 0.0);
         assert_eq!(t.cb_period_expected, 0);
         assert_eq!(t.timing_quality, TimingQuality::Excellent);
     }
@@ -216,7 +224,7 @@ mod tests {
     #[test]
     fn jitter_percentiles_populated() {
         let jitter = [10u64, 20, 30, 40, 200];
-        let t = TimingState::compute(13_107, 10_000_000.0, &jitter, 35, 10_000_000, 0, 19.5, 0.2);
+        let t = TimingState::compute(13_107, 10_000_000.0, HACKRF_SAMPLES_PER_TRANSFER, &jitter, 35, 10_000_000, 0, 19.5, 0.2);
         assert_eq!(t.jitter_max_us, 200);
         assert!(t.jitter_p95_us >= t.jitter_p95_us.min(t.jitter_p99_us));
         assert_eq!(t.jitter_p99_us, 200);

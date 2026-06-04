@@ -11,13 +11,13 @@ use ratatui::{backend::Backend, Terminal};
 
 use crate::config::{AppConfig, DisplayConfig, RadioConfig};
 use crate::event::{AppEvent, EventStream};
-use crate::hardware::{self, RxContext};
+use crate::hardware::{self, RxContext, SdrDevice};
 use crate::state::SdrMetrics;
 use crate::ui;
 
 pub struct App {
     pub(super) state:       Arc<Mutex<SdrMetrics>>,
-    pub(super) device:      Option<Arc<hardware::Device>>,
+    pub(super) device:      Option<Arc<dyn SdrDevice>>,
     #[allow(dead_code)]
     pub(super) rx_ctx:      Option<Arc<RxContext>>,
     pub(super) config_path: Option<PathBuf>,
@@ -33,14 +33,20 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cfg: AppConfig, config_path: Option<PathBuf>, device_index: usize) -> anyhow::Result<Self> {
-        match hardware::Device::open_at(device_index) {
-            Ok(raw_device) => Self::new_normal(cfg, config_path, raw_device),
+    pub fn new(cfg: AppConfig, config_path: Option<PathBuf>, listing: &hardware::DeviceListing) -> anyhow::Result<Self> {
+        match hardware::open_device(listing) {
+            Ok(device) => Self::new_normal(cfg, config_path, device),
             Err(open_err) => {
-                let Some(sysinfo) = hardware::sysfs::find_hackrf() else {
+                // Device is present but couldn't be opened (e.g. busy) — fall back
+                // to read-only observer mode via the matching backend's sysfs scan.
+                let sysinfo = match listing.kind {
+                    hardware::DeviceKind::HackRf => hardware::sysfs::find_hackrf(),
+                    hardware::DeviceKind::RtlSdr => hardware::sysfs::find_rtlsdr(),
+                };
+                let Some(sysinfo) = sysinfo else {
                     return Err(open_err);
                 };
-                Self::new_observer(cfg, config_path, sysinfo)
+                Self::new_observer(cfg, config_path, sysinfo, listing.kind)
             }
         }
     }
@@ -49,6 +55,9 @@ impl App {
         const FRAME_DURATION: Duration = Duration::from_millis(33);
         let mut last_draw = Instant::now();
 
+        // Repaint from a clean slate: the device selector and any backend chatter
+        // during open may have left the alternate screen dirty before we get here.
+        terminal.clear()?;
         self.draw(terminal)?;
 
         loop {
@@ -101,7 +110,7 @@ impl App {
         self.engine.set_panel_hidden("footer", hide_footer);
         terminal.draw(|f| {
             self.engine.draw(f, &m, &self.theme);
-            if self.show_help { ui::overlay::render_help(f); }
+            if self.show_help { ui::overlay::render_help(f, &m); }
         })?;
         Ok(())
     }

@@ -11,7 +11,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::hardware::Device;
+use crate::hardware::SdrDevice;
 use crate::state::{SdrMetrics, SweepFrame, SWEEP_SETTLING_MS};
 
 /// How often the dwell loop samples the shared FFT frame.
@@ -19,7 +19,7 @@ const DWELL_POLL_MS: u64 = 10;
 /// A frame older than this is treated as stale and skipped.
 const FRAME_FRESH_MS: u128 = 200;
 
-pub fn spawn_sweep_task(state: Arc<Mutex<SdrMetrics>>, device: Arc<Device>) {
+pub fn spawn_sweep_task(state: Arc<Mutex<SdrMetrics>>, device: Arc<dyn SdrDevice>) {
     tokio::spawn(async move {
         let mut was_active = false;
         let mut saved_freq: u64 = 0;

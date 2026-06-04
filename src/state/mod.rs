@@ -20,7 +20,7 @@ pub use signal::SignalState;
 pub use spectrum::{SpectrumMarker, SpectrumState};
 pub use sweep::{SweepConfig, SweepFrame, SweepState, SWEEP_SETTLING_MS};
 pub use system::SystemState;
-pub use timing::{TimingQuality, TimingState};
+pub use timing::{TimingQuality, TimingState, HACKRF_SAMPLES_PER_TRANSFER};
 pub use ui::{InputMode, UiState};
 pub use waterfall::{FftFrame, WaterfallState};
 
@@ -44,20 +44,15 @@ pub struct SdrMetrics {
     pub timing:   TimingState,
     pub sweep:    SweepState,
     pub ui:       UiState,
+    /// Active device's capability descriptor — drives capability-aware UI
+    /// rendering (gain model, BB filter / Friis applicability, ranges). Shared
+    /// (Arc) so the per-frame `SdrMetrics` clone stays cheap.
+    pub caps:     std::sync::Arc<crate::hardware::DeviceCapabilities>,
     pub(crate) acc: Accumulators,
 }
 
 impl SdrMetrics {
     pub fn push_log(&mut self, msg: impl Into<String>) {
         self.ui.push_log(msg);
-    }
-
-    pub fn reset_to_defaults(&mut self) {
-        self.radio.lna_gain           = DEFAULT_LNA_GAIN;
-        self.radio.vga_gain           = DEFAULT_VGA_GAIN;
-        self.radio.amp_enabled        = false;
-        self.radio.frequency          = DEFAULT_FREQUENCY;
-        self.radio.config_sample_rate = DEFAULT_SAMPLE_RATE;
-        self.push_log("Settings reset to defaults");
     }
 }

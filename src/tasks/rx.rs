@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::hardware::{self, Device, RxContext};
+use crate::hardware::{RxContext, SdrDevice};
 use crate::state::{SdrMetrics, THROUGHPUT_HISTORY_LEN};
 
 /// Polls the HackRF device every 200 ms:
@@ -10,7 +10,7 @@ use crate::state::{SdrMetrics, THROUGHPUT_HISTORY_LEN};
 ///   - writes results back to `state`
 pub fn spawn_rx_task(
     state: Arc<Mutex<SdrMetrics>>,
-    device: Arc<Device>,
+    device: Arc<dyn SdrDevice>,
     rx_ctx: Arc<RxContext>,
 ) {
     tokio::spawn(async move {
@@ -218,6 +218,7 @@ pub fn spawn_rx_task(
                 m.timing = crate::state::TimingState::compute(
                     m.iq.cb_period_us,
                     m.radio.config_sample_rate,
+                    device.capabilities().samples_per_transfer,
                     &jitter_snapshot,
                     m.iq.cb_jitter_us,
                     m.radio.actual_sample_rate,
@@ -230,8 +231,7 @@ pub fn spawn_rx_task(
                 m.radio.rx_enabled
             };
             if rx_enabled && !hw_rx_active {
-                let user_param = Arc::as_ptr(&rx_ctx) as *mut libc::c_void;
-                match device.start_rx(hardware::rx_callback, user_param) {
+                match device.start_rx(Arc::clone(&rx_ctx)) {
                     Ok(()) => {
                         hw_rx_active = true;
                         // Fresh per-session throughput statistics.

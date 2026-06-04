@@ -1,5 +1,14 @@
 target/
 
+# Local containerised-build tooling — kept on disk, not part of the repo
+/Dockerfile
+/.dockerignore
+/scripts/
+
+# Build output / extracted binaries
+/dist/
+/sdrtop
+
 # Rust
 *.rs.bk
 

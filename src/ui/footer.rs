@@ -6,6 +6,7 @@ use ratatui::{
     Frame,
 };
 
+use crate::hardware::GainModel;
 use crate::state::{InputMode, MicroView, SdrMetrics};
 use super::panel::Panel;
 
@@ -17,6 +18,20 @@ const NORMAL_ITEMS: &[&str] = &[
     "[Q] Quit", "[Space] RX", "[↑↓] LNA", "[[] VGA",
     "[A] AMP", "[F] Freq", "[S] Rate", "[R] Reset", "[?] Help", "[Tab] Hide",
 ];
+
+/// Base normal-mode key hints, adapted to the device's gain model: HackRF shows
+/// LNA/VGA/AMP; a single-tuner device (RTL-SDR) shows one gain + AGC, no VGA.
+fn base_normal_items(gm: &GainModel) -> Vec<String> {
+    if gm.is_single() {
+        vec![
+            "[Q] Quit".into(), "[Space] RX".into(), "[↑↓] Gain".into(),
+            "[A] AGC".into(), "[F] Freq".into(), "[S] Rate".into(),
+            "[R] Reset".into(), "[?] Help".into(), "[Tab] Hide".into(),
+        ]
+    } else {
+        NORMAL_ITEMS.iter().map(|s| s.to_string()).collect()
+    }
+}
 
 /// Width (terminal columns) below which the preset name is shown in short form.
 const NARROW_COLS: u16 = 60;
@@ -58,7 +73,7 @@ fn is_micro_preset(name: &str) -> bool {
 
 /// Condensed footer for the micro ecosystem: the essential field keys plus the
 /// `[0]▸{next}` hint and the `N/M` cycle position.
-fn micro_items(view: MicroView, narrow: bool) -> Vec<String> {
+fn micro_items(view: MicroView, narrow: bool, gm: &GainModel) -> Vec<String> {
     // The sweep step is part of the [0] cycle.
     let sweep_active = true;
     let next  = view.next(sweep_active);
@@ -71,11 +86,17 @@ fn micro_items(view: MicroView, narrow: bool) -> Vec<String> {
             format!("{}/{}", pos, total),
         ]
     } else {
-        vec![
-            "[Q]".into(), "[Spc]RX".into(), "[↑↓]LNA".into(), "[[]VGA".into(), "[F]req".into(),
-            format!("[0]▸{}", next.label()),
-            format!("micro {}/{}", pos, total),
-        ]
+        let mut v: Vec<String> = vec!["[Q]".into(), "[Spc]RX".into()];
+        if gm.is_single() {
+            v.push("[↑↓]Gain".into());
+        } else {
+            v.push("[↑↓]LNA".into());
+            v.push("[[]VGA".into());
+        }
+        v.push("[F]req".into());
+        v.push(format!("[0]▸{}", next.label()));
+        v.push(format!("micro {}/{}", pos, total));
+        v
     }
 }
 
@@ -98,12 +119,12 @@ fn lab_map_items(active: &str, available: &[String]) -> Vec<String> {
 /// - micro presets → a condensed field-key set with the `[0]` cycle hint;
 /// - lab presets   → the fixed keys plus the lab navigation map;
 /// - everything else → the fixed keys plus the `[P] {preset}` hint.
-fn normal_items(active_preset: &str, available: &[String], micro_view: MicroView, available_width: u16) -> Vec<String> {
+fn normal_items(active_preset: &str, available: &[String], micro_view: MicroView, available_width: u16, gm: &GainModel) -> Vec<String> {
     let narrow = available_width < NARROW_COLS;
     if is_micro_preset(active_preset) {
-        return micro_items(micro_view, narrow);
+        return micro_items(micro_view, narrow, gm);
     }
-    let mut items: Vec<String> = NORMAL_ITEMS.iter().map(|s| s.to_string()).collect();
+    let mut items: Vec<String> = base_normal_items(gm);
     if is_lab_preset(active_preset) {
         items.extend(lab_map_items(active_preset, available));
     } else {
@@ -150,7 +171,7 @@ pub fn compute_footer_height(available_width: u16, state: &SdrMetrics) -> u16 {
     let n = if state.ui.focused_panel.is_some() {
         count_lines(&focus_items(state), FOCUS_SEP, inner_w)
     } else {
-        count_lines(&normal_items(&state.ui.active_preset, &state.ui.preset_names, state.ui.micro_view, available_width), NORMAL_SEP, inner_w)
+        count_lines(&normal_items(&state.ui.active_preset, &state.ui.preset_names, state.ui.micro_view, available_width, &state.caps.gain), NORMAL_SEP, inner_w)
     };
     (n as u16 + 2).min(MAX_CONTENT_LINES + 2).max(3)
 }
@@ -182,7 +203,8 @@ impl Panel for FooterPanel {
                     theme.status_warn,
                 ),
                 InputMode::SampleRateInput => (
-                    vec![format!(" Sample rate (2–20 MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)],
+                    vec![format!(" Sample rate ({:.1}–{:.1} MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel",
+                        m.caps.sample_rate_min_hz / 1e6, m.caps.sample_rate_max_hz / 1e6, m.ui.input_buf)],
                     theme.status_warn,
                 ),
                 InputMode::SweepStartInput => (
@@ -212,7 +234,7 @@ impl Panel for FooterPanel {
                         }
                         (wrapped, theme.border_focused)
                     } else {
-                        let items = normal_items(&m.ui.active_preset, &m.ui.preset_names, m.ui.micro_view, area.width);
+                        let items = normal_items(&m.ui.active_preset, &m.ui.preset_names, m.ui.micro_view, area.width, &m.caps.gain);
                         let mut wrapped = wrap_items(&items, NORMAL_SEP, inner_w);
                         wrapped.truncate(max_lines.max(1));
                         (wrapped, theme.border_dim)
@@ -288,14 +310,14 @@ mod tests {
 
     #[test]
     fn normal_items_appends_preset_entry() {
-        let items = normal_items("main", &[], MicroView::Main, 120);
+        let items = normal_items("main", &[], MicroView::Main, 120, &GainModel::HackRf);
         assert_eq!(items.last().map(String::as_str), Some("[P] main"));
         assert_eq!(items.len(), NORMAL_ITEMS.len() + 1);
     }
 
     #[test]
     fn normal_items_uses_short_preset_when_narrow() {
-        let items = normal_items("spectrum_waterfall", &[], MicroView::Main, 50);
+        let items = normal_items("spectrum_waterfall", &[], MicroView::Main, 50, &GainModel::HackRf);
         assert_eq!(items.last().map(String::as_str), Some("[P] spec+wf"));
     }
 
@@ -303,7 +325,7 @@ mod tests {
     fn micro_preset_shows_condensed_footer_with_next_and_position() {
         // From micro_main (Main), the [0] hint points at the next view (signal)
         // and the position reads 1/5 (the cycle includes the sweep step).
-        let items = normal_items("micro_main", &[], MicroView::Main, 120);
+        let items = normal_items("micro_main", &[], MicroView::Main, 120, &GainModel::HackRf);
         assert!(items.iter().any(|i| i == "[0]▸signal"));
         assert!(items.iter().any(|i| i == "micro 1/5"));
         // No [P] hint and none of the long normal items in micro mode.
@@ -313,7 +335,7 @@ mod tests {
 
     #[test]
     fn micro_footer_narrow_is_more_compact() {
-        let items = normal_items("micro_signal", &[], MicroView::Signal, 50);
+        let items = normal_items("micro_signal", &[], MicroView::Signal, 50, &GainModel::HackRf);
         assert!(items.iter().any(|i| i == "[0]▸gain"));
         assert!(items.iter().any(|i| i == "2/5"));
     }
@@ -329,7 +351,7 @@ mod tests {
     #[test]
     fn normal_items_shows_lab_map_in_lab_preset() {
         let available = vec!["lab_iq".to_string(), "lab_rf".to_string()];
-        let items = normal_items("lab_iq", &available, MicroView::Main, 120);
+        let items = normal_items("lab_iq", &available, MicroView::Main, 120, &GainModel::HackRf);
         // No [P] entry in lab mode; the map entries are appended instead.
         assert!(items.iter().all(|i| !i.starts_with("[P]")));
         assert!(items.contains(&"[5]▸lab_iq".to_string()));

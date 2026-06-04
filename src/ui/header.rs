@@ -48,7 +48,14 @@ fn top_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) -> 
     // Mayhem nightly: "n_XXXXXX"; Mayhem release: "vX.Y.Z" → label as "mayhem fw "
     // Standard HackRF firmware ("2024.02.1", "git-...") → label as "hackrf fw "
     // Both labels are exactly 10 chars so top_band_gap stays valid.
-    let (fw_val, fw_label): (std::sync::Arc<str>, &str) = if state.observer.active {
+    // Firmware field. RTL-SDR has no on-device firmware (it's host-driven by
+    // librtlsdr), so it gets a neutral label instead of "hackrf fw" — including
+    // in observer mode. All labels are exactly 10 columns so top_band_gap stays
+    // valid.
+    let (fw_val, fw_label): (std::sync::Arc<str>, &str) = if state.caps.gain.is_single() {
+        let v = if state.observer.active { "—" } else { "librtlsdr" };
+        (std::sync::Arc::from(v), "rtl-sdr   ")
+    } else if state.observer.active {
         (std::sync::Arc::from("—"), "hackrf fw ")
     } else {
         let is_mayhem = state.system.fw_version.starts_with("n_")
@@ -100,7 +107,9 @@ fn top_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) -> 
         Span::styled(fw_label, Style::default().fg(theme.label)),
         Span::styled(fw_val.to_string(), Style::default().fg(fw_color)),
         Span::raw(" ".repeat(gap)),
-        Span::styled("AMP ", Style::default().fg(theme.label)),
+        // HackRF's RF amp or RTL-SDR's tuner AGC — both 3-char labels, so the
+        // "{label} " field stays 4 columns and top_band_gap remains valid.
+        Span::styled(format!("{} ", state.caps.gain.boost_label()), Style::default().fg(theme.label)),
         Span::styled(amp_val, Style::default().fg(amp_color)),
         Span::raw("  ·  "),
         Span::styled("USB ", Style::default().fg(theme.label)),
@@ -127,22 +136,18 @@ fn separator_line(theme: &crate::Theme, outer_width: u16) -> Line<'static> {
     ])
 }
 
-/// Frequency · sample-rate on the left, LNA · VGA bars right-aligned.
-/// Left block (freq + SR): 31 chars. Right block (LNA + VGA + trailing): 42 chars.
-/// Gap between them fills the remaining inner width, mirroring top_band_line.
+/// Frequency · sample-rate on the left, gain bars right-aligned. Left block
+/// (freq + SR): 31 chars. Right block: 42 chars — either HackRF's LNA + VGA, or a
+/// single-tuner stage (RTL-SDR) with the second-stage region blanked to the same
+/// width so the gap math and right-alignment hold for both.
 fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) -> Line<'static> {
     let active = state.radio.hw_streaming && !state.observer.active;
+    let gm = &state.caps.gain;
 
     // Frequency: right-padded to 8 chars (covers 0.000–9999.999 MHz)
     let freq_str = format!("{:8.3}", state.radio.frequency as f64 / 1_000_000.0);
-    // Sample rate: right-padded to 4 chars (HackRF range 2.0–20.0 Msps)
+    // Sample rate: right-padded to 4 chars
     let sr_str = format!("{:4.1}", state.radio.config_sample_rate / 1_000_000.0);
-    // Gain values: right-padded to 2 chars
-    let lna_str = format!("{:2}", state.radio.lna_gain);
-    let vga_str = format!("{:2}", state.radio.vga_gain);
-
-    let (lna_filled, lna_empty) = gain_bar(state.radio.lna_gain, 40, 8);
-    let (vga_filled, vga_empty) = gain_bar(state.radio.vga_gain, 62, 8);
 
     let freq_color = if state.observer.active { theme.label } else { theme.border_accent };
     let val_color  = if active { theme.value } else { theme.label };
@@ -151,13 +156,18 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
     let dim        = theme.border_dim;
 
     // left:  "   "(3) + freq(8) + " "(1) + "MHz"(3) + "    "(4) + "SR "(3) + sr(4) + " Msps"(5) = 31
-    // right: "LNA "(4) + bar(8) + " "(1) + lna(2) + " dB"(3) + "    "(4)
-    //      + "VGA "(4) + bar(8) + " "(1) + vga(2) + " dB"(3) + "  "(2)               = 42
+    // right: primary "LNA/TUN "(4) + bar(8) + " "(1) + val(2) + " dB"(3) + "    "(4)  = 22
+    //      + second stage "VGA "(4) + bar(8) + " "(1) + val(2) + " dB"(3) + "  "(2)   = 20  (blank on RTL)
     let left  = 3 + 8 + 1 + 3 + 4 + 3 + 4 + 5;
-    let right = 4 + 8 + 1 + 2 + 3 + 4 + 4 + 8 + 1 + 2 + 3 + 2;
+    let right = 22 + 20;
     let gap = (inner_width as usize).saturating_sub(left + right);
 
-    Line::from(vec![
+    // Primary stage: HackRF LNA / RTL-SDR tuner.
+    let (p_filled, p_empty) = gain_bar(state.radio.lna_gain, gm.primary_max_db(), 8);
+    let p_str = format!("{:2}", state.radio.lna_gain);
+    let p_label = if gm.is_single() { "TUN " } else { "LNA " };
+
+    let mut spans = vec![
         Span::raw("   "),
         Span::styled(freq_str, Style::default().fg(freq_color).add_modifier(Modifier::BOLD)),
         Span::raw(" "),
@@ -167,21 +177,33 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
         Span::styled(sr_str, Style::default().fg(val_color)),
         Span::styled(" Msps", Style::default().fg(theme.label)),
         Span::raw(" ".repeat(gap)),
-        Span::styled("LNA ", Style::default().fg(theme.label)),
-        Span::styled(lna_filled, Style::default().fg(lna_color)),
-        Span::styled(lna_empty, Style::default().fg(dim)),
+        Span::styled(p_label, Style::default().fg(theme.label)),
+        Span::styled(p_filled, Style::default().fg(lna_color)),
+        Span::styled(p_empty, Style::default().fg(dim)),
         Span::raw(" "),
-        Span::styled(lna_str, Style::default().fg(val_color)),
+        Span::styled(p_str, Style::default().fg(val_color)),
         Span::styled(" dB", Style::default().fg(theme.label)),
         Span::raw("    "),
-        Span::styled("VGA ", Style::default().fg(theme.label)),
-        Span::styled(vga_filled, Style::default().fg(vga_color)),
-        Span::styled(vga_empty, Style::default().fg(dim)),
-        Span::raw(" "),
-        Span::styled(vga_str, Style::default().fg(val_color)),
-        Span::styled(" dB", Style::default().fg(theme.label)),
-        Span::raw("  "),
-    ])
+    ];
+
+    if gm.has_second_stage() {
+        let (vga_filled, vga_empty) = gain_bar(state.radio.vga_gain, 62, 8);
+        let vga_str = format!("{:2}", state.radio.vga_gain);
+        spans.extend([
+            Span::styled("VGA ", Style::default().fg(theme.label)),
+            Span::styled(vga_filled, Style::default().fg(vga_color)),
+            Span::styled(vga_empty, Style::default().fg(dim)),
+            Span::raw(" "),
+            Span::styled(vga_str, Style::default().fg(val_color)),
+            Span::styled(" dB", Style::default().fg(theme.label)),
+            Span::raw("  "),
+        ]);
+    } else {
+        // Single-tuner device: blank the 20-col second-stage region to keep width.
+        spans.push(Span::raw(" ".repeat(20)));
+    }
+
+    Line::from(spans)
 }
 
 impl Panel for HeaderPanel {
