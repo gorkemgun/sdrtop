@@ -338,9 +338,12 @@ fn device_name(index: u32) -> String {
 }
 
 fn device_serial(index: u32) -> Option<String> {
-    let mut manufact = [0i8; 256];
-    let mut product = [0i8; 256];
-    let mut serial = [0i8; 256];
+    // `libc::c_char` is `i8` on x86_64 but `u8` on ARM Linux; tying the buffer
+    // element type to it keeps `.as_ptr()` matching the FFI's `*mut c_char`
+    // (and `CStr::from_ptr`'s `*const c_char`) on every platform.
+    let mut manufact = [0 as libc::c_char; 256];
+    let mut product = [0 as libc::c_char; 256];
+    let mut serial = [0 as libc::c_char; 256];
     unsafe {
         if rtlsdr_get_device_usb_strings(
             index,
