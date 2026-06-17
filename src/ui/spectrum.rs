@@ -6,7 +6,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         canvas::{Canvas, Line as CanvasLine},
-        Block, Borders, Paragraph,
+        Paragraph,
     },
     Frame,
 };
@@ -409,15 +409,19 @@ impl Panel for SpectrumPanel {
                 let cw  = canvas_area.width as usize;
                 let lw  = freq_labels.iter().map(|s| s.len()).max().unwrap_or(7);
                 let seg = (cw.saturating_sub(lw)) / 4;
-                f.render_widget(
-                    Paragraph::new(Span::raw(format!(
-                        "{:<w$}{:<w$}{:<w$}{:<w$}{}",
-                        freq_labels[0], freq_labels[1],
-                        freq_labels[2], freq_labels[3], freq_labels[4],
-                        w = seg
-                    ))).style(Style::default().fg(theme.value)),
-                    freq_area,
-                );
+                // Ticked axis: a ┬ at each quarter mark, value label trailing it,
+                // so the frequency scale reads like a ruled instrument axis.
+                let mut freq_spans: Vec<Span> = Vec::with_capacity(10);
+                for (i, lab) in freq_labels.iter().enumerate() {
+                    freq_spans.push(Span::styled("┬", Style::default().fg(border_color)));
+                    let txt = if i < 4 {
+                        format!("{:<w$}", lab, w = seg.saturating_sub(1))
+                    } else {
+                        lab.clone()
+                    };
+                    freq_spans.push(Span::styled(txt, Style::default().fg(theme.value)));
+                }
+                f.render_widget(Paragraph::new(Line::from(freq_spans)), freq_area);
 
                 // ── Tuning / cursor indicator (focus only) ────────────────
                 if let Some(ind_area) = indicator_area {
@@ -449,26 +453,30 @@ impl Panel for SpectrumPanel {
                     f.render_widget(Paragraph::new(line), ind_area);
                 }
 
-                // ── dBFS axis labels (dynamic, tracks zoom) ───────────────
+                // ── dBFS axis (ticked scale, tracks zoom) ─────────────────
+                // The right edge is a vertical rule `│`; at each labelled value
+                // it becomes a tick `┤`, so the dB scale reads like a ruled
+                // instrument axis instead of a plain border.
                 let h = db_rows[0].height as usize;
                 if h > 0 {
-                    let mut label_lines: Vec<Line> = vec![Line::raw(""); h];
+                    let mut row_label: Vec<Option<String>> = vec![None; h];
                     for i in 0..=4 {
                         let frac = i as f32 / 4.0;
                         let db   = y_max_f - (y_max_f - y_min_f) * frac;
                         let row  = (frac * h.saturating_sub(1) as f32).round() as usize;
-                        label_lines[row.min(h - 1)] = Line::from(
-                            Span::styled(format!("{:>4.0}", db), Style::default().fg(theme.value))
-                        );
+                        row_label[row.min(h - 1)] = Some(format!("{:>5.0}", db));
                     }
-                    f.render_widget(
-                        Paragraph::new(label_lines).block(
-                            Block::default()
-                                .borders(Borders::RIGHT)
-                                .border_style(Style::default().fg(border_color))
-                        ),
-                        db_rows[0],
-                    );
+                    let lines: Vec<Line> = (0..h).map(|r| {
+                        let (lbl, edge) = match &row_label[r] {
+                            Some(s) => (s.clone(), "┤"),
+                            None    => (" ".repeat(5), "│"),
+                        };
+                        Line::from(vec![
+                            Span::styled(lbl,  Style::default().fg(theme.value)),
+                            Span::styled(edge, Style::default().fg(border_color)),
+                        ])
+                    }).collect();
+                    f.render_widget(Paragraph::new(lines), db_rows[0]);
                 }
             }
         }
