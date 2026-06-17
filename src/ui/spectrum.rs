@@ -5,7 +5,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        canvas::{Canvas, Line as CanvasLine, Points},
+        canvas::{Canvas, Line as CanvasLine},
         Block, BorderType, Borders, Paragraph,
     },
     Frame,
@@ -196,16 +196,29 @@ impl Panel for SpectrumPanel {
                 let n      = n_bins as f64;
                 let y_min  = y_min_f as f64;
                 let y_max  = y_max_f as f64;
+                let span   = (y_max_f - y_min_f).max(1e-3);
                 let depth  = ColorDepth::detect();
 
-                // Per-bin gradient colors, pre-computed (the closure can't borrow Theme).
-                // `body_colors` is a dimmed copy so the filled glow sits *under* the
-                // full-brightness top edge — the trace line reads crisp and bright
-                // over a soft glowing body. That contrast is the main beauty win.
-                let bin_colors: Vec<Color> = bins.iter()
-                    .map(|&db| magnitude_to_color_themed(db, y_min_f, y_max_f, depth, theme))
+                // Height-based color gradient, pre-computed once (the closure can't
+                // borrow Theme). Color depends ONLY on vertical position, never on the
+                // fluctuating per-bin dB — so the spectrum can never flicker in color
+                // frame to frame. One band per braille dot-row for a gap-free fill.
+                //
+                //   band_dim    → the soft glowing body (dimmed gradient)
+                //   band_bright → the crisp full-brightness top edge
+                let v_steps = (canvas_area.height as usize * 4).clamp(1, 512);
+                let height_color = |s: usize| -> Color {
+                    let frac = if v_steps > 1 { s as f32 / (v_steps - 1) as f32 } else { 0.0 };
+                    magnitude_to_color_themed(y_min_f + frac * span, y_min_f, y_max_f, depth, theme)
+                };
+                let band_y:      Vec<f32>   = (0..v_steps)
+                    .map(|s| {
+                        let frac = if v_steps > 1 { s as f32 / (v_steps - 1) as f32 } else { 0.0 };
+                        y_min_f + frac * span
+                    })
                     .collect();
-                let body_colors: Vec<Color> = bin_colors.iter().map(|&c| dim(c, 0.55)).collect();
+                let band_dim:    Vec<Color> = (0..v_steps).map(|s| dim(height_color(s), 0.45)).collect();
+                let band_bright: Vec<Color> = (0..v_steps).map(height_color).collect();
 
                 let peak_hold_color   = theme.peak_hold;
                 let noise_floor_color = theme.noise_floor;
@@ -252,26 +265,50 @@ impl Panel for SpectrumPanel {
                                     });
                                 }
                             }
-                            // 2. Filled body — vertical glow under each bin (dimmed gradient).
-                            for (i, &db) in bins.iter().enumerate() {
-                                ctx.draw(&CanvasLine {
-                                    x1: i as f64, y1: y_min,
-                                    x2: i as f64, y2: db.clamp(y_min_f, y_max_f) as f64,
-                                    color: body_colors[i],
-                                });
+                            // 2. Filled body — a dimmed height-gradient glow. Drawn as
+                            //    solid horizontal runs per band (every column that reaches
+                            //    this height), so the fill is continuous: no isolated dots
+                            //    blinking on and off as bins jitter across band edges.
+                            for s in 0..v_steps {
+                                let yb  = band_y[s];
+                                let ybf = yb as f64;
+                                let color = band_dim[s];
+                                let mut i = 0usize;
+                                while i < bins.len() {
+                                    if bins[i] >= yb {
+                                        let start = i;
+                                        while i < bins.len() && bins[i] >= yb { i += 1; }
+                                        ctx.draw(&CanvasLine {
+                                            x1: start as f64, y1: ybf,
+                                            x2: (i - 1) as f64, y2: ybf,
+                                            color,
+                                        });
+                                    } else {
+                                        i += 1;
+                                    }
+                                }
                             }
-                            // 3. Live edge — bright full-color trace connecting the bin tops.
+                            // 3. Live edge — crisp full-brightness trace connecting the bin
+                            //    tops. Each segment is colored by its HEIGHT (stable), so
+                            //    the edge never flickers in color either.
                             for i in 1..bins.len() {
+                                let y0 = bins[i - 1].clamp(y_min_f, y_max_f);
+                                let y1 = bins[i].clamp(y_min_f, y_max_f);
+                                let frac = (((y0 + y1) * 0.5 - y_min_f) / span).clamp(0.0, 1.0);
+                                let idx  = ((frac * (v_steps - 1) as f32) as usize).min(v_steps - 1);
                                 ctx.draw(&CanvasLine {
-                                    x1: (i - 1) as f64, y1: bins[i - 1].clamp(y_min_f, y_max_f) as f64,
-                                    x2: i as f64,       y2: bins[i].clamp(y_min_f, y_max_f) as f64,
-                                    color: bin_colors[i],
+                                    x1: (i - 1) as f64, y1: y0 as f64,
+                                    x2: i as f64,       y2: y1 as f64,
+                                    color: band_bright[idx],
                                 });
                             }
-                            // 4. Peak hold — gold dots tracing the decaying max envelope.
-                            for (i, &db) in peaks.iter().enumerate() {
-                                ctx.draw(&Points {
-                                    coords: &[(i as f64, db.clamp(y_min_f, y_max_f) as f64)],
+                            // 4. Peak hold — a single connected gold line tracing the decaying
+                            //    max envelope. A line (not scattered points) stays calm and
+                            //    readable instead of blinking dot by dot.
+                            for i in 1..peaks.len() {
+                                ctx.draw(&CanvasLine {
+                                    x1: (i - 1) as f64, y1: peaks[i - 1].clamp(y_min_f, y_max_f) as f64,
+                                    x2: i as f64,       y2: peaks[i].clamp(y_min_f, y_max_f) as f64,
                                     color: peak_hold_color,
                                 });
                             }
