@@ -12,6 +12,18 @@ use super::panel::Panel;
 
 pub struct HeaderPanel;
 
+/// A "breathing" RX status dot that cycles small→large→small on a ~0.9 s loop.
+/// Pure glyph animation — the badge colours never change. All four glyphs are a
+/// single terminal column, so the badge width (and the header gap math) is fixed.
+/// Only animates while frames are flowing (RX), which is exactly when the UI
+/// is already redrawing, so it costs no extra wakeups.
+fn rx_pulse_glyph() -> &'static str {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    const FRAMES: [&str; 4] = ["\u{2219}", "\u{2022}", "\u{25CF}", "\u{2022}"]; // ∙ • ● •
+    let ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    FRAMES[((ms / 220) % FRAMES.len() as u128) as usize]
+}
+
 /// Returns (filled_str, empty_str). Each string is exactly `n` terminal columns.
 /// Filled uses █ (FULL BLOCK), empty uses ░ (LIGHT SHADE).
 fn gain_bar(gain: u32, max_gain: u32, n: usize) -> (String, String) {
@@ -36,12 +48,14 @@ fn top_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) -> 
     use ratatui::style::Color;
 
     // --- Status badge ---
-    let (badge_text, badge_bg, badge_fg): (&str, Color, Color) = if state.observer.active {
-        (" ◈ OBSERVER ", theme.observer, Color::Rgb(4, 6, 15))
+    // RX uses a breathing dot; IDLE/OBSERVER are steady. Every variant is 6
+    // columns so `top_band_gap` stays valid.
+    let (badge_text, badge_bg, badge_fg): (String, Color, Color) = if state.observer.active {
+        (" ◈ OBSERVER ".to_string(), theme.observer, Color::Rgb(4, 6, 15))
     } else if state.radio.hw_streaming {
-        (" ● RX ", theme.status_ok, Color::Rgb(3, 15, 6))
+        (format!(" {} RX ", rx_pulse_glyph()), theme.status_ok, Color::Rgb(3, 15, 6))
     } else {
-        (" ○ IDLE ", theme.status_warn, Color::Rgb(10, 7, 0))
+        (" ○ IDLE ".to_string(), theme.status_warn, Color::Rgb(10, 7, 0))
     };
     let badge_len = badge_text.chars().count();
 

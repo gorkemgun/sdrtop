@@ -140,12 +140,23 @@ fn bar_spans(fill: Option<f32>, bcolor: Color, dim: Color) -> Vec<Span<'static>>
     }
 }
 
-/// ` LABEL ▰▰▰▱▱ value` — one gauge cell, laid out left-aligned in its column.
+/// Status-lamp glyph for a metric, by its threshold colour: `●` nominal/ok,
+/// `▲` warn or crit (the colour already carries the severity), `·` stale, and
+/// `◦` for a neutral level metric (PWR/NF/RBW) that has no pass/fail state.
+fn cell_sigil(color: Color, theme: &crate::Theme) -> &'static str {
+    if color == theme.status_ok { "\u{25CF}" }                              // ●
+    else if color == theme.status_warn || color == theme.status_crit { "\u{25B2}" } // ▲
+    else if color == theme.stale { "\u{00B7}" }                            // ·
+    else { "\u{25E6}" }                                                    // ◦
+}
+
+/// ` ● LABEL ▰▰▰▱▱ value` — one gauge cell with a leading status lamp,
+/// laid out left-aligned in its column.
 fn cell_spans(c: &Cell, theme: &crate::Theme) -> Vec<Span<'static>> {
-    let mut spans = vec![Span::styled(
-        format!(" {:<4} ", c.label),
-        Style::default().fg(theme.label),
-    )];
+    let mut spans = vec![
+        Span::styled(format!(" {} ", cell_sigil(c.vcolor, theme)), Style::default().fg(c.vcolor)),
+        Span::styled(format!("{:<4} ", c.label), Style::default().fg(theme.label)),
+    ];
     spans.extend(bar_spans(c.fill, c.bcolor, theme.border_dim));
     spans.push(Span::styled(format!(" {:<11}", c.value), Style::default().fg(c.vcolor)));
     spans
@@ -172,7 +183,7 @@ impl Panel for SignalStripPanel {
         // Rich 2×4 gauge grid when there is vertical room and width; otherwise a
         // single compact line (keeps height-3 / narrow presets working). Cells
         // are spread across four even columns so the cluster fills the panel.
-        if inner.height >= 2 && inner.width >= 96 {
+        if inner.height >= 2 && inner.width >= 100 {
             let ncol: u16 = 4;
             let col_w = inner.width / ncol;
             for (ri, chunk) in cells.chunks(4).enumerate().take(inner.height as usize) {
