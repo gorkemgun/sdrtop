@@ -8,11 +8,10 @@ use ratatui::{
     Frame,
 };
 
-use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::BAND_PLAN;
 use crate::ui::panel::Panel;
-use crate::ui::spectrum_bars::{self, Bar, Overlays, VLine};
+use crate::ui::spectrum_bars::{self, Bar, VLine};
 
 // ── Spectrum step sizes ───────────────────────────────────────────────────────
 
@@ -151,7 +150,6 @@ impl Panel for SpectrumPanel {
                 let y_min_f = state.spectrum.y_min;
                 let y_max_f = state.spectrum.y_max;
 
-                let depth = ColorDepth::detect();
                 // Arc::clone is O(1) — no data copied
                 let bins  = Arc::clone(&frame.bins_dbfs);
                 let peaks = Arc::clone(&frame.peak_hold);
@@ -171,21 +169,26 @@ impl Panel for SpectrumPanel {
                 let cursor_freq_mhz = state.spectrum.cursor_freq
                     .map(|f| f as f64 / 1_000_000.0);
 
-                // ── Block-bar render (replaces braille Canvas) ────────────
+                // ── Braille spectrum render ───────────────────────────────
+                // Downsample to 2× terminal width for braille horizontal resolution.
                 let width = canvas_area.width as usize;
                 if width > 0 {
-                    let col_db   = spectrum_bars::downsample_max(&bins, width);
-                    let col_peak = spectrum_bars::downsample_max(&peaks, width);
-                    let col_hold = held_bins
+                    let width2    = width * 2;
+                    let col_db    = spectrum_bars::downsample_max(&bins,  width2);
+                    let col_peak  = spectrum_bars::downsample_max(&peaks, width2);
+                    let col_hold  = held_bins
                         .as_ref()
-                        .map(|h| spectrum_bars::downsample_max(h, width))
+                        .map(|h| spectrum_bars::downsample_max(h, width2))
                         .unwrap_or_default();
 
                     let bars: Vec<Bar> = col_db
                         .iter()
-                        .map(|&db| Bar {
-                            db,
-                            color: magnitude_to_color_themed(db, y_min_f, y_max_f, depth, theme),
+                        .map(|&db| {
+                            let t = ((db - y_min_f) / (y_max_f - y_min_f)).clamp(0.0, 1.0);
+                            Bar {
+                                db,
+                                trace_color: spectrum_bars::accent_trace_color(theme.border_accent, t),
+                            }
                         })
                         .collect();
 
@@ -214,30 +217,23 @@ impl Panel for SpectrumPanel {
                             }
                         }
                     }
-                    // Cursor spans the full height (through bars) so it stays
-                    // visible even on a tall signal.
                     if let Some(cf) = state.spectrum.cursor_freq {
                         if let Some(c) = freq_to_col(cf as f64) {
                             vlines.push(VLine { col: c, color: theme.value_hi, through_bars: true });
                         }
                     }
 
-                    let ov = Overlays {
-                        bar_db:      &col_db,
-                        peak_db:     &col_peak,
-                        hold_db:     &col_hold,
-                        vlines:      &vlines,
-                        noise_floor,
-                        // Muted so lingering peaks read as fine scattered ticks,
-                        // not a bold line glued to the bar tops.
-                        peak_color:  theme.label,
-                        hold_color:  theme.border_dim,
-                        noise_color: theme.noise_floor,
-                    };
-
                     let buf = f.buffer_mut();
-                    spectrum_bars::paint_bars(buf, canvas_area, &bars, y_min_f, y_max_f);
-                    spectrum_bars::paint_overlays(buf, canvas_area, &ov, y_min_f, y_max_f);
+                    spectrum_bars::paint_braille(
+                        buf, canvas_area, &bars,
+                        &col_peak, &col_hold, noise_floor,
+                        y_min_f, y_max_f,
+                        theme.palette_color(0.0),  // fill: cold end — very dark, near-black
+                        theme.peak_hold,            // peak hold caps: vivid gold/yellow
+                        theme.border_default,       // hold ghost caps: subtly visible
+                        theme.label,                // noise floor dashes: readable dim
+                    );
+                    spectrum_bars::paint_vlines(buf, canvas_area, &vlines, &bars, y_min_f, y_max_f);
                 }
 
                 // ── Band plan overlay (text on top of canvas, top row) ────

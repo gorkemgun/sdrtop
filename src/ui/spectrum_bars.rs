@@ -1,12 +1,32 @@
-//! Filled block-bar spectrum renderer (replaces the braille Canvas).
+//! Braille-based spectrum renderer.
+//!
+//! Each terminal cell covers a 2×4 braille dot grid (Unicode 8-dot braille,
+//! U+2800–U+28FF), giving 2× horizontal and 4× vertical resolution compared to
+//! plain block characters.
+//!
+//! Rendering model:
+//!   - **Fill cells** (signal fully clears the cell): solid background block.
+//!   - **Trace cells** (signal edge inside the cell): braille character whose
+//!     dots mark exactly where the signal is, colored by signal strength.
+//!   - Everything above: empty.
+//!
+//! The braille dot layout within one terminal cell (left col / right col):
+//!
+//!   Dot 1 (bit 0)  Dot 4 (bit 3)   ← top of cell
+//!   Dot 2 (bit 1)  Dot 5 (bit 4)
+//!   Dot 3 (bit 2)  Dot 6 (bit 5)
+//!   Dot 7 (bit 6)  Dot 8 (bit 7)   ← bottom of cell
+//!
+//! Indexed by `dot_row_from_bottom` (0 = cell bottom, 3 = cell top):
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 
-/// Reduce `bins` (dBFS) to exactly `cols` columns, taking the MAX dBFS of each
-/// column's covering bin range. Max preserves narrow peaks; mean would smear
-/// them. Empty/zero cases yield an empty Vec.
+// ── Downsampler ───────────────────────────────────────────────────────────────
+
+/// Reduce `bins` to exactly `cols` values, taking the MAX in each bucket.
+/// MAX preserves narrow peaks that MEAN would smear. Empty / zero cases → empty Vec.
 pub fn downsample_max(bins: &[f32], cols: usize) -> Vec<f32> {
     if bins.is_empty() || cols == 0 {
         return Vec::new();
@@ -21,164 +41,239 @@ pub fn downsample_max(bins: &[f32], cols: usize) -> Vec<f32> {
         .collect()
 }
 
-/// Eighth-block glyphs indexed 0..=8. Index 0 is a space (empty), index 8 is a
-/// full block. A partial top cell uses indices 1..=7.
-pub const EIGHTHS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+// ── Public types ──────────────────────────────────────────────────────────────
 
-/// Map a dBFS value to a vertical fill over `rows` cells.
-/// Returns `(full_cells, top_eighth)` where `full_cells` cells are full blocks
-/// (`EIGHTHS[8]`) and, if `top_eighth > 0`, one more cell above them shows
-/// `EIGHTHS[top_eighth]`.
-pub fn column_fill(db: f32, y_min: f32, y_max: f32, rows: u16) -> (u16, u8) {
-    if rows == 0 || y_max <= y_min {
-        return (0, 0);
-    }
-    let frac = ((db - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
-    let total_eighths = (frac * rows as f32 * 8.0).round() as u32;
-    let full = (total_eighths / 8) as u16;
-    let rem = (total_eighths % 8) as u8;
-    (full, rem)
-}
-
-/// Per-column bar input: downsampled dBFS and its palette color.
+/// One braille column's worth of signal data.
 pub struct Bar {
-    pub db: f32,
-    pub color: Color,
+    pub db:          f32,
+    /// Color of the braille trace edge (foreground on black).  Should contrast
+    /// well against the fill background — use a vivid / theme-accent-derived color.
+    pub trace_color: Color,
 }
 
-/// Paint filled bars into `area` of `buf`. `bars.len()` should equal
-/// `area.width`; extra/short slices are clamped. Bars grow up from the bottom
-/// row. The top partial cell uses the matching eighth glyph.
-pub fn paint_bars(buf: &mut Buffer, area: Rect, bars: &[Bar], y_min: f32, y_max: f32) {
-    let rows = area.height;
-    if rows == 0 || area.width == 0 {
-        return;
-    }
-    let bottom = area.y + rows - 1;
-    let cols = (area.width as usize).min(bars.len());
-    for (cx, bar) in bars.iter().enumerate().take(cols) {
-        let (full, rem) = column_fill(bar.db, y_min, y_max, rows);
-        let x = area.x + cx as u16;
-        for r in 0..full.min(rows) {
-            let y = bottom - r;
-            buf.get_mut(x, y).set_symbol(EIGHTHS[8]).set_fg(bar.color);
+/// Compute a trace color from the theme's accent, scaled by signal strength.
+/// Weak signals get ~35 % brightness; strong signals get 100 %.  This keeps
+/// the trace visible at the noise floor while still encoding signal level.
+pub fn accent_trace_color(accent: Color, signal_fraction: f32) -> Color {
+    match accent {
+        Color::Rgb(r, g, b) => {
+            let f = (0.35 + 0.65 * signal_fraction.clamp(0.0, 1.0)) as f32;
+            Color::Rgb((r as f32 * f) as u8, (g as f32 * f) as u8, (b as f32 * f) as u8)
         }
-        if rem > 0 && full < rows {
-            let y = bottom - full;
-            buf.get_mut(x, y).set_symbol(EIGHTHS[rem as usize]).set_fg(bar.color);
-        }
+        other => other,
     }
 }
 
-/// First empty row index (0 = bottom) above the bar for a column of value `db`.
-fn empty_floor(db: f32, y_min: f32, y_max: f32, rows: u16) -> u16 {
-    let (full, rem) = column_fill(db, y_min, y_max, rows);
-    (full + u16::from(rem > 0)).min(rows)
-}
-
-/// A vertical overlay line (marker / channel-BW boundary / cursor) at a column.
+/// A vertical overlay line drawn at a **terminal** column index.
 pub struct VLine {
-    pub col: u16,
-    pub color: Color,
-    /// `true` draws the line over the full column height, through bar cells
-    /// (the cursor — always visible). `false` draws only in the empty region
-    /// above the bar, keeping the silhouette clean (markers / BW boundaries).
+    pub col:          u16,
+    pub color:        Color,
+    /// `true` → spans full height (cursor, always visible).
+    /// `false` → only in the empty region above the signal (markers, BW edges).
     pub through_bars: bool,
 }
 
-/// Inputs for the overlay pass. Per-column slices share the bars length;
-/// `peak_db`/`hold_db` may be empty to skip them.
-pub struct Overlays<'a> {
-    pub bar_db: &'a [f32],
-    pub peak_db: &'a [f32],
-    pub hold_db: &'a [f32],
-    pub vlines: &'a [VLine],
-    pub noise_floor: f32,
-    pub peak_color: Color,
-    pub hold_color: Color,
-    pub noise_color: Color,
+// ── Braille bit constants ─────────────────────────────────────────────────────
+
+/// Left-column bit mask indexed by dot_row_from_bottom (0 = bottom of cell).
+const LEFT_BITS:  [u8; 4] = [0x40, 0x04, 0x02, 0x01];
+/// Right-column bit mask indexed by dot_row_from_bottom.
+const RIGHT_BITS: [u8; 4] = [0x80, 0x20, 0x10, 0x08];
+
+// ── Private helpers ───────────────────────────────────────────────────────────
+
+/// Map a dBFS value to effective dot rows from the bottom of the canvas.
+/// Returns 0 at or below `y_min`, `total` at or above `y_max`.
+fn to_dots(db: f32, y_min: f32, y_max: f32, total: u32) -> u32 {
+    let f = ((db - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
+    (f * total as f32).round() as u32
 }
 
-/// Paint overlays into `area`, only into empty cells above each bar.
-pub fn paint_overlays(buf: &mut Buffer, area: Rect, ov: &Overlays, y_min: f32, y_max: f32) {
-    let rows = area.height;
-    if rows == 0 || area.width == 0 {
-        return;
+/// Braille fill mask for a terminal cell whose bottom effective row is `base`.
+/// A dot at effective row `base + dr` is lit if it lies below `dots_l` (left
+/// braille column) or `dots_r` (right braille column).
+fn cell_mask(dots_l: u32, dots_r: u32, base: u32) -> u8 {
+    let mut m = 0u8;
+    for dr in 0u32..4 {
+        let eff = base + dr;
+        if eff < dots_l { m |= LEFT_BITS[dr as usize]; }
+        if eff < dots_r { m |= RIGHT_BITS[dr as usize]; }
     }
-    let bottom = area.y + rows - 1;
-    let cols = area.width as usize;
+    m
+}
 
-    let row_of = |db: f32| -> u16 {
-        let frac = ((db - y_min) / (y_max - y_min)).clamp(0.0, 1.0);
-        (frac * (rows.saturating_sub(1)) as f32).round() as u16
-    };
+/// Terminal rows from the bottom occupied by a signal at `db` (ceil of dot height / 4).
+fn signal_floor_rows(db: f32, y_min: f32, y_max: f32, rows: u32) -> u32 {
+    let dots = to_dots(db, y_min, y_max, rows * 4);
+    (dots + 3) / 4
+}
 
-    // Hold ghost: a `▔` cap wherever the held frame sits above the live bar.
-    for (cx, &db_val) in ov.hold_db.iter().enumerate().take(cols.min(ov.hold_db.len())) {
-        let floor = empty_floor(ov.bar_db.get(cx).copied().unwrap_or(y_min), y_min, y_max, rows);
-        let r = row_of(db_val);
-        if r >= floor && r < rows {
-            let x = area.x + cx as u16;
-            let y = bottom - r;
-            buf.get_mut(x, y).set_symbol("▔").set_fg(ov.hold_color);
-        }
-    }
+// ── Public renderers ──────────────────────────────────────────────────────────
 
-    // Peak ticks: a fine `▔` cap ONLY where the peak rises at least one full
-    // cell above the live bar, placed at the peak's top row. Where the peak is
-    // level with the signal nothing is drawn, so it reads as scattered ticks
-    // rather than a continuous line.
-    for (cx, &db_val) in ov.peak_db.iter().enumerate().take(cols.min(ov.peak_db.len())) {
-        let bar_floor  = empty_floor(ov.bar_db.get(cx).copied().unwrap_or(y_min), y_min, y_max, rows);
-        let peak_floor = empty_floor(db_val, y_min, y_max, rows);
-        if peak_floor > bar_floor && peak_floor <= rows {
-            let x = area.x + cx as u16;
-            let y = bottom - (peak_floor - 1);
-            buf.get_mut(x, y).set_symbol("▔").set_fg(ov.peak_color);
-        }
-    }
+/// Paint the spectrum as a braille canvas.
+///
+/// `bars` must have length `area.width as usize * 2` — two braille columns per
+/// terminal column for 2× horizontal resolution.  `peak_db` and `hold_db` may
+/// be empty or shorter than `bars`; missing slots are treated as `y_min`.
+pub fn paint_braille(
+    buf:         &mut Buffer,
+    area:        Rect,
+    bars:        &[Bar],
+    peak_db:     &[f32],
+    hold_db:     &[f32],
+    noise_floor: f32,
+    y_min:       f32,
+    y_max:       f32,
+    fill_color:  Color,
+    peak_color:  Color,
+    hold_color:  Color,
+    noise_color: Color,
+) {
+    let rows = area.height as u32;
+    let cols = area.width as u32;
+    if rows == 0 || cols == 0 || y_max <= y_min { return; }
+    let total_dots = rows * 4;
 
-    if ov.noise_floor > y_min {
-        let r = row_of(ov.noise_floor);
-        if r < rows {
-            let y = bottom - r;
-            for cx in 0..cols.min(ov.bar_db.len()) {
-                let floor = empty_floor(ov.bar_db[cx], y_min, y_max, rows);
-                if r >= floor {
-                    let x = area.x + cx as u16;
-                    buf.get_mut(x, y).set_symbol("─").set_fg(ov.noise_color);
-                }
+    // ── Live signal: fill + braille trace ────────────────────────────────
+    for cy in 0..rows {
+        let base = (rows - 1 - cy) * 4;   // effective dot row at BOTTOM of this cell
+        let ty   = area.y + cy as u16;
+
+        for cx in 0..cols {
+            let ec_l = (cx * 2) as usize;
+            let ec_r = (cx * 2 + 1) as usize;
+            let tx   = area.x + cx as u16;
+
+            let d_l = bars.get(ec_l).map(|b| to_dots(b.db, y_min, y_max, total_dots)).unwrap_or(0);
+            let d_r = bars.get(ec_r).map(|b| to_dots(b.db, y_min, y_max, total_dots)).unwrap_or(0);
+
+            let mask = cell_mask(d_l, d_r, base);
+            if mask == 0 { continue; }
+
+            let cell = buf.get_mut(tx, ty);
+
+            if d_l > base + 3 && d_r > base + 3 {
+                // Fill cell: signal fully clears this cell → solid background.
+                cell.set_symbol(" ").set_bg(fill_color);
+            } else {
+                // Trace cell: signal edge is inside this cell.
+                // Color from whichever braille column has its edge here.
+                let color = if d_l > base && d_l <= base + 4 {
+                    bars.get(ec_l).map(|b| b.trace_color).unwrap_or(fill_color)
+                } else {
+                    bars.get(ec_r).map(|b| b.trace_color).unwrap_or(fill_color)
+                };
+                let ch = char::from_u32(0x2800 | mask as u32).unwrap();
+                cell.set_symbol(&ch.to_string()).set_fg(color);
             }
         }
     }
 
-    for vl in ov.vlines {
-        if (vl.col as usize) >= cols {
-            continue;
+    // ── Peak hold (▔ cap at terminal-row resolution above live signal) ────
+    for cx in 0..cols {
+        let ec_l = (cx * 2) as usize;
+        let ec_r = (cx * 2 + 1) as usize;
+        let tx   = area.x + cx as u16;
+
+        let p = peak_db.get(ec_l).copied().unwrap_or(y_min)
+            .max(peak_db.get(ec_r).copied().unwrap_or(y_min));
+        let s = bars.get(ec_l).map(|b| b.db).unwrap_or(y_min)
+            .max(bars.get(ec_r).map(|b| b.db).unwrap_or(y_min));
+
+        let peak_floor = signal_floor_rows(p, y_min, y_max, rows);
+        let live_floor = signal_floor_rows(s, y_min, y_max, rows);
+
+        if peak_floor > live_floor && peak_floor > 0 && peak_floor <= rows {
+            buf.get_mut(tx, area.y + (rows - peak_floor) as u16)
+                .set_symbol("▔").set_fg(peak_color);
         }
-        let floor = empty_floor(
-            ov.bar_db.get(vl.col as usize).copied().unwrap_or(y_min),
-            y_min, y_max, rows,
-        );
-        let start = if vl.through_bars { 0 } else { floor };
-        let x = area.x + vl.col;
-        for r in start..rows {
-            let y = bottom - r;
-            buf.get_mut(x, y).set_symbol("│").set_fg(vl.color);
+    }
+
+    // ── Hold ghost (▔ cap where held frame is above live signal) ─────────
+    for cx in 0..cols {
+        let ec_l = (cx * 2) as usize;
+        let ec_r = (cx * 2 + 1) as usize;
+        let tx   = area.x + cx as u16;
+
+        let h = hold_db.get(ec_l).copied().unwrap_or(y_min)
+            .max(hold_db.get(ec_r).copied().unwrap_or(y_min));
+        let s = bars.get(ec_l).map(|b| b.db).unwrap_or(y_min)
+            .max(bars.get(ec_r).map(|b| b.db).unwrap_or(y_min));
+
+        let hold_floor = signal_floor_rows(h, y_min, y_max, rows);
+        let live_floor = signal_floor_rows(s, y_min, y_max, rows);
+
+        if hold_floor > live_floor && hold_floor > 0 && hold_floor <= rows {
+            buf.get_mut(tx, area.y + (rows - hold_floor) as u16)
+                .set_symbol("▔").set_fg(hold_color);
+        }
+    }
+
+    // ── Noise floor (─ dash reference line at the NF level) ─────────────
+    // Drawn only in columns where the live signal is at or below the NF,
+    // i.e. where the floor is actually the dominant "signal".  A dash looks
+    // like a clean reference baseline rather than random noise scatter.
+    if noise_floor > y_min {
+        let nf_floor = signal_floor_rows(noise_floor, y_min, y_max, rows);
+        if nf_floor > 0 && nf_floor <= rows {
+            let ty = area.y + (rows - nf_floor) as u16;
+            for cx in 0..cols {
+                let ec_l = (cx * 2) as usize;
+                let ec_r = (cx * 2 + 1) as usize;
+                let db = bars.get(ec_l).map(|b| b.db).unwrap_or(y_min)
+                    .max(bars.get(ec_r).map(|b| b.db).unwrap_or(y_min));
+                if nf_floor >= signal_floor_rows(db, y_min, y_max, rows) {
+                    buf.get_mut(area.x + cx as u16, ty)
+                        .set_symbol("─").set_fg(noise_color);
+                }
+            }
         }
     }
 }
 
+/// Paint vertical overlay lines (markers, cursor) at **terminal**-column resolution.
+///
+/// `bars` is the same braille-resolution slice passed to `paint_braille`
+/// (`len == area.width * 2`).  `vlines[i].col` is a terminal column index.
+pub fn paint_vlines(
+    buf:    &mut Buffer,
+    area:   Rect,
+    vlines: &[VLine],
+    bars:   &[Bar],
+    y_min:  f32,
+    y_max:  f32,
+) {
+    let rows = area.height as u32;
+    let cols = area.width as u32;
+    if rows == 0 || cols == 0 { return; }
+
+    for vl in vlines {
+        let cx = vl.col as u32;
+        if cx >= cols { continue; }
+
+        let ec_l = (cx * 2) as usize;
+        let ec_r = (cx * 2 + 1) as usize;
+        let db = bars.get(ec_l).map(|b| b.db).unwrap_or(y_min)
+            .max(bars.get(ec_r).map(|b| b.db).unwrap_or(y_min));
+
+        let floor = signal_floor_rows(db, y_min, y_max, rows);
+        let start = if vl.through_bars { 0 } else { floor };
+        let tx = area.x + vl.col;
+
+        for r in start..rows {
+            buf.get_mut(tx, area.y + (rows - 1 - r) as u16)
+                .set_symbol("│").set_fg(vl.color);
+        }
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::buffer::Buffer;
-    use ratatui::layout::Rect;
-    use ratatui::style::Color;
 
-    fn sym(buf: &Buffer, x: u16, y: u16) -> String {
-        buf.get(x, y).symbol().to_string()
-    }
+    // ── downsample_max ────────────────────────────────────────────────────
 
     #[test]
     fn downsample_identity_when_cols_equals_len() {
@@ -204,136 +299,177 @@ mod tests {
         assert_eq!(downsample_max(&[-10.0, -20.0], 0), Vec::<f32>::new());
     }
 
+    // ── to_dots ───────────────────────────────────────────────────────────
+
     #[test]
-    fn fill_below_min_is_empty() {
-        assert_eq!(column_fill(-100.0, -90.0, -20.0, 5), (0, 0));
+    fn to_dots_at_min_is_zero() {
+        assert_eq!(to_dots(-90.0, -90.0, -20.0, 40), 0);
     }
 
     #[test]
-    fn fill_at_or_above_max_is_full() {
-        assert_eq!(column_fill(-20.0, -90.0, -20.0, 5), (5, 0));
-        assert_eq!(column_fill(0.0, -90.0, -20.0, 5), (5, 0));
+    fn to_dots_at_max_is_total() {
+        assert_eq!(to_dots(-20.0, -90.0, -20.0, 40), 40);
     }
 
     #[test]
-    fn fill_half_height() {
-        assert_eq!(column_fill(-55.0, -90.0, -20.0, 4), (2, 0));
+    fn to_dots_clamps_out_of_range() {
+        assert_eq!(to_dots(-200.0, -90.0, -20.0, 40), 0);
+        assert_eq!(to_dots(0.0,    -90.0, -20.0, 40), 40);
+    }
+
+    // ── cell_mask ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn cell_mask_empty_when_signal_below_base() {
+        // Signal occupies 0 dots — nothing lit
+        assert_eq!(cell_mask(0, 0, 0), 0);
+        // Signal at effective row 3 but base = 4 → all dots of this cell are above signal
+        assert_eq!(cell_mask(3, 3, 4), 0);
     }
 
     #[test]
-    fn fill_partial_top_cell() {
-        assert_eq!(column_fill(-55.0, -90.0, -20.0, 1), (0, 4));
+    fn cell_mask_full_when_signal_clears_cell() {
+        // Both columns' signal (12 dots) exceeds base (4) by more than 3 → all 8 bits set
+        assert_eq!(cell_mask(12, 12, 4), 0xFF);
     }
 
     #[test]
-    fn fill_zero_rows() {
-        assert_eq!(column_fill(-20.0, -90.0, -20.0, 0), (0, 0));
+    fn cell_mask_left_only_partial() {
+        // Left column signal = 2 dots, right = 0; base = 0.
+        // dot_row=0: eff=0 < 2 → LEFT_BITS[0]=0x40; dot_row=1: eff=1 < 2 → 0x04; dot_row=2,3: no
+        assert_eq!(cell_mask(2, 0, 0), LEFT_BITS[0] | LEFT_BITS[1]);
     }
 
     #[test]
-    fn paint_bars_fills_from_bottom() {
-        let area = Rect::new(0, 0, 2, 4);
-        let mut buf = Buffer::empty(area);
-        let bars = vec![
-            Bar { db: -20.0, color: Color::Red },
-            Bar { db: -90.0, color: Color::Red },
+    fn cell_mask_right_only_single_dot() {
+        // Right column signal = 1; base = 0.  Only dot_row=0 lit on right.
+        assert_eq!(cell_mask(0, 1, 0), RIGHT_BITS[0]);
+    }
+
+    // ── signal_floor_rows ─────────────────────────────────────────────────
+
+    #[test]
+    fn signal_floor_rows_at_min_is_zero() {
+        assert_eq!(signal_floor_rows(-90.0, -90.0, -20.0, 10), 0);
+    }
+
+    #[test]
+    fn signal_floor_rows_at_max_is_rows() {
+        assert_eq!(signal_floor_rows(-20.0, -90.0, -20.0, 10), 10);
+    }
+
+    #[test]
+    fn signal_floor_rows_half_signal() {
+        // frac=0.5 → dots=20 → floor=ceil(20/4)=5
+        assert_eq!(signal_floor_rows(-55.0, -90.0, -20.0, 10), 5);
+    }
+
+    // ── paint_braille smoke tests ─────────────────────────────────────────
+
+    #[test]
+    fn paint_braille_empty_area_no_panic() {
+        let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 0, 0));
+        paint_braille(&mut buf, Rect::new(0,0,0,0), &[], &[], &[], -80.0, -90.0, -20.0,
+            Color::Black, Color::White, Color::Gray, Color::Blue);
+    }
+
+    #[test]
+    fn paint_braille_max_signal_fills_canvas() {
+        // Signal at max → every cell should be a fill cell (bg set).
+        let area = Rect::new(0, 0, 2, 2);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        let bars: Vec<Bar> = vec![
+            Bar { db: -20.0, trace_color: Color::Red },
+            Bar { db: -20.0, trace_color: Color::Red },
+            Bar { db: -20.0, trace_color: Color::Red },
+            Bar { db: -20.0, trace_color: Color::Red },
         ];
-        paint_bars(&mut buf, area, &bars, -90.0, -20.0);
-        for y in 0..4 {
-            assert_eq!(sym(&buf, 0, y), "█", "col0 row {y}");
-        }
-        assert_eq!(buf.get(0, 3).fg, Color::Red);
-        assert_eq!(sym(&buf, 1, 3), " ");
-    }
-
-    #[test]
-    fn peak_cap_sits_above_bar() {
-        let area = Rect::new(0, 0, 1, 4);
-        let mut buf = Buffer::empty(area);
-        let bars = vec![Bar { db: -55.0, color: Color::Red }];
-        paint_bars(&mut buf, area, &bars, -90.0, -20.0);
-        let ov = Overlays {
-            bar_db: &[-55.0],
-            peak_db: &[-20.0],
-            hold_db: &[],
-            vlines: &[],
-            noise_floor: -200.0,
-            peak_color: Color::White,
-            hold_color: Color::DarkGray,
-            noise_color: Color::Blue,
-        };
-        paint_overlays(&mut buf, area, &ov, -90.0, -20.0);
-        assert_eq!(sym(&buf, 0, 0), "▔");
-        assert_eq!(buf.get(0, 0).fg, Color::White);
-        assert_eq!(sym(&buf, 0, 3), "█");
-    }
-
-    #[test]
-    fn vline_only_fills_empty_region() {
-        let area = Rect::new(0, 0, 1, 4);
-        let mut buf = Buffer::empty(area);
-        let bars = vec![Bar { db: -55.0, color: Color::Red }];
-        paint_bars(&mut buf, area, &bars, -90.0, -20.0);
-        let ov = Overlays {
-            bar_db: &[-55.0],
-            peak_db: &[],
-            hold_db: &[],
-            vlines: &[VLine { col: 0, color: Color::Yellow, through_bars: false }],
-            noise_floor: -200.0,
-            peak_color: Color::White,
-            hold_color: Color::DarkGray,
-            noise_color: Color::Blue,
-        };
-        paint_overlays(&mut buf, area, &ov, -90.0, -20.0);
-        assert_eq!(sym(&buf, 0, 0), "│");
-        assert_eq!(buf.get(0, 0).fg, Color::Yellow);
-        // Empty-region vline leaves the bar's bottom cell intact.
-        assert_eq!(sym(&buf, 0, 3), "█");
-    }
-
-    #[test]
-    fn vline_through_bars_spans_full_height() {
-        let area = Rect::new(0, 0, 1, 4);
-        let mut buf = Buffer::empty(area);
-        let bars = vec![Bar { db: -55.0, color: Color::Red }]; // ~2 cells tall
-        paint_bars(&mut buf, area, &bars, -90.0, -20.0);
-        let ov = Overlays {
-            bar_db: &[-55.0],
-            peak_db: &[],
-            hold_db: &[],
-            vlines: &[VLine { col: 0, color: Color::Yellow, through_bars: true }],
-            noise_floor: -200.0,
-            peak_color: Color::White,
-            hold_color: Color::DarkGray,
-            noise_color: Color::Blue,
-        };
-        paint_overlays(&mut buf, area, &ov, -90.0, -20.0);
-        // Cursor is visible at every row, including over the bar's bottom cell.
-        for y in 0..4 {
-            assert_eq!(sym(&buf, 0, y), "│", "row {y}");
-            assert_eq!(buf.get(0, y).fg, Color::Yellow, "row {y}");
+        paint_braille(&mut buf, area, &bars, &[], &[], -200.0, -90.0, -20.0,
+            Color::DarkGray, Color::White, Color::Gray, Color::Blue);
+        // All cells should be fill (space + colored bg)
+        for y in 0..2 {
+            for x in 0..2 {
+                assert_eq!(buf.get(x, y).symbol(), " ", "cell ({x},{y}) should be fill space");
+                assert_eq!(buf.get(x, y).bg, Color::DarkGray, "cell ({x},{y}) bg should be fill_color");
+            }
         }
     }
 
     #[test]
-    fn peak_tick_hidden_when_level_with_bar() {
+    fn paint_braille_min_signal_leaves_canvas_empty() {
+        // Signal at min → nothing should be drawn.
+        let area = Rect::new(0, 0, 2, 2);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        let bars: Vec<Bar> = vec![
+            Bar { db: -90.0, trace_color: Color::Red },
+            Bar { db: -90.0, trace_color: Color::Red },
+            Bar { db: -90.0, trace_color: Color::Red },
+            Bar { db: -90.0, trace_color: Color::Red },
+        ];
+        paint_braille(&mut buf, area, &bars, &[], &[], -200.0, -90.0, -20.0,
+            Color::DarkGray, Color::White, Color::Gray, Color::Blue);
+        for y in 0..2 {
+            for x in 0..2 {
+                assert_eq!(buf.get(x, y).symbol(), " ");
+                assert_eq!(buf.get(x, y).bg, Color::Reset, "no fill expected");
+            }
+        }
+    }
+
+    #[test]
+    fn paint_braille_mid_signal_has_trace_cell() {
+        // A signal at mid-range should produce a braille trace character (not space, not empty).
         let area = Rect::new(0, 0, 1, 4);
-        let mut buf = Buffer::empty(area);
-        let bars = vec![Bar { db: -55.0, color: Color::Red }];
-        paint_bars(&mut buf, area, &bars, -90.0, -20.0);
-        let ov = Overlays {
-            bar_db: &[-55.0],
-            peak_db: &[-55.0], // peak equals the live signal → no tick
-            hold_db: &[],
-            vlines: &[],
-            noise_floor: -200.0,
-            peak_color: Color::White,
-            hold_color: Color::DarkGray,
-            noise_color: Color::Blue,
-        };
-        paint_overlays(&mut buf, area, &ov, -90.0, -20.0);
-        // The two empty rows above the 2-cell bar stay empty (no cap).
-        assert_eq!(sym(&buf, 0, 0), " ");
-        assert_eq!(sym(&buf, 0, 1), " ");
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        // Signal at -55 dBFS, frac≈0.5 → dots≈8 in 16 total → floor=2 terminal rows
+        // Trace cell at cy=4-2=2 (0-indexed from top)
+        let bars = vec![
+            Bar { db: -55.0, trace_color: Color::Cyan },
+            Bar { db: -55.0, trace_color: Color::Cyan },
+        ];
+        paint_braille(&mut buf, area, &bars, &[], &[], -200.0, -90.0, -20.0,
+            Color::DarkGray, Color::White, Color::Gray, Color::Blue);
+
+        // Signal should be visible either as a braille trace char or as a fill cell (colored bg).
+        let visible = (0..4u16).any(|y| {
+            let c = buf.get(0, y);
+            c.symbol() != " " || c.bg != Color::Reset
+        });
+        assert!(visible, "signal at mid should produce visible output");
+        // Top row (cy=0) should be empty — signal does not reach there
+        assert_eq!(buf.get(0, 0).symbol(), " ");
+        assert_eq!(buf.get(0, 0).bg, Color::Reset);
+    }
+
+    #[test]
+    fn paint_vlines_through_bars_spans_full_height() {
+        let area = Rect::new(0, 0, 1, 4);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        let bars = vec![
+            Bar { db: -90.0, trace_color: Color::Red },  // signal at min → floor=0
+            Bar { db: -90.0, trace_color: Color::Red },
+        ];
+        let vlines = vec![VLine { col: 0, color: Color::Yellow, through_bars: true }];
+        paint_vlines(&mut buf, area, &vlines, &bars, -90.0, -20.0);
+        for y in 0..4 {
+            assert_eq!(buf.get(0, y).symbol(), "│", "row {y}");
+            assert_eq!(buf.get(0, y).fg, Color::Yellow);
+        }
+    }
+
+    #[test]
+    fn paint_vlines_non_through_only_above_signal() {
+        // Signal at max → floor=rows → non-through vline has nowhere to draw
+        let area = Rect::new(0, 0, 1, 4);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        let bars = vec![
+            Bar { db: -20.0, trace_color: Color::Red },  // at max → floor=4
+            Bar { db: -20.0, trace_color: Color::Red },
+        ];
+        let vlines = vec![VLine { col: 0, color: Color::Yellow, through_bars: false }];
+        paint_vlines(&mut buf, area, &vlines, &bars, -90.0, -20.0);
+        for y in 0..4 {
+            assert_eq!(buf.get(0, y).symbol(), " ", "non-through vline should not draw over full signal at row {y}");
+        }
     }
 }
