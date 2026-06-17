@@ -1,11 +1,11 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::Style,
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::state::SdrMetrics;
+use crate::ui::chrome;
 
 pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, theme: &crate::Theme) {
     let log_lines: Vec<&str> = m.ui.log.iter().map(|s| s.as_ref()).collect();
@@ -14,11 +14,8 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, theme: &crate::Theme) {
     let scroll   = (log_lines.len()).saturating_sub(inner_h) as u16;
     let panel = Paragraph::new(log_text)
         .block(
-            Block::default()
-                .title(" Log ")
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(theme.border_dim)),
+            chrome::deck_block(theme.border_dim)
+                .title(chrome::title("Log", theme.label, theme.border_dim)),
         )
         .alignment(Alignment::Left)
         .scroll((scroll, 0));

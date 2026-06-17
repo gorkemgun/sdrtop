@@ -2,11 +2,12 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::state::SdrMetrics;
+use crate::ui::chrome;
 use super::panel::Panel;
 
 pub struct HeaderPanel;
@@ -211,10 +212,8 @@ impl Panel for HeaderPanel {
     fn min_size(&self) -> (u16, u16) { (60, 5) }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_dim));
+        let block = chrome::deck_block(theme.border_dim)
+            .title(chrome::title("Radio", theme.label, theme.border_dim));
         let inner = block.inner(area);
         f.render_widget(block, area);
 

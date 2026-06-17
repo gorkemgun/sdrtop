@@ -2,13 +2,14 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::BAND_PLAN;
+use crate::ui::chrome;
 use crate::ui::panel::Panel;
 use crate::ui::spectrum::fmt_spectrum_step;
 
@@ -75,13 +76,14 @@ impl Panel for WaterfallPanel {
             else if buf.paused || stale || no_data { theme.stale }
             else { theme.border_accent };
 
-        // Title: second 'l' in "Waterfall" highlighted as focus key indicator
-        let key_style = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
-        let mut title_spans = vec![
-            Span::raw(" Waterfa"),
-            Span::styled("l", key_style),
-            Span::raw("l"),
-        ];
+        // Nameplate: WATERFALL with the second 'L' focus key highlighted, plus tags.
+        let key_style  = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
+        let name_style = Style::default().fg(theme.label).add_modifier(Modifier::BOLD);
+        let mut title_spans = chrome::nameplate(vec![
+            Span::styled("WATERFA", name_style),
+            Span::styled("L", key_style),
+            Span::styled("L", name_style),
+        ], border_color);
         if buf.paused {
             title_spans.push(Span::styled(" [PAUSED]", Style::default().fg(theme.status_warn)));
         } else if stale {
@@ -109,19 +111,12 @@ impl Panel for WaterfallPanel {
                 Style::default().fg(theme.value_hi),
             ));
         }
-        title_spans.push(Span::raw(" "));
         let title_line = Line::from(title_spans);
 
         if buf.rows.is_empty() {
             f.render_widget(
                 Paragraph::new("Waiting for RX\u{2026}")
-                    .block(
-                        Block::default()
-                            .title(title_line)
-                            .borders(Borders::ALL)
-                            .border_type(BorderType::Rounded)
-                            .border_style(Style::default().fg(border_color)),
-                    )
+                    .block(chrome::deck_block(border_color).title(title_line))
                     .alignment(Alignment::Center)
                     .style(Style::default().fg(theme.label)),
                 area,
@@ -129,11 +124,7 @@ impl Panel for WaterfallPanel {
             return;
         }
 
-        let block = Block::default()
-            .title(title_line)
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(border_color));
+        let block = chrome::deck_block(border_color).title(title_line);
         let inner = block.inner(area);
         f.render_widget(block, area);
 

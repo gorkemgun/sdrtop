@@ -2,11 +2,12 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::state::SdrMetrics;
+use crate::ui::chrome;
 use super::panel::Panel;
 
 pub struct SignalStripPanel;
@@ -36,6 +37,120 @@ fn fmt_rbw(hz: f64) -> String {
     else { format!("{:.0} Hz", hz) }
 }
 
+/// Width (cells) of a mini-bar gauge.
+const BAR_W: usize = 5;
+
+/// One metric in the strip: a label, a formatted value, and an optional gauge
+/// fill ratio (0–1). `fill = None` marks an info value with no bar (e.g. RBW).
+struct Cell {
+    label:  &'static str,
+    value:  String,
+    vcolor: Color,
+    fill:   Option<f32>,
+    bcolor: Color,
+}
+
+impl Cell {
+    fn gauge(label: &'static str, value: String, color: Color, fill: f32) -> Self {
+        Cell { label, value, vcolor: color, fill: Some(fill.clamp(0.0, 1.0)), bcolor: color }
+    }
+    fn info(label: &'static str, value: String, color: Color) -> Self {
+        Cell { label, value, vcolor: color, fill: None, bcolor: color }
+    }
+    fn dash(label: &'static str, theme: &crate::Theme, bar: bool) -> Self {
+        Cell {
+            label, value: "---".into(), vcolor: theme.stale,
+            fill: if bar { Some(0.0) } else { None }, bcolor: theme.stale,
+        }
+    }
+}
+
+/// Build all eight metric cells, ordered: signal row (P/NF, PWR, NF, RBW) then
+/// hardware row (SAT, DROP, BUF, IQ). Stale / not-streaming metrics dash out.
+fn build_cells(state: &SdrMetrics, theme: &crate::Theme, stale: bool, hw_stale: bool) -> Vec<Cell> {
+    // ── Signal row (FFT-derived) ─────────────────────────────────────────
+    let snr = state.signal.peak_to_nf_db;
+    let pnf = if stale {
+        Cell::dash("P/NF", theme, true)
+    } else {
+        Cell::gauge("P/NF", format!("{:.1} dB", snr), snr_color(snr, theme), snr / 40.0)
+    };
+
+    let pwr_finite = state.signal.channel_power_dbfs.is_finite();
+    let pwr = if stale || !pwr_finite {
+        Cell::dash("PWR", theme, true)
+    } else {
+        let p = state.signal.channel_power_dbfs;
+        Cell::gauge("PWR", format!("{:.1} dBFS", p), theme.value, (p + 100.0) / 100.0)
+    };
+
+    let nf = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
+        Some(fr) => Cell::gauge("NF", format!("{:.1} dBFS", fr.noise_floor), theme.value,
+                                (fr.noise_floor + 120.0) / 80.0),
+        None => Cell::dash("NF", theme, true),
+    };
+
+    let rbw = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
+        Some(fr) if fr.enbw_hz > 0.0 => Cell::info("RBW", fmt_rbw(fr.enbw_hz), theme.value),
+        _ => Cell::dash("RBW", theme, false),
+    };
+
+    // ── Hardware row (rx-accumulator-derived) ────────────────────────────
+    let sat = if hw_stale {
+        Cell::dash("SAT", theme, true)
+    } else {
+        let s = state.signal.adc_saturation_pct;
+        Cell::gauge("SAT", format!("{:.1}%", s), sat_color(s, theme), s / 10.0)
+    };
+    let drop = if hw_stale {
+        Cell::dash("DROP", theme, true)
+    } else {
+        let d = state.signal.drops_per_sec;
+        Cell::gauge("DROP", format!("{}/s", d), drop_color(d, theme), d as f32 / 20.0)
+    };
+    let buf = if hw_stale {
+        Cell::dash("BUF", theme, true)
+    } else {
+        let b = state.iq.buf_fill_pct;
+        Cell::gauge("BUF", format!("{:.0}%", b), buf_color(b, theme), b / 100.0)
+    };
+    let iq = if hw_stale {
+        Cell::dash("IQ", theme, true)
+    } else {
+        let v = state.iq.iq_imbalance_db;
+        Cell::gauge("IQ", format!("{:+.1} dB", v), iq_color(v, theme), v.abs() / 6.0)
+    };
+
+    vec![pnf, pwr, nf, rbw, sat, drop, buf, iq]
+}
+
+/// Mini-bar gauge spans: filled `▰` in the metric color, empty `▱` dim. An
+/// info cell (`fill = None`) renders a dim `·····` placeholder to keep columns
+/// aligned across rows.
+fn bar_spans(fill: Option<f32>, bcolor: Color, dim: Color) -> Vec<Span<'static>> {
+    match fill {
+        Some(f) => {
+            let filled = (f.clamp(0.0, 1.0) * BAR_W as f32).round() as usize;
+            vec![
+                Span::styled("▰".repeat(filled), Style::default().fg(bcolor)),
+                Span::styled("▱".repeat(BAR_W - filled), Style::default().fg(dim)),
+            ]
+        }
+        None => vec![Span::styled("·".repeat(BAR_W), Style::default().fg(dim))],
+    }
+}
+
+/// ` LABEL ▰▰▰▱▱ value` — one gauge cell, laid out left-aligned in its column.
+fn cell_spans(c: &Cell, theme: &crate::Theme) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled(
+        format!(" {:<4} ", c.label),
+        Style::default().fg(theme.label),
+    )];
+    spans.extend(bar_spans(c.fill, c.bcolor, theme.border_dim));
+    spans.push(Span::styled(format!(" {:<11}", c.value), Style::default().fg(c.vcolor)));
+    spans
+}
+
 impl Panel for SignalStripPanel {
     fn name(&self) -> &'static str { "signal_strip" }
     fn min_size(&self) -> (u16, u16) { (60, 3) }
@@ -44,88 +159,40 @@ impl Panel for SignalStripPanel {
         let stale = state.waterfall.last_fft.as_ref()
             .map(|fr| fr.timestamp.elapsed().as_millis() > 500)
             .unwrap_or(true);
+        let hw_stale = !state.radio.hw_streaming;
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border_dim));
+        let block = chrome::deck_block(theme.border_dim)
+            .title(chrome::title("Signal", theme.label, theme.border_dim));
         let inner = block.inner(area);
         f.render_widget(block, area);
+        if inner.width == 0 || inner.height == 0 { return; }
 
-        let sep = Span::styled("  ·  ", Style::default().fg(theme.border_dim));
-        let lbl = |s: &'static str| Span::styled(s, Style::default().fg(theme.label));
-        let val = |s: String, c: Color| Span::styled(s, Style::default().fg(c));
+        let cells = build_cells(state, theme, stale, hw_stale);
 
-        let snr_str = if stale { "---".into() } else { format!("{:.1} dB", state.signal.peak_to_nf_db) };
-        let snr_col = if stale { theme.stale } else { snr_color(state.signal.peak_to_nf_db, theme) };
-
-        let pwr_finite = state.signal.channel_power_dbfs.is_finite();
-        let pwr_str = if stale || !pwr_finite {
-            "---".into()
+        // Rich 2×4 gauge grid when there is vertical room and width; otherwise a
+        // single compact line (keeps height-3 / narrow presets working). Cells
+        // are spread across four even columns so the cluster fills the panel.
+        if inner.height >= 2 && inner.width >= 96 {
+            let ncol: u16 = 4;
+            let col_w = inner.width / ncol;
+            for (ri, chunk) in cells.chunks(4).enumerate().take(inner.height as usize) {
+                for (ci, c) in chunk.iter().enumerate() {
+                    let x = inner.x + ci as u16 * col_w;
+                    let w = if ci as u16 == ncol - 1 { inner.width - col_w * (ncol - 1) } else { col_w };
+                    let rect = Rect { x, y: inner.y + ri as u16, width: w, height: 1 };
+                    f.render_widget(Paragraph::new(Line::from(cell_spans(c, theme))), rect);
+                }
+            }
         } else {
-            format!("{:.1} dBFS", state.signal.channel_power_dbfs)
-        };
-        // Use stale color when not-finite too — "---" should always look dimmed.
-        let pwr_col = if stale || !pwr_finite { theme.stale } else { theme.value };
-
-        let (nf_str, nf_col) = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
-            Some(fr) => (format!("{:.1} dBFS", fr.noise_floor), theme.value),
-            None     => ("---".into(), theme.stale),
-        };
-
-        let (rbw_str, rbw_col) = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
-            Some(fr) if fr.enbw_hz > 0.0 => (fmt_rbw(fr.enbw_hz), theme.value),
-            _ => ("---".into(), theme.stale),
-        };
-
-        // SAT and IQ come from the rx accumulator, not the FFT — gate on hw_streaming.
-        let hw_stale = !state.radio.hw_streaming;
-        let (sat_str, sat_col) = if hw_stale {
-            ("---".into(), theme.stale)
-        } else {
-            (format!("{:.1}%", state.signal.adc_saturation_pct),
-             sat_color(state.signal.adc_saturation_pct, theme))
-        };
-        let (iq_str, iq_col) = if hw_stale {
-            ("---".into(), theme.stale)
-        } else {
-            (format!("{:+.1} dB", state.iq.iq_imbalance_db),
-             iq_color(state.iq.iq_imbalance_db, theme))
-        };
-
-        let (drop_str, drop_col) = if hw_stale {
-            ("---".into(), theme.stale)
-        } else {
-            (format!("{}/s", state.signal.drops_per_sec),
-             drop_color(state.signal.drops_per_sec, theme))
-        };
-        let (buf_str, buf_col) = if hw_stale {
-            ("---".into(), theme.stale)
-        } else {
-            (format!("{:.0}%", state.iq.buf_fill_pct),
-             buf_color(state.iq.buf_fill_pct, theme))
-        };
-
-        let line = Line::from(vec![
-            Span::raw(" "),
-            lbl("P/NF "), val(snr_str, snr_col),
-            sep.clone(),
-            lbl("PWR "),  val(pwr_str, pwr_col),
-            sep.clone(),
-            lbl("NF "),   val(nf_str, nf_col),
-            sep.clone(),
-            lbl("SAT "),  val(sat_str, sat_col),
-            sep.clone(),
-            lbl("DROP "), val(drop_str, drop_col),
-            sep.clone(),
-            lbl("BUF "),  val(buf_str, buf_col),
-            sep.clone(),
-            lbl("IQ "),   val(iq_str, iq_col),
-            sep.clone(),
-            lbl("RBW "),  val(rbw_str, rbw_col),
-        ]);
-
-        f.render_widget(Paragraph::new(line), inner);
+            let sep = Span::styled("  ·  ", Style::default().fg(theme.border_dim));
+            let mut spans = vec![Span::raw(" ")];
+            for (i, c) in cells.iter().enumerate() {
+                if i > 0 { spans.push(sep.clone()); }
+                spans.push(Span::styled(format!("{} ", c.label), Style::default().fg(theme.label)));
+                spans.push(Span::styled(c.value.clone(), Style::default().fg(c.vcolor)));
+            }
+            f.render_widget(Paragraph::new(Line::from(spans)), inner);
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         canvas::{Canvas, Line as CanvasLine},
-        Block, BorderType, Borders, Paragraph,
+        Block, Borders, Paragraph,
     },
     Frame,
 };
@@ -14,6 +14,7 @@ use ratatui::{
 use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::BAND_PLAN;
+use crate::ui::chrome;
 use crate::ui::panel::Panel;
 
 /// Dim an `Rgb` color's brightness by `f` (0.0–1.0). Non-Rgb colors pass through.
@@ -98,44 +99,34 @@ impl Panel for SpectrumPanel {
             else if stale || no_data           { theme.stale }
             else                               { theme.border_accent };
 
-        // Title: 'e' in "Spectrum" highlighted as focus key indicator
-        let key_style = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
-        let mut title_spans = vec![
-            Span::raw(" Sp"),
-            Span::styled("e", key_style),
-            Span::raw("ctrum"),
-        ];
+        // Nameplate: SPECTRUM with the 'E' focus key highlighted, plus live tags.
+        let key_style  = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
+        let name_style = Style::default().fg(theme.label).add_modifier(Modifier::BOLD);
+        let mut title_spans = chrome::nameplate(vec![
+            Span::styled("SP", name_style),
+            Span::styled("E", key_style),
+            Span::styled("CTRUM", name_style),
+        ], border_color);
         if state.spectrum.hold.is_some() {
             title_spans.push(Span::styled(" [HOLD]", Style::default().fg(theme.status_warn)));
         }
         if stale {
             title_spans.push(Span::styled(" [STALE]", Style::default().fg(theme.stale)));
         }
-        title_spans.push(Span::raw(" "));
         let title_line = Line::from(title_spans);
 
         match state.waterfall.last_fft.as_ref() {
             None => {
                 f.render_widget(
                     Paragraph::new("Waiting for RX\u{2026}")
-                        .block(
-                            Block::default()
-                                .title(title_line)
-                                .borders(Borders::ALL)
-                                .border_type(BorderType::Rounded)
-                                .border_style(Style::default().fg(border_color)),
-                        )
+                        .block(chrome::deck_block(border_color).title(title_line))
                         .alignment(Alignment::Center)
                         .style(Style::default().fg(theme.label)),
                     area,
                 );
             }
             Some(frame) => {
-                let outer_block = Block::default()
-                    .title(title_line)
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .border_style(Style::default().fg(border_color));
+                let outer_block = chrome::deck_block(border_color).title(title_line);
                 let inner = outer_block.inner(area);
                 f.render_widget(outer_block, area);
 

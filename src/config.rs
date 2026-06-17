@@ -267,7 +267,8 @@ impl LayoutConfig {
                 PanelSpec { name: "header".into(),       position: Top,    height: Some(5), width_pct: None },
                 PanelSpec { name: "spectrum".into(),      position: Body,   height: None,    width_pct: None },
                 PanelSpec { name: "waterfall".into(),     position: Body,   height: None,    width_pct: None },
-                PanelSpec { name: "signal_strip".into(),  position: Bottom, height: Some(3), width_pct: None },
+                // height 4 → 2 inner rows for the signal_strip's 2×4 gauge grid.
+                PanelSpec { name: "signal_strip".into(),  position: Bottom, height: Some(4), width_pct: None },
                 PanelSpec { name: "log".into(),           position: Bottom, height: Some(5), width_pct: None },
                 PanelSpec { name: "footer".into(),        position: Bottom, height: None,    width_pct: None },
             ],

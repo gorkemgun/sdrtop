@@ -1,13 +1,13 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::Style,
     text::{Line, Text},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use crate::hardware::GainModel;
 use crate::state::{InputMode, MicroView, SdrMetrics};
+use crate::ui::chrome;
 use super::panel::Panel;
 
 const FOCUS_SEP:  &str = "  ·  ";
@@ -246,12 +246,7 @@ impl Panel for FooterPanel {
         let text = Text::from_iter(lines.into_iter().map(Line::raw));
         f.render_widget(
             Paragraph::new(text)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(BorderType::Rounded)
-                        .border_style(Style::default().fg(border_color)),
-                )
+                .block(chrome::deck_block(border_color))
                 .alignment(Alignment::Center),
             area,
         );
