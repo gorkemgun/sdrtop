@@ -2,16 +2,36 @@ use std::sync::Arc;
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{
+        canvas::{Canvas, Line as CanvasLine, Points},
+        Block, BorderType, Borders, Paragraph,
+    },
     Frame,
 };
 
+use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::BAND_PLAN;
 use crate::ui::panel::Panel;
-use crate::ui::spectrum_bars::{self, Bar, VLine};
+
+/// Dim an `Rgb` color's brightness by `f` (0.0–1.0). Non-Rgb colors pass through.
+fn dim(c: Color, f: f32) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            (r as f32 * f) as u8, (g as f32 * f) as u8, (b as f32 * f) as u8,
+        ),
+        other => other,
+    }
+}
+
+/// Map a frequency to a canvas x-coordinate in `[0, n-1]`, or `None` if out of view.
+fn freq_to_canvas_x(freq_hz: f64, left_hz: f64, bw: f64, n: f64) -> Option<f64> {
+    if bw <= 0.0 { return None; }
+    let frac = (freq_hz - left_hz) / bw;
+    if (0.0..=1.0).contains(&frac) { Some(frac * (n - 1.0)) } else { None }
+}
 
 // ── Spectrum step sizes ───────────────────────────────────────────────────────
 
@@ -169,76 +189,114 @@ impl Panel for SpectrumPanel {
                 let cursor_freq_mhz = state.spectrum.cursor_freq
                     .map(|f| f as f64 / 1_000_000.0);
 
-                // ── Braille spectrum render ───────────────────────────────
-                // Downsample to 2× terminal width for braille horizontal resolution.
-                let width = canvas_area.width as usize;
-                if width > 0 {
-                    let width2    = width * 2;
-                    let col_db    = spectrum_bars::downsample_max(&bins,  width2);
-                    let col_peak  = spectrum_bars::downsample_max(&peaks, width2);
-                    let col_hold  = held_bins
-                        .as_ref()
-                        .map(|h| spectrum_bars::downsample_max(h, width2))
-                        .unwrap_or_default();
+                // ── Braille dot-matrix spectrum (ratatui Canvas) ──────────
+                // The Canvas widget rasterises every shape onto a 2×4 braille dot
+                // grid per cell, giving the classic phosphor dot-matrix instrument
+                // look at a stable, terminal-size-independent density.
+                let n      = n_bins as f64;
+                let y_min  = y_min_f as f64;
+                let y_max  = y_max_f as f64;
+                let depth  = ColorDepth::detect();
 
-                    let bars: Vec<Bar> = col_db
-                        .iter()
-                        .map(|&db| {
-                            let t = ((db - y_min_f) / (y_max_f - y_min_f)).clamp(0.0, 1.0);
-                            Bar {
-                                db,
-                                trace_color: spectrum_bars::accent_trace_color(theme.border_accent, t),
-                            }
-                        })
-                        .collect();
+                // Per-bin gradient colors, pre-computed (the closure can't borrow Theme).
+                // `body_colors` is a dimmed copy so the filled glow sits *under* the
+                // full-brightness top edge — the trace line reads crisp and bright
+                // over a soft glowing body. That contrast is the main beauty win.
+                let bin_colors: Vec<Color> = bins.iter()
+                    .map(|&db| magnitude_to_color_themed(db, y_min_f, y_max_f, depth, theme))
+                    .collect();
+                let body_colors: Vec<Color> = bin_colors.iter().map(|&c| dim(c, 0.55)).collect();
 
-                    let freq_to_col = |freq_hz: f64| -> Option<u16> {
-                        let frac = (freq_hz - left_hz) / bw;
-                        if (0.0..=1.0).contains(&frac) {
-                            Some(((frac * (width.saturating_sub(1)) as f64).round() as usize)
-                                .min(width - 1) as u16)
-                        } else {
-                            None
-                        }
-                    };
+                let peak_hold_color   = theme.peak_hold;
+                let noise_floor_color = theme.noise_floor;
+                // Frozen hold ghost: a soft, dimmed phosphor so it reads as a "past"
+                // snapshot of the whole spectrum without competing with the live trace.
+                let hold_color  = dim(theme.border_focused, 0.50);
+                let cursor_color = theme.value_hi;
+                let marker_color    = theme.status_warn;
+                let bw_border_color = theme.border_accent;
 
-                    let mut vlines: Vec<VLine> = Vec::new();
-                    for mk in &state.spectrum.markers {
-                        if let Some(c) = freq_to_col(mk.freq_hz as f64) {
-                            vlines.push(VLine { col: c, color: theme.status_warn, through_bars: false });
-                        }
-                        if let Some(ch_bw) = mk.channel_bw_hz {
+                // Cursor canvas x-coordinate (0..n-1).
+                let cursor_x_canvas = state.spectrum.cursor_freq.and_then(|cf| {
+                    freq_to_canvas_x(cf as f64, left_hz, bw, n)
+                });
+
+                // Marker x-coordinates + optional channel-BW boundary pairs.
+                struct MarkerCanvas { x: Option<f64>, bw_lo: Option<f64>, bw_hi: Option<f64> }
+                let marker_data: Vec<MarkerCanvas> = state.spectrum.markers.iter()
+                    .filter_map(|mk| {
+                        let x = freq_to_canvas_x(mk.freq_hz as f64, left_hz, bw, n);
+                        let (bw_lo, bw_hi) = if let Some(ch_bw) = mk.channel_bw_hz {
                             let half = ch_bw as f64 / 2.0;
-                            if let Some(c) = freq_to_col(mk.freq_hz as f64 - half) {
-                                vlines.push(VLine { col: c, color: theme.border_accent, through_bars: false });
-                            }
-                            if let Some(c) = freq_to_col(mk.freq_hz as f64 + half) {
-                                vlines.push(VLine { col: c, color: theme.border_accent, through_bars: false });
-                            }
-                        }
-                    }
-                    if let Some(cf) = state.spectrum.cursor_freq {
-                        if let Some(c) = freq_to_col(cf as f64) {
-                            vlines.push(VLine { col: c, color: theme.value_hi, through_bars: true });
-                        }
-                    }
+                            (freq_to_canvas_x(mk.freq_hz as f64 - half, left_hz, bw, n),
+                             freq_to_canvas_x(mk.freq_hz as f64 + half, left_hz, bw, n))
+                        } else { (None, None) };
+                        if x.is_some() || bw_lo.is_some() || bw_hi.is_some() {
+                            Some(MarkerCanvas { x, bw_lo, bw_hi })
+                        } else { None }
+                    })
+                    .collect();
 
-                    let buf = f.buffer_mut();
-                    // Full-brightness palette for braille ⣿ interior fg.
-                    // Interior cells are rendered as braille characters (not bg-colored
-                    // blocks), so the full vivid palette colors are appropriate here.
-                    let fill_fn = |t: f32| theme.palette_color(t);
-                    spectrum_bars::paint_braille(
-                        buf, canvas_area, &bars,
-                        &col_peak, &col_hold, noise_floor,
-                        y_min_f, y_max_f,
-                        fill_fn,
-                        theme.peak_hold,      // peak hold caps: vivid gold/yellow
-                        theme.border_default, // hold ghost caps: subtly visible
-                        theme.label,          // noise floor dashes: readable dim
-                    );
-                    spectrum_bars::paint_vlines(buf, canvas_area, &vlines, &bars, y_min_f, y_max_f);
-                }
+                f.render_widget(
+                    Canvas::default()
+                        .x_bounds([0.0, (n - 1.0).max(0.0)])
+                        .y_bounds([y_min, y_max])
+                        .paint(move |ctx| {
+                            // 1. Hold ghost — the entire frozen spectrum as a soft outline.
+                            if let Some(ref held) = held_bins {
+                                for i in 1..held.len() {
+                                    ctx.draw(&CanvasLine {
+                                        x1: (i - 1) as f64, y1: held[i - 1].clamp(y_min_f, y_max_f) as f64,
+                                        x2: i as f64,       y2: held[i].clamp(y_min_f, y_max_f) as f64,
+                                        color: hold_color,
+                                    });
+                                }
+                            }
+                            // 2. Filled body — vertical glow under each bin (dimmed gradient).
+                            for (i, &db) in bins.iter().enumerate() {
+                                ctx.draw(&CanvasLine {
+                                    x1: i as f64, y1: y_min,
+                                    x2: i as f64, y2: db.clamp(y_min_f, y_max_f) as f64,
+                                    color: body_colors[i],
+                                });
+                            }
+                            // 3. Live edge — bright full-color trace connecting the bin tops.
+                            for i in 1..bins.len() {
+                                ctx.draw(&CanvasLine {
+                                    x1: (i - 1) as f64, y1: bins[i - 1].clamp(y_min_f, y_max_f) as f64,
+                                    x2: i as f64,       y2: bins[i].clamp(y_min_f, y_max_f) as f64,
+                                    color: bin_colors[i],
+                                });
+                            }
+                            // 4. Peak hold — gold dots tracing the decaying max envelope.
+                            for (i, &db) in peaks.iter().enumerate() {
+                                ctx.draw(&Points {
+                                    coords: &[(i as f64, db.clamp(y_min_f, y_max_f) as f64)],
+                                    color: peak_hold_color,
+                                });
+                            }
+                            // 5. Noise floor reference line.
+                            let nf = noise_floor.clamp(y_min_f, y_max_f) as f64;
+                            ctx.draw(&CanvasLine { x1: 0.0, y1: nf, x2: n - 1.0, y2: nf, color: noise_floor_color });
+                            // 6. Markers + channel-BW boundaries.
+                            for md in &marker_data {
+                                if let Some(cx) = md.x {
+                                    ctx.draw(&CanvasLine { x1: cx, y1: y_min, x2: cx, y2: y_max, color: marker_color });
+                                }
+                                if let Some(lo) = md.bw_lo {
+                                    ctx.draw(&CanvasLine { x1: lo, y1: y_min, x2: lo, y2: y_max, color: bw_border_color });
+                                }
+                                if let Some(hi) = md.bw_hi {
+                                    ctx.draw(&CanvasLine { x1: hi, y1: y_min, x2: hi, y2: y_max, color: bw_border_color });
+                                }
+                            }
+                            // 7. Tuning cursor — full-height line, always visible.
+                            if let Some(cx) = cursor_x_canvas {
+                                ctx.draw(&CanvasLine { x1: cx, y1: y_min, x2: cx, y2: y_max, color: cursor_color });
+                            }
+                        }),
+                    canvas_area,
+                );
 
                 // ── Band plan overlay (text on top of canvas, top row) ────
                 if canvas_area.height >= 2 && canvas_area.width > 4 {
