@@ -250,6 +250,7 @@ impl Panel for FooterPanel {
                 .alignment(Alignment::Center),
             area,
         );
+        chrome::corner_accents(f, area, border_color);
     }
 }
 

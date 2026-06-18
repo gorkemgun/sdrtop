@@ -34,6 +34,36 @@ fn freq_to_canvas_x(freq_hz: f64, left_hz: f64, bw: f64, n: f64) -> Option<f64> 
     if (0.0..=1.0).contains(&frac) { Some(frac * (n - 1.0)) } else { None }
 }
 
+/// How far a bin must rise above the noise floor to count as a real signal peak.
+/// Well above typical FFT noise ripple, so only solid carriers qualify — which is
+/// what keeps the auto-flagged set stable frame-to-frame (no flicker on noise).
+const PEAK_PROMINENCE_DB: f32 = 10.0;
+
+/// Detect the strongest spectral peaks for auto-marking. Returns the bin indices
+/// of local maxima that rise at least `PEAK_PROMINENCE_DB` above `noise_floor`,
+/// each separated from already-chosen peaks by `min_sep` bins, strongest first,
+/// capped at `max_peaks`. Pure + deterministic so it can be unit-tested.
+fn detect_peaks(bins: &[f32], noise_floor: f32, max_peaks: usize, min_sep: usize) -> Vec<usize> {
+    if bins.len() < 3 || max_peaks == 0 { return Vec::new(); }
+    let thresh = noise_floor + PEAK_PROMINENCE_DB;
+
+    // Local maxima above the threshold. A plateau registers only on its rising
+    // edge (`v > left`, `v >= right`), so flat tops don't yield duplicates.
+    let mut cands: Vec<usize> = (1..bins.len() - 1)
+        .filter(|&i| bins[i] >= thresh && bins[i] > bins[i - 1] && bins[i] >= bins[i + 1])
+        .collect();
+    cands.sort_by(|&a, &b| bins[b].partial_cmp(&bins[a]).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut chosen: Vec<usize> = Vec::new();
+    for c in cands {
+        if chosen.iter().all(|&p| (p as isize - c as isize).unsigned_abs() >= min_sep) {
+            chosen.push(c);
+            if chosen.len() >= max_peaks { break; }
+        }
+    }
+    chosen
+}
+
 // ── Spectrum step sizes ───────────────────────────────────────────────────────
 
 pub const SPECTRUM_STEPS: &[u64] = &[
@@ -124,11 +154,13 @@ impl Panel for SpectrumPanel {
                         .style(Style::default().fg(theme.label)),
                     area,
                 );
+                chrome::corner_accents(f, area, border_color);
             }
             Some(frame) => {
                 let outer_block = chrome::deck_block(border_color).title(title_line);
                 let inner = outer_block.inner(area);
                 f.render_widget(outer_block, area);
+                chrome::corner_accents(f, area, border_color);
 
                 // Layout: dBFS label column (6) | canvas+freq[+indicator]
                 let cols = Layout::default()
@@ -365,6 +397,55 @@ impl Panel for SpectrumPanel {
                     }
                 }
 
+                // ── Auto-peak flags ───────────────────────────────────────
+                // Automatically flag the strongest carriers with a gold ▲ + their
+                // frequency, anchored at the peak column and stacked upward from the
+                // peak-hold tip (a stable y, so the flag doesn't bounce with the live
+                // trace). Drawn before user markers so a deliberate ▼ marker wins any
+                // overlap. Distinct glyph (▲) and colour from user markers (▼).
+                if canvas_area.height >= 3 && canvas_area.width > 6 {
+                    let cw = canvas_area.width;
+                    let ch = canvas_area.height;
+                    let min_sep = (n_bins / 24).max(1);
+                    let peak_idxs = detect_peaks(&frame.bins_dbfs, frame.noise_floor, 5, min_sep);
+
+                    // Per-row occupancy so flags never type over each other.
+                    let mut row_occ: Vec<Vec<(u16, u16)>> = vec![Vec::new(); ch as usize];
+                    for idx in peak_idxs {
+                        let freq   = left_hz + bw * (idx as f64 / (n_bins - 1).max(1) as f64);
+                        let frac_x = ((freq - left_hz) / bw).clamp(0.0, 1.0);
+                        let col0   = (frac_x * cw as f64) as u16;
+                        let amp    = frame.peak_hold.get(idx).copied().unwrap_or(frame.bins_dbfs[idx]);
+                        let frac_y = ((y_max_f - amp) / span).clamp(0.0, 1.0);
+                        let tip_row = (frac_y * (ch - 1) as f32) as u16;
+
+                        let label = format!("\u{25B2}{:.2}", freq / 1_000_000.0);
+                        let lw    = label.chars().count() as u16;
+                        let col   = col0.min(cw.saturating_sub(lw));
+
+                        // Prefer the row just above the tip; climb until a clear slot.
+                        let mut r = tip_row.saturating_sub(1) as i32;
+                        let mut placed: Option<u16> = None;
+                        while r >= 0 {
+                            let ru = r as u16;
+                            let clear = row_occ[ru as usize].iter()
+                                .all(|&(s, e)| col + lw <= s || col >= e);
+                            if clear { placed = Some(ru); break; }
+                            r -= 1;
+                        }
+                        if let Some(ru) = placed {
+                            row_occ[ru as usize].push((col, col + lw + 1));
+                            f.render_widget(
+                                Paragraph::new(Span::styled(
+                                    label,
+                                    Style::default().fg(theme.peak_hold).add_modifier(Modifier::BOLD),
+                                )),
+                                Rect { x: canvas_area.x + col, y: canvas_area.y + ru, width: lw, height: 1 },
+                            );
+                        }
+                    }
+                }
+
                 // ── Marker labels — collision-aware multi-row placement ───
                 if canvas_area.height >= 3 {
                     let cw = canvas_area.width as f64;
@@ -495,5 +576,66 @@ impl Panel for SpectrumPanel {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A flat noise floor at -90 dBFS with two carriers poking through.
+    fn noisy_spectrum() -> Vec<f32> {
+        let mut b = vec![-90.0f32; 200];
+        b[50]  = -40.0; // strong
+        b[150] = -55.0; // weaker, well separated
+        b
+    }
+
+    #[test]
+    fn detect_peaks_finds_carriers_above_noise() {
+        let b = noisy_spectrum();
+        let peaks = detect_peaks(&b, -90.0, 5, 4);
+        assert_eq!(peaks, vec![50, 150], "strongest first, both above +10 dB prominence");
+    }
+
+    #[test]
+    fn detect_peaks_ignores_sub_prominence_bumps() {
+        let mut b = vec![-90.0f32; 200];
+        b[50] = -40.0;   // real signal (+50 dB)
+        b[120] = -82.0;  // only +8 dB → below the 10 dB threshold
+        let peaks = detect_peaks(&b, -90.0, 5, 4);
+        assert_eq!(peaks, vec![50]);
+    }
+
+    #[test]
+    fn detect_peaks_enforces_min_separation() {
+        let mut b = vec![-90.0f32; 200];
+        b[50] = -30.0;   // strongest
+        b[52] = -35.0;   // close second, within min_sep → dropped
+        b[150] = -40.0;  // far enough → kept
+        let peaks = detect_peaks(&b, -90.0, 5, 8);
+        assert_eq!(peaks, vec![50, 150]);
+    }
+
+    #[test]
+    fn detect_peaks_caps_at_max() {
+        let mut b = vec![-90.0f32; 200];
+        for i in 0..6 { b[20 + i * 25] = -40.0; }
+        let peaks = detect_peaks(&b, -90.0, 3, 4);
+        assert_eq!(peaks.len(), 3);
+    }
+
+    #[test]
+    fn detect_peaks_flat_top_no_duplicate() {
+        let mut b = vec![-90.0f32; 200];
+        b[50] = -40.0; b[51] = -40.0; b[52] = -40.0; // 3-wide plateau
+        let peaks = detect_peaks(&b, -90.0, 5, 4);
+        assert_eq!(peaks, vec![50], "plateau yields one peak at its rising edge");
+    }
+
+    #[test]
+    fn detect_peaks_empty_on_pure_noise() {
+        let b = vec![-90.0f32; 200];
+        assert!(detect_peaks(&b, -90.0, 5, 4).is_empty());
     }
 }

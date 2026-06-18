@@ -8,9 +8,11 @@
 //! and wrap the name with [`nameplate`]; static panels use [`title`] directly.
 
 use ratatui::{
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders},
+    widgets::{Block, BorderType, Borders, Paragraph},
+    Frame,
 };
 
 /// A panel frame in the schematic deck language: square corners, single rule.
@@ -19,6 +21,27 @@ pub fn deck_block<'a>(border_color: Color) -> Block<'a> {
         .borders(Borders::ALL)
         .border_type(BorderType::Plain)
         .border_style(Style::default().fg(border_color))
+}
+
+/// Overlay reinforced "bracket" corners on an already-rendered panel frame, in
+/// the panel's own border colour. The heavier corner glyphs (`┏┓┗┛`) against the
+/// light edges read as fastened instrument-panel corners — a schematic-deck
+/// detail that adds structure without touching the colour palette. Call right
+/// after rendering the block. No-op for frames too small to have real corners.
+pub fn corner_accents(f: &mut Frame, area: Rect, color: Color) {
+    if area.width < 2 || area.height < 2 { return; }
+    let style = Style::default().fg(color);
+    let (l, t) = (area.x, area.y);
+    let (r, b) = (area.x + area.width - 1, area.y + area.height - 1);
+    for (x, y, ch) in [
+        (l, t, "\u{250F}"), // ┏
+        (r, t, "\u{2513}"), // ┓
+        (l, b, "\u{2517}"), // ┗
+        (r, b, "\u{251B}"), // ┛
+    ] {
+        f.render_widget(Paragraph::new(Span::styled(ch, style)),
+                        Rect { x, y, width: 1, height: 1 });
+    }
 }
 
 /// Wrap nameplate label spans with tick end-caps: `╴…╶`. The caller may append

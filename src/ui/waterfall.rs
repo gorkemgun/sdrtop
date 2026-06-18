@@ -121,12 +121,14 @@ impl Panel for WaterfallPanel {
                     .style(Style::default().fg(theme.label)),
                 area,
             );
+            chrome::corner_accents(f, area, border_color);
             return;
         }
 
         let block = chrome::deck_block(border_color).title(title_line);
         let inner = block.inner(area);
         f.render_widget(block, area);
+        chrome::corner_accents(f, area, border_color);
 
         // When focused, reserve one row for the indicator line (like spectrum panel)
         let (content_area, indicator_area) = if focused && inner.height > 2 {
@@ -232,6 +234,27 @@ impl Panel for WaterfallPanel {
                     Paragraph::new(Span::styled(label, Style::default().fg(theme.label))),
                     Rect { x: wf_area.x + col, y: wf_area.y, width: lw, height: 1 },
                 );
+            }
+        }
+
+        // ── Time axis — elapsed-time ticks down the right edge ─────────────
+        // The newest row is at the top (≈now); each tick reads the real timestamp
+        // of the row at that screen line, so you can see how far back the visible
+        // history reaches. Kept on the right edge so the left dB legend and the
+        // shared-with-spectrum frequency span are untouched.
+        if wf_area.height >= 6 && wf_area.width > 12 {
+            let h = wf_area.height as usize;
+            for k in 1..=4 {
+                let r = (h - 1) * k / 4;            // screen row, skipping the top "now" row
+                let data_idx = skip_data + r * 2;  // top sub-row of that character cell
+                if let Some((ts, _)) = buf.rows.get(data_idx) {
+                    let label = format!("\u{2574}{}s", ts.elapsed().as_secs()); // ╴12s
+                    let lw = label.chars().count() as u16;
+                    f.render_widget(
+                        Paragraph::new(Span::styled(label, Style::default().fg(theme.label))),
+                        Rect { x: wf_area.x + wf_area.width - lw, y: wf_area.y + r as u16, width: lw, height: 1 },
+                    );
+                }
             }
         }
 

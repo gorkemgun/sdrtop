@@ -20,6 +20,7 @@ pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, theme: &crate::Theme) {
         .alignment(Alignment::Left)
         .scroll((scroll, 0));
     f.render_widget(panel, area);
+    chrome::corner_accents(f, area, theme.border_dim);
 }
 
 use super::panel::Panel;

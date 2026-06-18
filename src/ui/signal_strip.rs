@@ -40,6 +40,26 @@ fn fmt_rbw(hz: f64) -> String {
 /// Width (cells) of a mini-bar gauge.
 const BAR_W: usize = 7;
 
+/// Eight vertical block glyphs for a one-row sparkline (▁ low … █ high).
+const SPARK: [char; 8] = ['\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}',
+                          '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}'];
+
+/// Render a value series as a one-row block sparkline of `width` chars, newest at
+/// the right. Auto-scales to the series' own min/max so small movements stay
+/// visible. Shorter series are left-padded with spaces. Empty → empty string.
+fn sparkline(series: &[f32], width: usize) -> String {
+    if series.is_empty() || width == 0 { return String::new(); }
+    let take  = series.len().min(width);
+    let slice = &series[series.len() - take..];
+    let lo = slice.iter().copied().fold(f32::INFINITY, f32::min);
+    let hi = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let range = (hi - lo).max(1e-6);
+    let body: String = slice.iter()
+        .map(|&v| SPARK[(((v - lo) / range) * 7.0).round().clamp(0.0, 7.0) as usize])
+        .collect();
+    if take < width { format!("{}{}", " ".repeat(width - take), body) } else { body }
+}
+
 /// One metric in the strip: a label, a formatted value, and an optional gauge
 /// fill ratio (0–1). `fill = None` marks an info value with no bar (e.g. RBW).
 struct Cell {
@@ -48,21 +68,26 @@ struct Cell {
     vcolor: Color,
     fill:   Option<f32>,
     bcolor: Color,
+    /// Recent value history (oldest→newest) for a trailing sparkline. Empty for
+    /// metrics with no time-series (PWR / NF / RBW / IQ have no ring buffer).
+    trend:  Vec<f32>,
 }
 
 impl Cell {
     fn gauge(label: &'static str, value: String, color: Color, fill: f32) -> Self {
-        Cell { label, value, vcolor: color, fill: Some(fill.clamp(0.0, 1.0)), bcolor: color }
+        Cell { label, value, vcolor: color, fill: Some(fill.clamp(0.0, 1.0)), bcolor: color, trend: Vec::new() }
     }
     fn info(label: &'static str, value: String, color: Color) -> Self {
-        Cell { label, value, vcolor: color, fill: None, bcolor: color }
+        Cell { label, value, vcolor: color, fill: None, bcolor: color, trend: Vec::new() }
     }
     fn dash(label: &'static str, theme: &crate::Theme, bar: bool) -> Self {
         Cell {
             label, value: "---".into(), vcolor: theme.stale,
-            fill: if bar { Some(0.0) } else { None }, bcolor: theme.stale,
+            fill: if bar { Some(0.0) } else { None }, bcolor: theme.stale, trend: Vec::new(),
         }
     }
+    /// Attach a value history for the trailing sparkline.
+    fn with_trend(mut self, trend: Vec<f32>) -> Self { self.trend = trend; self }
 }
 
 /// Build all eight metric cells, ordered: signal row (P/NF, PWR, NF, RBW) then
@@ -74,6 +99,7 @@ fn build_cells(state: &SdrMetrics, theme: &crate::Theme, stale: bool, hw_stale: 
         Cell::dash("P/NF", theme, true)
     } else {
         Cell::gauge("P/NF", format!("{:.1} dB", snr), snr_color(snr, theme), snr / 40.0)
+            .with_trend(state.signal.snr_history.iter().copied().collect())
     };
 
     let pwr_finite = state.signal.channel_power_dbfs.is_finite();
@@ -101,18 +127,21 @@ fn build_cells(state: &SdrMetrics, theme: &crate::Theme, stale: bool, hw_stale: 
     } else {
         let s = state.signal.adc_saturation_pct;
         Cell::gauge("SAT", format!("{:.1}%", s), sat_color(s, theme), s / 10.0)
+            .with_trend(state.signal.saturation_history.iter().copied().collect())
     };
     let drop = if hw_stale {
         Cell::dash("DROP", theme, true)
     } else {
         let d = state.signal.drops_per_sec;
         Cell::gauge("DROP", format!("{}/s", d), drop_color(d, theme), d as f32 / 20.0)
+            .with_trend(state.signal.drop_history.iter().map(|&v| v as f32).collect())
     };
     let buf = if hw_stale {
         Cell::dash("BUF", theme, true)
     } else {
         let b = state.iq.buf_fill_pct;
         Cell::gauge("BUF", format!("{:.0}%", b), buf_color(b, theme), b / 100.0)
+            .with_trend(state.iq.buf_fill_history.iter().map(|&v| v as f32).collect())
     };
     let iq = if hw_stale {
         Cell::dash("IQ", theme, true)
@@ -150,15 +179,22 @@ fn cell_sigil(color: Color, theme: &crate::Theme) -> &'static str {
     else { "\u{25E6}" }                                                    // ◦
 }
 
-/// ` ● LABEL ▰▰▰▱▱ value` — one gauge cell with a leading status lamp,
-/// laid out left-aligned in its column.
-fn cell_spans(c: &Cell, theme: &crate::Theme) -> Vec<Span<'static>> {
+/// ` ● LABEL ▰▰▰▱▱ value ▁▂▃▅` — one gauge cell with a leading status lamp and,
+/// when `spark_w` columns are free and the cell has history, a trailing
+/// sparkline. Laid out left-aligned in its column.
+fn cell_spans(c: &Cell, theme: &crate::Theme, spark_w: usize) -> Vec<Span<'static>> {
     let mut spans = vec![
         Span::styled(format!(" {} ", cell_sigil(c.vcolor, theme)), Style::default().fg(c.vcolor)),
         Span::styled(format!("{:<4} ", c.label), Style::default().fg(theme.label)),
     ];
     spans.extend(bar_spans(c.fill, c.bcolor, theme.border_dim));
     spans.push(Span::styled(format!(" {:<11}", c.value), Style::default().fg(c.vcolor)));
+    if spark_w >= 3 && c.trend.len() >= 2 {
+        spans.push(Span::styled(
+            format!(" {}", sparkline(&c.trend, spark_w)),
+            Style::default().fg(theme.border_dim),
+        ));
+    }
     spans
 }
 
@@ -176,6 +212,7 @@ impl Panel for SignalStripPanel {
             .title(chrome::title("Signal", theme.label, theme.border_dim));
         let inner = block.inner(area);
         f.render_widget(block, area);
+        chrome::corner_accents(f, area, theme.border_dim);
         if inner.width == 0 || inner.height == 0 { return; }
 
         let cells = build_cells(state, theme, stale, hw_stale);
@@ -186,12 +223,16 @@ impl Panel for SignalStripPanel {
         if inner.height >= 2 && inner.width >= 108 {
             let ncol: u16 = 4;
             let col_w = inner.width / ncol;
+            // The base cell (sigil+label+bar+value) is 27 cols; anything past that,
+            // up to 8, becomes the trailing sparkline. Narrow terminals simply omit
+            // it (spark_w < 3) — no truncation, graceful degradation.
+            let spark_w = (col_w as usize).saturating_sub(28).min(8);
             for (ri, chunk) in cells.chunks(4).enumerate().take(inner.height as usize) {
                 for (ci, c) in chunk.iter().enumerate() {
                     let x = inner.x + ci as u16 * col_w;
                     let w = if ci as u16 == ncol - 1 { inner.width - col_w * (ncol - 1) } else { col_w };
                     let rect = Rect { x, y: inner.y + ri as u16, width: w, height: 1 };
-                    f.render_widget(Paragraph::new(Line::from(cell_spans(c, theme))), rect);
+                    f.render_widget(Paragraph::new(Line::from(cell_spans(c, theme, spark_w))), rect);
                 }
             }
         } else {
@@ -234,6 +275,42 @@ mod tests {
         assert_eq!(drop_color(0,  &t), t.status_ok);
         assert_eq!(drop_color(5,  &t), t.status_warn);
         assert_eq!(drop_color(15, &t), t.status_crit);
+    }
+
+    #[test]
+    fn sparkline_maps_extremes_to_low_and_high_glyphs() {
+        let s = sparkline(&[0.0, 10.0], 2);
+        let chars: Vec<char> = s.chars().collect();
+        assert_eq!(chars[0], '\u{2581}'); // min → ▁
+        assert_eq!(chars[1], '\u{2588}'); // max → █
+    }
+
+    #[test]
+    fn sparkline_left_pads_short_series() {
+        let s = sparkline(&[5.0], 4);
+        assert_eq!(s.chars().count(), 4);
+        assert!(s.starts_with("   "), "padded with leading spaces: {s:?}");
+    }
+
+    #[test]
+    fn sparkline_takes_newest_when_longer_than_width() {
+        // 5 samples into width 3 → only the last 3 are shown
+        let s = sparkline(&[0.0, 0.0, 0.0, 0.0, 10.0], 3);
+        assert_eq!(s.chars().count(), 3);
+        assert_eq!(s.chars().last().unwrap(), '\u{2588}'); // newest (max) at the right
+    }
+
+    #[test]
+    fn sparkline_flat_series_is_stable() {
+        // constant series must not divide-by-zero or panic; all same glyph
+        let s = sparkline(&[3.0, 3.0, 3.0], 3);
+        assert_eq!(s.chars().count(), 3);
+    }
+
+    #[test]
+    fn sparkline_empty_or_zero_width_is_empty() {
+        assert_eq!(sparkline(&[], 4), "");
+        assert_eq!(sparkline(&[1.0, 2.0], 0), "");
     }
 
     #[test]

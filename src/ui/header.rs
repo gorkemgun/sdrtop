@@ -294,6 +294,7 @@ impl Panel for HeaderPanel {
             .title(chrome::title("Radio", theme.label, theme.border_dim));
         let inner = block.inner(area);
         f.render_widget(block, area);
+        chrome::corner_accents(f, area, theme.border_dim);
 
         // inner.height == 3 when area.height == 5
         // Row positions (absolute y):
