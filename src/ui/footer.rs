@@ -1,6 +1,7 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    text::{Line, Text},
+    style::{Modifier, Style},
+    text::{Line, Span, Text},
     widgets::Paragraph,
     Frame,
 };
@@ -11,7 +12,7 @@ use crate::ui::chrome;
 use super::panel::Panel;
 
 const FOCUS_SEP:  &str = "  ·  ";
-const NORMAL_SEP: &str = "  ";
+const NORMAL_SEP: &str = " · ";
 const MAX_CONTENT_LINES: u16 = 5;
 
 const NORMAL_ITEMS: &[&str] = &[
@@ -133,11 +134,13 @@ fn normal_items(active_preset: &str, available: &[String], micro_view: MicroView
     items
 }
 
-/// Break `items` into lines where no line exceeds `inner_w` display columns.
-fn wrap_items<S: AsRef<str>>(items: &[S], sep: &str, inner_w: usize) -> Vec<String> {
+/// Break `items` into lines (groups) where no line exceeds `inner_w` display
+/// columns. Returns the items per line, preserving boundaries so the renderer
+/// can style each key/description independently.
+fn wrap_items_grouped<S: AsRef<str>>(items: &[S], sep: &str, inner_w: usize) -> Vec<Vec<String>> {
     let sep_w = sep.chars().count();
-    let mut lines: Vec<String> = Vec::new();
-    let mut cur: Vec<&str>     = Vec::new();
+    let mut lines: Vec<Vec<String>> = Vec::new();
+    let mut cur:   Vec<String>      = Vec::new();
     let mut cur_w = 0usize;
 
     for item in items {
@@ -145,17 +148,64 @@ fn wrap_items<S: AsRef<str>>(items: &[S], sep: &str, inner_w: usize) -> Vec<Stri
         let iw = s.chars().count();
         let needed = if cur.is_empty() { iw } else { sep_w + iw };
         if !cur.is_empty() && inner_w > 0 && cur_w + needed > inner_w {
-            lines.push(cur.join(sep));
-            cur   = vec![s];
+            lines.push(std::mem::take(&mut cur));
+            cur.push(s.to_string());
             cur_w = iw;
         } else {
-            cur.push(s);
+            cur.push(s.to_string());
             cur_w += needed;
         }
     }
-    if !cur.is_empty() { lines.push(cur.join(sep)); }
+    if !cur.is_empty() { lines.push(cur); }
+    lines
+}
+
+/// Break `items` into joined lines (used for height measurement).
+fn wrap_items<S: AsRef<str>>(items: &[S], sep: &str, inner_w: usize) -> Vec<String> {
+    let mut lines: Vec<String> = wrap_items_grouped(items, sep, inner_w)
+        .into_iter().map(|g| g.join(sep)).collect();
     if lines.is_empty() { lines.push(String::new()); }
     lines
+}
+
+/// Style one footer item into spans: a bright bolded key in faint brackets, a
+/// dim description, and an accented `▸` active-marker. Items without a `[key]`
+/// (e.g. `micro 1/5`) render as a single dim label.
+fn item_spans(item: &str, theme: &crate::Theme) -> Vec<Span<'static>> {
+    if item.starts_with('[') {
+        if let Some(end) = item.find(']') {
+            let inner = item[1..end].to_string();   // key text, e.g. "Q" / "↑↓" / "Space"
+            let rest  = &item[end + 1..];            // " Quit" or "▸signal" or ""
+            let mut spans = vec![
+                Span::styled("[", Style::default().fg(theme.border_dim)),
+                Span::styled(inner, Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
+                Span::styled("]", Style::default().fg(theme.border_dim)),
+            ];
+            if let Some(name) = rest.strip_prefix('\u{25B8}') {
+                // active preset/lab entry: ▸name highlighted
+                spans.push(Span::styled("\u{25B8}", Style::default().fg(theme.border_accent)));
+                spans.push(Span::styled(name.to_string(), Style::default().fg(theme.value_hi)));
+            } else if !rest.is_empty() {
+                spans.push(Span::styled(rest.to_string(), Style::default().fg(theme.label)));
+            }
+            return spans;
+        }
+    }
+    vec![Span::styled(item.to_string(), Style::default().fg(theme.label))]
+}
+
+/// Assemble wrapped item groups into styled `Line`s, joining items with a dim
+/// separator. `max_lines` clamps the output to what fits in the panel.
+fn styled_lines(groups: Vec<Vec<String>>, sep: &str, theme: &crate::Theme, max_lines: usize)
+    -> Vec<Line<'static>> {
+    groups.into_iter().take(max_lines.max(1)).map(|g| {
+        let mut spans: Vec<Span> = Vec::new();
+        for (i, item) in g.iter().enumerate() {
+            if i > 0 { spans.push(Span::styled(sep.to_string(), Style::default().fg(theme.border_dim))); }
+            spans.extend(item_spans(item, theme));
+        }
+        Line::from(spans)
+    }).collect()
 }
 
 fn count_lines<S: AsRef<str>>(items: &[S], sep: &str, inner_w: usize) -> usize {
@@ -191,28 +241,34 @@ impl Panel for FooterPanel {
         let inner_w = area.width.saturating_sub(2) as usize;
         let max_lines = area.height.saturating_sub(2) as usize;
 
-        let (lines, border_color): (Vec<String>, _) = if m.observer.active {
+        // Single-line data-entry prompt: dim label, the live buffer highlighted.
+        let prompt = |s: String| -> Vec<Line<'static>> {
+            vec![Line::from(Span::styled(s, Style::default().fg(theme.value)))]
+        };
+
+        let (lines, border_color): (Vec<Line<'static>>, _) = if m.observer.active {
             (
-                vec!["[Q] Quit  ·  [?] Help  (Observer Mode)".to_string()],
+                styled_lines(vec![vec!["[Q] Quit".into(), "[?] Help".into(), "(Observer Mode)".into()]],
+                             FOCUS_SEP, theme, max_lines),
                 theme.observer,
             )
         } else {
             match m.ui.input_mode {
                 InputMode::FrequencyInput => (
-                    vec![format!(" Frequency (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)],
+                    prompt(format!(" Frequency (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)),
                     theme.status_warn,
                 ),
                 InputMode::SampleRateInput => (
-                    vec![format!(" Sample rate ({:.1}–{:.1} MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel",
-                        m.caps.sample_rate_min_hz / 1e6, m.caps.sample_rate_max_hz / 1e6, m.ui.input_buf)],
+                    prompt(format!(" Sample rate ({:.1}–{:.1} MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel",
+                        m.caps.sample_rate_min_hz / 1e6, m.caps.sample_rate_max_hz / 1e6, m.ui.input_buf)),
                     theme.status_warn,
                 ),
                 InputMode::SweepStartInput => (
-                    vec![format!(" Sweep START (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)],
+                    prompt(format!(" Sweep START (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)),
                     theme.status_warn,
                 ),
                 InputMode::SweepStopInput => (
-                    vec![format!(" Sweep STOP (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)],
+                    prompt(format!(" Sweep STOP (MHz): [{}▌]  [Enter] Confirm  [Esc] Cancel", m.ui.input_buf)),
                     theme.status_warn,
                 ),
                 InputMode::MarkerNameInput => {
@@ -220,30 +276,30 @@ impl Panel for FooterPanel {
                         .map(|f| format!("{:.3} MHz", f as f64 / 1_000_000.0))
                         .unwrap_or_default();
                     (
-                        vec![format!(" Marker name at {}:  [{}▌]  [Enter] Confirm  [Esc] Cancel", freq_str, m.ui.input_buf)],
+                        prompt(format!(" Marker name at {}:  [{}▌]  [Enter] Confirm  [Esc] Cancel", freq_str, m.ui.input_buf)),
                         theme.status_warn,
                     )
                 }
                 InputMode::Normal => {
                     if let Some(panel_name) = &m.ui.focused_panel {
-                        let items = focus_items(m);
-                        let mut wrapped = wrap_items(&items, FOCUS_SEP, inner_w);
-                        wrapped.truncate(max_lines.max(1));
+                        let items  = focus_items(m);
+                        let groups = wrap_items_grouped(&items, FOCUS_SEP, inner_w);
+                        let mut wrapped = styled_lines(groups, FOCUS_SEP, theme, max_lines);
                         if let Some(last) = wrapped.last_mut() {
-                            last.push_str(&format!("  — {}", panel_name));
+                            last.spans.push(Span::styled(format!("  — {}", panel_name),
+                                                         Style::default().fg(theme.label)));
                         }
                         (wrapped, theme.border_focused)
                     } else {
-                        let items = normal_items(&m.ui.active_preset, &m.ui.preset_names, m.ui.micro_view, area.width, &m.caps.gain);
-                        let mut wrapped = wrap_items(&items, NORMAL_SEP, inner_w);
-                        wrapped.truncate(max_lines.max(1));
-                        (wrapped, theme.border_dim)
+                        let items  = normal_items(&m.ui.active_preset, &m.ui.preset_names, m.ui.micro_view, area.width, &m.caps.gain);
+                        let groups = wrap_items_grouped(&items, NORMAL_SEP, inner_w);
+                        (styled_lines(groups, NORMAL_SEP, theme, max_lines), theme.border_dim)
                     }
                 }
             }
         };
 
-        let text = Text::from_iter(lines.into_iter().map(Line::raw));
+        let text = Text::from(lines);
         f.render_widget(
             Paragraph::new(text)
                 .block(chrome::deck_block(border_color))
@@ -267,6 +323,47 @@ fn focus_items(m: &SdrMetrics) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn item_spans_styles_key_and_description() {
+        let t = crate::theme::Theme::sdr();
+        let spans = item_spans("[Q] Quit", &t);
+        // [ key ] then description
+        let contents: Vec<&str> = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(contents, vec!["[", "Q", "]", " Quit"]);
+        // the key glyph is bold + highlighted
+        assert!(spans[1].style.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(spans[1].style.fg, Some(t.value_hi));
+        // the description is dim label
+        assert_eq!(spans[3].style.fg, Some(t.label));
+    }
+
+    #[test]
+    fn item_spans_highlights_active_marker() {
+        let t = crate::theme::Theme::sdr();
+        let spans = item_spans("[0]▸signal", &t);
+        let contents: Vec<&str> = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(contents, vec!["[", "0", "]", "\u{25B8}", "signal"]);
+        assert_eq!(spans[3].style.fg, Some(t.border_accent)); // ▸ accent
+        assert_eq!(spans[4].style.fg, Some(t.value_hi));      // name highlighted
+    }
+
+    #[test]
+    fn item_spans_plain_item_is_single_label() {
+        let t = crate::theme::Theme::sdr();
+        let spans = item_spans("micro 1/5", &t);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content.as_ref(), "micro 1/5");
+        assert_eq!(spans[0].style.fg, Some(t.label));
+    }
+
+    #[test]
+    fn styled_lines_clamps_to_max() {
+        let t = crate::theme::Theme::sdr();
+        let groups = vec![vec!["[A] a".into()], vec!["[B] b".into()], vec!["[C] c".into()]];
+        let lines = styled_lines(groups, NORMAL_SEP, &t, 2);
+        assert_eq!(lines.len(), 2);
+    }
 
     #[test]
     fn wrap_items_splits_at_boundary() {
