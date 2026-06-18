@@ -43,6 +43,54 @@ fn gain_bar(gain: u32, max_gain: u32, n: usize) -> (String, String) {
     ("▮".repeat(filled), "▯".repeat(n - filled))
 }
 
+/// Power-of-ten exponent (in Hz) of the digit the current tuning step acts on:
+/// 1 kHz→3, 10 kHz→4, 100 kHz→5, 1 MHz→6, 10 MHz→7. Coarse-but-non-decade steps
+/// (5 kHz, 25 kHz, 500 kHz, 5 MHz) collapse onto their leading digit's place,
+/// which is the digit a user reads as "the one I'm moving".
+fn step_place_exp(step_hz: u64) -> u32 {
+    let mut e = 0u32;
+    let mut s = step_hz.max(1);
+    while s >= 10 { s /= 10; e += 1; }
+    e
+}
+
+/// Segmented VFO frequency readout: the MHz value rendered digit-by-digit with a
+/// thin gap between every character, and the single digit the current tuning step
+/// moves underlined + brightened — so you can see at a glance which place `← →`
+/// will change. The decimal point is dimmed. Returns the spans; width varies with
+/// the number of MHz digits (the caller measures it for layout).
+fn vfo_spans(freq_hz: u64, step_hz: u64, digit: ratatui::style::Color,
+             dot: ratatui::style::Color, active: ratatui::style::Color) -> Vec<Span<'static>> {
+    let s = format!("{:.3}", freq_hz as f64 / 1_000_000.0); // e.g. "145.500"
+    let dot_pos = s.find('.').unwrap_or(s.len());
+    let exp = step_place_exp(step_hz);
+
+    // Char index (in `s`) of the active digit, if it is currently on screen.
+    let active_idx: Option<usize> = if exp >= 6 {
+        let from_right = (exp - 6) as usize;        // 0 = ones-MHz digit (just left of '.')
+        (from_right < dot_pos).then(|| dot_pos - 1 - from_right)
+    } else if (3..=5).contains(&exp) {
+        Some(dot_pos + 1 + (5 - exp) as usize)       // 5→.1xx, 4→..1x, 3→...1
+    } else {
+        None
+    };
+
+    let chars: Vec<char> = s.chars().collect();
+    let mut spans = Vec::with_capacity(chars.len() * 2);
+    for (i, c) in chars.iter().enumerate() {
+        if i > 0 { spans.push(Span::raw(" ")); }
+        let style = if Some(i) == active_idx {
+            Style::default().fg(active).add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else if *c == '.' {
+            Style::default().fg(dot)
+        } else {
+            Style::default().fg(digit).add_modifier(Modifier::BOLD)
+        };
+        spans.push(Span::styled(c.to_string(), style));
+    }
+    spans
+}
+
 /// Returns the number of space characters needed between the fw-version field
 /// and the right-aligned "AMP … USB …" section in the top band.
 /// All length arguments are in terminal columns (chars, not bytes).
@@ -170,8 +218,6 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
     let active = state.radio.hw_streaming && !state.observer.active;
     let gm = &state.caps.gain;
 
-    // Frequency: right-padded to 8 chars (covers 0.000–9999.999 MHz)
-    let freq_str = format!("{:8.3}", state.radio.frequency as f64 / 1_000_000.0);
     // Sample rate: right-padded to 4 chars
     let sr_str = format!("{:4.1}", state.radio.config_sample_rate / 1_000_000.0);
 
@@ -181,27 +227,34 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
     let vga_color  = if active { theme.status_warn } else { theme.label };
     let dim        = theme.border_dim;
 
-    // left:  "   "(3) + freq(8) + " "(1) + "MHz"(3) + "    "(4) + "SR "(3) + sr(4) + " Msps"(5) = 31
-    // right: primary "LNA/TUN "(4) + bar(8) + " "(1) + val(2) + " dB"(3) + "    "(4)  = 22
-    //      + second stage "VGA "(4) + bar(8) + " "(1) + val(2) + " dB"(3) + "  "(2)   = 20  (blank on RTL)
-    let left  = 3 + 8 + 1 + 3 + 4 + 3 + 4 + 5;
-    let right = 22 + 20;
-    let gap = (inner_width as usize).saturating_sub(left + right);
-
-    // Primary stage: HackRF LNA / RTL-SDR tuner.
-    let (p_filled, p_empty) = gain_bar(state.radio.lna_gain, gm.primary_max_db(), 8);
-    let p_str = format!("{:2}", state.radio.lna_gain);
-    let p_label = if gm.is_single() { "TUN " } else { "LNA " };
-
-    let mut spans = vec![
-        Span::raw("   "),
-        Span::styled(freq_str, Style::default().fg(freq_color).add_modifier(Modifier::BOLD)),
+    // Left block: segmented VFO readout + unit + sample-rate. Its width varies
+    // with the number of MHz digits and the active-digit underline, so it is
+    // measured (below) rather than assumed, and the trailing gap fills the rest.
+    let mut left_spans = vec![Span::raw("  ")];
+    left_spans.extend(vfo_spans(state.radio.frequency, state.spectrum.step_hz,
+                                freq_color, theme.label, theme.value_hi));
+    left_spans.extend([
         Span::raw(" "),
         Span::styled("MHz", Style::default().fg(theme.label)),
         Span::raw("    "),
         Span::styled("SR ", Style::default().fg(theme.label)),
         Span::styled(sr_str, Style::default().fg(val_color)),
         Span::styled(" Msps", Style::default().fg(theme.label)),
+    ]);
+    let left_w: usize = left_spans.iter().map(|s| s.width()).sum();
+
+    // right: primary "LNA/TUN "(4) + bar(8) + " "(1) + val(2) + " dB"(3) + "    "(4)  = 22
+    //      + second stage "VGA "(4) + bar(8) + " "(1) + val(2) + " dB"(3) + "  "(2)   = 20  (blank on RTL)
+    let right = 22 + 20;
+    let gap = (inner_width as usize).saturating_sub(left_w + right);
+
+    // Primary stage: HackRF LNA / RTL-SDR tuner.
+    let (p_filled, p_empty) = gain_bar(state.radio.lna_gain, gm.primary_max_db(), 8);
+    let p_str = format!("{:2}", state.radio.lna_gain);
+    let p_label = if gm.is_single() { "TUN " } else { "LNA " };
+
+    let mut spans = left_spans;
+    spans.extend([
         leader(gap, theme.border_dim),
         Span::styled(p_label, Style::default().fg(theme.label)),
         Span::styled(p_filled, Style::default().fg(lna_color)),
@@ -210,7 +263,7 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
         Span::styled(p_str, Style::default().fg(val_color)),
         Span::styled(" dB", Style::default().fg(theme.label)),
         Span::raw("    "),
-    ];
+    ]);
 
     if gm.has_second_stage() {
         let (vga_filled, vga_empty) = gain_bar(state.radio.vga_gain, 62, 8);
@@ -262,6 +315,7 @@ impl Panel for HeaderPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::Theme;
 
     #[test]
     fn gain_bar_zero_gain_all_empty() {
@@ -275,6 +329,48 @@ mod tests {
         let (filled, empty) = gain_bar(40, 40, 8);
         assert_eq!(filled, "▮▮▮▮▮▮▮▮");
         assert_eq!(empty, "");
+    }
+
+    #[test]
+    fn step_place_exp_maps_steps_to_digit_place() {
+        // decade steps land exactly on their digit
+        assert_eq!(step_place_exp(1_000),     3); // 1 kHz
+        assert_eq!(step_place_exp(10_000),    4); // 10 kHz
+        assert_eq!(step_place_exp(100_000),   5); // 100 kHz
+        assert_eq!(step_place_exp(1_000_000), 6); // 1 MHz
+        assert_eq!(step_place_exp(10_000_000),7); // 10 MHz
+        // non-decade steps collapse onto their leading digit's place
+        assert_eq!(step_place_exp(5_000),   3);
+        assert_eq!(step_place_exp(25_000),  4);
+        assert_eq!(step_place_exp(500_000), 5);
+        assert_eq!(step_place_exp(5_000_000), 6);
+    }
+
+    #[test]
+    fn vfo_underlines_the_active_digit() {
+        let t = Theme::sdr();
+        // 145.500 MHz, 10 kHz step → the 10-kHz digit is the first decimal-2 ('0'
+        // in ".50"). Exactly one span carries UNDERLINED.
+        let spans = vfo_spans(145_500_000, 10_000, t.border_accent, t.label, t.value_hi);
+        let underlined: Vec<&str> = spans.iter()
+            .filter(|s| s.style.add_modifier.contains(Modifier::UNDERLINED))
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert_eq!(underlined.len(), 1, "exactly one active digit");
+        // "145.500": frac index 1 (5→exp5,4→exp4) → the '0' after the '5'
+        assert_eq!(underlined[0], "0");
+        // active digit is brightened, not the plain accent
+        let act = spans.iter().find(|s| s.style.add_modifier.contains(Modifier::UNDERLINED)).unwrap();
+        assert_eq!(act.style.fg, Some(t.value_hi));
+    }
+
+    #[test]
+    fn vfo_step_above_screen_underlines_nothing() {
+        let t = Theme::sdr();
+        // 5 MHz, 10 MHz step → tens-of-MHz digit, which doesn't exist → no underline
+        let spans = vfo_spans(5_000_000, 10_000_000, t.border_accent, t.label, t.value_hi);
+        let any = spans.iter().any(|s| s.style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(!any, "active digit off-screen → nothing underlined");
     }
 
     #[test]
