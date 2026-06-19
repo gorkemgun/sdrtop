@@ -1,23 +1,72 @@
 use ratatui::{
-    layout::{Alignment, Rect},
+    layout::Rect,
+    style::Style,
+    text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
 
-use crate::state::SdrMetrics;
+use crate::state::{LogLevel, SdrMetrics};
 use crate::ui::chrome;
 
+/// Status lamp for a log line: a single-column glyph whose shape *and* colour
+/// escalate with severity (`·` info → `●` ok/error → `▲` warn), so a glance down
+/// the gutter reads the event history without parsing text. Ok and Error share
+/// the `●` disc and separate purely by colour, like a green/red panel LED.
+fn lamp(level: LogLevel, theme: &crate::Theme) -> Span<'static> {
+    let (glyph, color) = match level {
+        LogLevel::Info  => ("\u{00B7}", theme.border_dim),  // ·
+        LogLevel::Ok    => ("\u{25CF}", theme.status_ok),   // ●
+        LogLevel::Warn  => ("\u{25B2}", theme.status_warn), // ▲
+        LogLevel::Error => ("\u{25CF}", theme.status_crit), // ●
+    };
+    Span::styled(glyph, Style::default().fg(color))
+}
+
+/// Zero-padded `HH:MM:SS`. Split from [`fmt_clock`] so it can be unit-tested
+/// without depending on the host timezone.
+fn fmt_hms(h: u32, m: u32, s: u32) -> String {
+    format!("{h:02}:{m:02}:{s:02}")
+}
+
+/// Local wall-clock `HH:MM:SS` for a Unix-epoch instant, via libc's reentrant
+/// `localtime_r` (already a dependency — no time crate needed). Falls back to
+/// `00:00:00` if the conversion fails.
+fn fmt_clock(epoch_secs: u64) -> String {
+    // SAFETY: `localtime_r` writes into our stack `tm` and returns a pointer to
+    // it (or null on failure); we read scalar fields only, no aliasing.
+    let (h, m, s) = unsafe {
+        let t = epoch_secs as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            (0, 0, 0)
+        } else {
+            (tm.tm_hour.max(0) as u32, tm.tm_min.max(0) as u32, tm.tm_sec.max(0) as u32)
+        }
+    };
+    fmt_hms(h, m, s)
+}
+
 pub fn render(f: &mut Frame, area: Rect, m: &SdrMetrics, theme: &crate::Theme) {
-    let log_lines: Vec<&str> = m.ui.log.iter().map(|s| s.as_ref()).collect();
-    let log_text = log_lines.join("\n");
-    let inner_h  = area.height.saturating_sub(2) as usize;
-    let scroll   = (log_lines.len()).saturating_sub(inner_h) as u16;
-    let panel = Paragraph::new(log_text)
+    // Each entry → `lamp  HH:MM:SS  message`. The lamp + dim, fixed-width
+    // timestamp form an aligned gutter; the message reads in normal value colour.
+    let lines: Vec<Line> = m.ui.log.iter().map(|e| {
+        Line::from(vec![
+            lamp(e.level, theme),
+            Span::raw(" "),
+            Span::styled(fmt_clock(e.at_epoch_secs), Style::default().fg(theme.border_dim)),
+            Span::raw("  "),
+            Span::styled(e.text.as_ref(), Style::default().fg(theme.value)),
+        ])
+    }).collect();
+
+    let inner_h = area.height.saturating_sub(2) as usize;
+    let scroll  = lines.len().saturating_sub(inner_h) as u16;
+    let panel = Paragraph::new(lines)
         .block(
             chrome::deck_block(theme.border_dim)
                 .title(chrome::title("Log", theme.label, theme.border_dim)),
         )
-        .alignment(Alignment::Left)
         .scroll((scroll, 0));
     f.render_widget(panel, area);
     chrome::corner_accents(f, area, theme.border_dim);
@@ -32,5 +81,26 @@ impl Panel for LogPanel {
     fn min_size(&self) -> (u16, u16) { (20, 7) }
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
         render(f, area, state, theme);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_hms_zero_pads_to_eight_cols() {
+        assert_eq!(fmt_hms(0, 0, 0), "00:00:00");
+        assert_eq!(fmt_hms(9, 5, 3), "09:05:03");
+        assert_eq!(fmt_hms(14, 23, 1), "14:23:01");
+        assert_eq!(fmt_hms(23, 59, 59).len(), 8);
+    }
+
+    #[test]
+    fn fmt_clock_is_eight_columns() {
+        // Whatever the host timezone, the field is a fixed 8-col HH:MM:SS so the
+        // log gutter stays aligned.
+        assert_eq!(fmt_clock(1_700_000_000).len(), 8);
+        assert_eq!(fmt_clock(0).len(), 8);
     }
 }

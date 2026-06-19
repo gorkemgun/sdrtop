@@ -21,7 +21,7 @@ pub use spectrum::{SpectrumMarker, SpectrumState};
 pub use sweep::{SweepConfig, SweepFrame, SweepState, SWEEP_SETTLING_MS};
 pub use system::SystemState;
 pub use timing::{TimingQuality, TimingState, HACKRF_SAMPLES_PER_TRANSFER};
-pub use ui::{InputMode, UiState};
+pub use ui::{InputMode, LogLevel, UiState};
 pub use waterfall::{FftFrame, WaterfallState};
 
 pub const THROUGHPUT_HISTORY_LEN: usize = 64;
