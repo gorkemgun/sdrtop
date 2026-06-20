@@ -545,6 +545,19 @@ fn handle_command_rail_focus(
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
     match key.code {
+        // Esc closes the log overlay first (if open), only then exits focus.
+        KeyCode::Esc => {
+            let closed = {
+                let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                if m.ui.log_overlay { m.ui.log_overlay = false; true } else { false }
+            };
+            if !closed { return handle_global(key, state, device, engine, show_help, show_footer, focus_keys); }
+        }
+        // Toggle the full-log overlay (in rail-focus; globally `l` focuses waterfall).
+        KeyCode::Char('l') | KeyCode::Char('L') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.ui.log_overlay = !m.ui.log_overlay;
+        }
         KeyCode::Left | KeyCode::Right => {
             if let Some(device) = device {
                 let caps = device.capabilities();
@@ -624,6 +637,7 @@ fn handle_global(
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 m.ui.focused_panel = None;
                 m.ui.focused_panel_bindings = &[];
+                m.ui.log_overlay = false;
                 m.spectrum.cursor_freq = None;
                 m.waterfall.scroll_offset = 0;
                 m.waterfall.cursor_freq = None;

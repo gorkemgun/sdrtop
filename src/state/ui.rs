@@ -153,6 +153,8 @@ pub struct UiState {
     pub recall:                 [Option<u64>; RECALL_SLOTS],
     /// Rotation pointer for overwriting once all recall slots are full.
     pub recall_cursor:          usize,
+    /// Whether the Command Rail's full-log overlay (`L` in rail-focus) is open.
+    pub log_overlay:            bool,
 }
 
 impl UiState {
@@ -217,6 +219,7 @@ impl Default for UiState {
             last_mode_action:       None,
             recall:                 [None; RECALL_SLOTS],
             recall_cursor:          0,
+            log_overlay:            false,
         }
     }
 }

@@ -110,6 +110,10 @@ impl App {
         self.engine.set_panel_hidden("footer", hide_footer);
         terminal.draw(|f| {
             self.engine.draw(f, &m, &self.theme);
+            // The rail's full-log overlay only floats while the rail is focused.
+            if m.ui.log_overlay && m.ui.focused_panel.as_deref() == Some("command_rail") {
+                ui::overlay::render_log(f, &m, &self.theme);
+            }
             if self.show_help { ui::overlay::render_help(f, &m); }
         })?;
         Ok(())
