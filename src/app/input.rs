@@ -570,6 +570,37 @@ fn handle_command_rail_focus(
             let mode = m.ui.cycle_rail_mode();
             m.push_log(format!("Rail mode: {}", mode.label()));
         }
+        // Save the current tuning into a recall slot (free slot, else oldest).
+        KeyCode::Char('m') | KeyCode::Char('M') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let freq = m.radio.frequency;
+            let slot = m.ui.save_recall(freq);
+            m.push_log(format!("Recall {} ← {:.3} MHz", slot + 1, freq as f64 / 1e6));
+        }
+        // Jump to recall slot 1/2/3 (rail-focus only; globally these switch presets).
+        KeyCode::Char(c @ '1'..='3') => {
+            let slot = c as usize - '1' as usize;
+            let target = { state.lock().unwrap_or_else(|e| e.into_inner()).ui.recall[slot] };
+            match (target, device) {
+                (Some(hz), Some(device)) => {
+                    let result = device.set_frequency(hz);
+                    let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                    match result {
+                        Ok(()) => {
+                            m.radio.frequency = hz;
+                            m.ui.note_mode_action(RailMode::Hunt);
+                            m.push_log(format!("Recall {} → {:.3} MHz", slot + 1, hz as f64 / 1e6));
+                        }
+                        Err(e) => m.push_log(format!("Recall error: {}", e)),
+                    }
+                }
+                (None, _) => {
+                    state.lock().unwrap_or_else(|e| e.into_inner())
+                        .push_log(format!("Recall {} is empty — save with [M]", slot + 1));
+                }
+                _ => {}
+            }
+        }
         _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
     KeyAction::Continue

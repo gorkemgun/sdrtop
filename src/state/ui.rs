@@ -55,6 +55,34 @@ pub fn decayed_mode(mode: RailMode, auto: bool, since: Option<Duration>) -> Rail
     }
 }
 
+/// Number of Command Rail recall slots (`M` save / `1·2·3` jump).
+pub const RECALL_SLOTS: usize = 3;
+
+/// A recalled frequency this many Hz from the current tuning counts as "parked
+/// on" that slot — the device may round a tuned frequency slightly.
+pub const RECALL_MATCH_HZ: u64 = 1_000;
+
+/// Which slot a save should write: the lowest empty slot, or — when all are full
+/// — the rotating `cursor` (oldest-overwrite). Pure for testability.
+pub fn next_recall_slot(slots: &[Option<u64>; RECALL_SLOTS], cursor: usize) -> usize {
+    slots.iter().position(Option::is_none).unwrap_or(cursor % RECALL_SLOTS)
+}
+
+/// The slot the radio is currently parked on (within [`RECALL_MATCH_HZ`]), if any.
+pub fn active_recall_slot(slots: &[Option<u64>; RECALL_SLOTS], freq: u64) -> Option<usize> {
+    slots.iter().position(|s| s.is_some_and(|hz| hz.abs_diff(freq) <= RECALL_MATCH_HZ))
+}
+
+/// Config `recall_hz` (0 = empty) → in-memory slots.
+pub fn recall_from_hz(hz: [u64; RECALL_SLOTS]) -> [Option<u64>; RECALL_SLOTS] {
+    hz.map(|h| (h != 0).then_some(h))
+}
+
+/// In-memory slots → config `recall_hz` (None = 0).
+pub fn recall_to_hz(slots: &[Option<u64>; RECALL_SLOTS]) -> [u64; RECALL_SLOTS] {
+    slots.map(|s| s.unwrap_or(0))
+}
+
 /// Severity of a log line, used by the log panel to pick a status lamp + colour.
 /// Derived from the message text (see [`LogLevel::infer`]) so the ~86 existing
 /// `push_log` call sites keep working unchanged.
@@ -121,6 +149,10 @@ pub struct UiState {
     pub rail_mode_auto:         bool,
     /// When the last auto mode-change happened, for the idle decay to Monitor.
     pub last_mode_action:       Option<Instant>,
+    /// Command Rail recall slots; `None` is empty. See [`next_recall_slot`].
+    pub recall:                 [Option<u64>; RECALL_SLOTS],
+    /// Rotation pointer for overwriting once all recall slots are full.
+    pub recall_cursor:          usize,
 }
 
 impl UiState {
@@ -158,6 +190,15 @@ impl UiState {
         decayed_mode(self.rail_mode, self.rail_mode_auto,
                      self.last_mode_action.map(|t| t.elapsed()))
     }
+
+    /// Store `freq` in the next recall slot (free slot, else oldest), advance the
+    /// rotation cursor, and return the slot index for the log message.
+    pub fn save_recall(&mut self, freq: u64) -> usize {
+        let slot = next_recall_slot(&self.recall, self.recall_cursor);
+        self.recall[slot] = Some(freq);
+        self.recall_cursor = (slot + 1) % RECALL_SLOTS;
+        slot
+    }
 }
 
 impl Default for UiState {
@@ -174,6 +215,8 @@ impl Default for UiState {
             rail_mode:              RailMode::default(),
             rail_mode_auto:         false,
             last_mode_action:       None,
+            recall:                 [None; RECALL_SLOTS],
+            recall_cursor:          0,
         }
     }
 }
@@ -252,6 +295,35 @@ mod tests {
         // Tab pins the next mode and clears the decay timer.
         assert_eq!(ui.cycle_rail_mode(), RailMode::Monitor);
         assert!(!ui.rail_mode_auto && ui.last_mode_action.is_none());
+    }
+
+    #[test]
+    fn recall_save_fills_empty_then_rotates_oldest() {
+        let mut ui = UiState::default();
+        assert_eq!(ui.save_recall(92_800_000), 0);
+        assert_eq!(ui.save_recall(145_500_000), 1);
+        assert_eq!(ui.save_recall(446_006_000), 2);
+        assert_eq!(ui.recall, [Some(92_800_000), Some(145_500_000), Some(446_006_000)]);
+        // All full → overwrite the oldest (slot 0), then 1, …
+        assert_eq!(ui.save_recall(100_000_000), 0);
+        assert_eq!(ui.recall[0], Some(100_000_000));
+        assert_eq!(ui.save_recall(101_000_000), 1);
+    }
+
+    #[test]
+    fn active_recall_slot_matches_within_tolerance() {
+        let slots = [Some(92_800_000), None, Some(446_006_000)];
+        assert_eq!(active_recall_slot(&slots, 92_800_500), Some(0)); // within 1 kHz
+        assert_eq!(active_recall_slot(&slots, 446_006_000), Some(2));
+        assert_eq!(active_recall_slot(&slots, 145_500_000), None);
+    }
+
+    #[test]
+    fn recall_hz_round_trips_through_config() {
+        let slots = [Some(92_800_000), None, Some(446_006_000)];
+        let hz = recall_to_hz(&slots);
+        assert_eq!(hz, [92_800_000, 0, 446_006_000]);
+        assert_eq!(recall_from_hz(hz), slots);
     }
 
     #[test]

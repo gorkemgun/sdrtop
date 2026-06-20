@@ -118,14 +118,15 @@ impl App {
     fn save_config(&self) {
         if self.device.is_none() { return; }
         let Some(path) = &self.config_path else { return };
-        let (freq, rate, lna, vga, amp, wf_rows, markers, sweep_cfg) = {
+        let (freq, rate, lna, vga, amp, wf_rows, markers, sweep_cfg, recall) = {
             let m = self.state.lock().unwrap_or_else(|e| e.into_inner());
             (m.radio.frequency, m.radio.config_sample_rate, m.radio.lna_gain,
              m.radio.vga_gain, m.radio.amp_enabled, m.waterfall.buffer.max_rows,
-             m.spectrum.markers.clone(), m.sweep.config.clone())
+             m.spectrum.markers.clone(), m.sweep.config.clone(),
+             crate::state::recall_to_hz(&m.ui.recall))
         };
         let cfg = AppConfig {
-            radio: RadioConfig { frequency_hz: freq, sample_rate: rate, lna_gain: lna, vga_gain: vga, amp_enabled: amp },
+            radio: RadioConfig { frequency_hz: freq, sample_rate: rate, lna_gain: lna, vga_gain: vga, amp_enabled: amp, recall_hz: recall },
             display: DisplayConfig {
                 active_preset:      self.engine.active_preset().to_string(),
                 waterfall_max_rows: wf_rows,

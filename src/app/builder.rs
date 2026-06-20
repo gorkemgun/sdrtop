@@ -172,7 +172,7 @@ impl App {
                 },
                 ..SweepState::default()
             },
-            ui:  UiState::default(),
+            ui:  UiState { recall: crate::state::recall_from_hz(cfg.radio.recall_hz), ..UiState::default() },
             caps: Arc::clone(&caps),
             acc: Accumulators::default(),
         }));

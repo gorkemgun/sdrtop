@@ -488,6 +488,18 @@ mod tests {
     }
 
     #[test]
+    fn radio_recall_round_trips_and_defaults_empty() {
+        // Missing key → all-empty slots.
+        let cfg: AppConfig = toml::from_str("[radio]\nfrequency_hz = 100_000_000\n").unwrap();
+        assert_eq!(cfg.radio.recall_hz, [0, 0, 0]);
+        // Explicit slots survive a save/load round trip.
+        let mut cfg = AppConfig::default();
+        cfg.radio.recall_hz = [92_800_000, 0, 446_006_000];
+        let restored: AppConfig = toml::from_str(&toml::to_string_pretty(&cfg).unwrap()).unwrap();
+        assert_eq!(restored.radio.recall_hz, [92_800_000, 0, 446_006_000]);
+    }
+
+    #[test]
     fn default_config_has_lab_presets() {
         let cfg = LayoutConfig::default_config();
         for name in ["lab_iq", "lab_rf", "lab_signal", "lab_timing"] {

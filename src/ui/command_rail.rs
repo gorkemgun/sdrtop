@@ -24,7 +24,7 @@ use ratatui::{
 
 use std::collections::VecDeque;
 
-use crate::state::{RailMode, SdrMetrics};
+use crate::state::{active_recall_slot, RailMode, SdrMetrics, RECALL_SLOTS};
 use super::charts::sparkline;
 use super::header::{active_digit_idx, gain_bar, vfo_spans, vfo_string};
 use super::micro_common::{fft_stale, fmt_rbw, snr_color};
@@ -250,6 +250,38 @@ fn mode_card_lines(mode: RailMode, state: &SdrMetrics, stale: bool,
     }
 }
 
+/// The RECALL list: the three saved-frequency slots, the one the radio is parked
+/// on lit with `▸`. Empty slots show a dim dash. `M` saves the current tuning,
+/// `1·2·3` jump (both in rail-focus). Band tags come from `band_at`.
+fn recall_lines(state: &SdrMetrics, theme: &crate::Theme) -> Vec<Line<'static>> {
+    let active = active_recall_slot(&state.ui.recall, state.radio.frequency);
+    (0..RECALL_SLOTS).map(|i| {
+        let n = i + 1;
+        match state.ui.recall[i] {
+            Some(hz) => {
+                let on = active == Some(i);
+                let mark = if on { "▸" } else { " " };
+                let modi = if on { Modifier::BOLD } else { Modifier::empty() };
+                let mut spans = vec![
+                    Span::styled(mark.to_string(), Style::default().fg(theme.value_hi)),
+                    Span::styled(format!("{n} "), Style::default().fg(if on { theme.value_hi } else { theme.label })),
+                    Span::styled(vfo_string(hz),
+                        Style::default().fg(if on { theme.value_hi } else { theme.value }).add_modifier(modi)),
+                ];
+                if let Some(b) = band_at(hz) {
+                    spans.push(Span::styled(format!("  {b}"), Style::default().fg(theme.border_accent)));
+                }
+                Line::from(spans)
+            }
+            None => Line::from(vec![
+                Span::raw(" "),
+                Span::styled(format!("{n} "), Style::default().fg(theme.border_dim)),
+                Span::styled("—", Style::default().fg(theme.stale)),
+            ]),
+        }
+    }).collect()
+}
+
 /// The frequency hero: the big 3-row block readout, or a single bold line when
 /// the rail is too narrow for the block font. The actively-tuned digit is lit in
 /// `value_hi` (the same digit the small VFO underlines), the rest in `value`, the
@@ -319,13 +351,20 @@ impl Panel for CommandRailPanel {
     // (which auto-switches the mode to Hunt) and `Tab` cycles the mode manually.
     fn focus_key(&self) -> Option<char> { Some('c') }
     fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
-        &[("←→", "Tune")]
+        &[("←→", "Tune"), ("1·2·3", "Recall"), ("M", "Save")]
     }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let border = if focused { theme.border_focused } else { theme.border_dim };
-        let block = chrome::deck_block(border)
-            .title(chrome::title("Command", theme.label, border));
+        // Nameplate: COMMAND with the 'C' focus key highlighted (matches the
+        // SPECTRUM/WATERFALL convention — the lit letter is the key that focuses it).
+        let key_style  = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
+        let name_style = Style::default().fg(theme.label).add_modifier(Modifier::BOLD);
+        let title_line = Line::from(chrome::nameplate(vec![
+            Span::styled("C", key_style),
+            Span::styled("OMMAND", name_style),
+        ], border));
+        let block = chrome::deck_block(border).title(title_line);
         let inner = block.inner(area);
         f.render_widget(block, area);
         chrome::corner_accents(f, area, border);
@@ -355,6 +394,11 @@ impl Panel for CommandRailPanel {
         let mode = state.ui.effective_rail_mode();
         lines.push(mode_tabs_line(mode, theme));
         lines.extend(mode_card_lines(mode, state, stale, theme));
+        lines.push(Line::raw(""));
+
+        // --- RECALL ------------------------------------------------------------
+        lines.push(section("Recall"));
+        lines.extend(recall_lines(state, theme));
         lines.push(Line::raw(""));
 
         // --- SIGNAL ------------------------------------------------------------
