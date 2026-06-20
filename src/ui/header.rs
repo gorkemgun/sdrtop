@@ -38,7 +38,8 @@ fn leader(gap: usize, color: ratatui::style::Color) -> Span<'static> {
 
 /// Returns (filled_str, empty_str). Each string is exactly `n` terminal columns.
 /// Uses the same segmented glyphs as the signal-strip gauges: ▮ filled, ▯ empty.
-fn gain_bar(gain: u32, max_gain: u32, n: usize) -> (String, String) {
+/// Shared with the command rail so the gain bars read identically there.
+pub(crate) fn gain_bar(gain: u32, max_gain: u32, n: usize) -> (String, String) {
     let filled = ((gain as f32 / max_gain as f32) * n as f32).round() as usize;
     let filled = filled.min(n);
     ("▮".repeat(filled), "▯".repeat(n - filled))
@@ -59,22 +60,36 @@ fn step_place_exp(step_hz: u64) -> u32 {
 /// thin gap between every character, and the single digit the current tuning step
 /// moves underlined + brightened — so you can see at a glance which place `← →`
 /// will change. The decimal point is dimmed. Returns the spans; width varies with
-/// the number of MHz digits (the caller measures it for layout).
-fn vfo_spans(freq_hz: u64, step_hz: u64, digit: ratatui::style::Color,
-             dot: ratatui::style::Color, active: ratatui::style::Color) -> Vec<Span<'static>> {
-    let s = format!("{:.3}", freq_hz as f64 / 1_000_000.0); // e.g. "145.500"
+/// The MHz readout string the VFO renders, e.g. `"145.500"`. Shared so the big
+/// freq-hero formats the frequency identically and the active-digit index lines
+/// up with the same characters.
+pub(crate) fn vfo_string(freq_hz: u64) -> String {
+    format!("{:.3}", freq_hz as f64 / 1_000_000.0)
+}
+
+/// Char index (in [`vfo_string`]) of the digit the current tuning step moves, if
+/// that digit is on screen. Shared by the small VFO and the big freq-hero so they
+/// underline / colour the *same* digit.
+pub(crate) fn active_digit_idx(freq_hz: u64, step_hz: u64) -> Option<usize> {
+    let s = vfo_string(freq_hz);
     let dot_pos = s.find('.').unwrap_or(s.len());
     let exp = step_place_exp(step_hz);
-
-    // Char index (in `s`) of the active digit, if it is currently on screen.
-    let active_idx: Option<usize> = if exp >= 6 {
+    if exp >= 6 {
         let from_right = (exp - 6) as usize;        // 0 = ones-MHz digit (just left of '.')
         (from_right < dot_pos).then(|| dot_pos - 1 - from_right)
     } else if (3..=5).contains(&exp) {
         Some(dot_pos + 1 + (5 - exp) as usize)       // 5→.1xx, 4→..1x, 3→...1
     } else {
         None
-    };
+    }
+}
+
+/// the number of MHz digits (the caller measures it for layout). Shared with the
+/// command rail's freq-hero so the segmented readout + active-digit cue match.
+pub(crate) fn vfo_spans(freq_hz: u64, step_hz: u64, digit: ratatui::style::Color,
+             dot: ratatui::style::Color, active: ratatui::style::Color) -> Vec<Span<'static>> {
+    let s = vfo_string(freq_hz); // e.g. "145.500"
+    let active_idx = active_digit_idx(freq_hz, step_hz);
 
     let chars: Vec<char> = s.chars().collect();
     let mut spans = Vec::with_capacity(chars.len() * 2);
@@ -439,6 +454,37 @@ impl Panel for HeaderPanel {
         f.render_widget(Paragraph::new(top_band_line(state, theme, inner.width)), top_area);
         f.render_widget(Paragraph::new(band_strip_line(state, theme, area.width)), sep_area);
         f.render_widget(Paragraph::new(bottom_band_line(state, theme, inner.width)), bot_area);
+    }
+}
+
+/// A two-row header for the Command Rail layout: just the device-status band and
+/// the γ-power tuning dial — the frequency readout and gain bars move into the
+/// rail, so the header stays out of the way ("where am I in the range" context
+/// only). Reuses the full header's `top_band_line` + `band_strip_line`, so the
+/// two stay visually identical. Height 4 (2 inner rows).
+pub struct SlimHeaderPanel;
+
+impl Panel for SlimHeaderPanel {
+    fn name(&self) -> &'static str { "header_slim" }
+    fn min_size(&self) -> (u16, u16) { (60, 4) }
+    fn preferred_height(&self, _w: u16, _s: &SdrMetrics) -> u16 { 4 }
+
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
+        let block = chrome::deck_block(theme.border_dim)
+            .title(chrome::title("Radio", theme.label, theme.border_dim));
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        chrome::corner_accents(f, area, theme.border_dim);
+
+        // inner.height == 2 when area.height == 4:
+        //   inner.y     → device-status band
+        //   inner.y + 1 → tuning dial (rendered at outer width so ├/┤ overwrite │)
+        if inner.height < 2 { return; }
+        let top_area = Rect { x: inner.x, y: inner.y,     width: inner.width, height: 1 };
+        let dial_area = Rect { x: area.x, y: inner.y + 1, width: area.width,  height: 1 };
+
+        f.render_widget(Paragraph::new(top_band_line(state, theme, inner.width)), top_area);
+        f.render_widget(Paragraph::new(band_strip_line(state, theme, area.width)), dial_area);
     }
 }
 

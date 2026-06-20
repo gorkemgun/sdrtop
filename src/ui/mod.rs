@@ -1,6 +1,8 @@
 pub mod band_plan;
+pub mod bigdigits;
 pub mod charts;
 pub mod chrome;
+pub mod command_rail;
 pub mod device_selector;
 pub mod engine;
 pub mod footer;
@@ -35,11 +37,12 @@ pub mod timing_panel;
 pub mod usb_sr;
 pub mod waterfall;
 
+pub use command_rail::CommandRailPanel;
 pub use engine::LayoutEngine;
 pub use footer::FooterPanel;
 pub use gains::GainsPanel;
 pub use hardware_health::HardwareHealthPanel;
-pub use header::HeaderPanel;
+pub use header::{HeaderPanel, SlimHeaderPanel};
 pub use iq_diagnostics::IqDiagnosticsPanel;
 pub use iq_histogram::IqHistogramPanel;
 pub use log::LogPanel;

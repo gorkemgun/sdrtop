@@ -26,6 +26,8 @@ impl App {
     ) -> (ui::LayoutEngine, HashMap<char, &'static str>) {
         let mut registry = ui::PanelRegistry::new();
         registry.register(ui::HeaderPanel);
+        registry.register(ui::SlimHeaderPanel);
+        registry.register(ui::CommandRailPanel);
         registry.register(ui::TelemetryPanel {
             board_name: board_name.to_string(),
             serial: serial.to_string(),

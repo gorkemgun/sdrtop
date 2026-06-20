@@ -13,7 +13,7 @@ use crate::ui::chrome;
 /// escalate with severity (`·` info → `●` ok/error → `▲` warn), so a glance down
 /// the gutter reads the event history without parsing text. Ok and Error share
 /// the `●` disc and separate purely by colour, like a green/red panel LED.
-fn lamp(level: LogLevel, theme: &crate::Theme) -> Span<'static> {
+pub(crate) fn lamp(level: LogLevel, theme: &crate::Theme) -> Span<'static> {
     let (glyph, color) = match level {
         LogLevel::Info  => ("\u{00B7}", theme.border_dim),  // ·
         LogLevel::Ok    => ("\u{25CF}", theme.status_ok),   // ●
@@ -32,7 +32,7 @@ fn fmt_hms(h: u32, m: u32, s: u32) -> String {
 /// Local wall-clock `HH:MM:SS` for a Unix-epoch instant, via libc's reentrant
 /// `localtime_r` (already a dependency — no time crate needed). Falls back to
 /// `00:00:00` if the conversion fails.
-fn fmt_clock(epoch_secs: u64) -> String {
+pub(crate) fn fmt_clock(epoch_secs: u64) -> String {
     // SAFETY: `localtime_r` writes into our stack `tm` and returns a pointer to
     // it (or null on failure); we read scalar fields only, no aliasing.
     let (h, m, s) = unsafe {

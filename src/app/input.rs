@@ -614,7 +614,7 @@ fn handle_global(
             let name = engine.active_preset().to_string();
             state.lock().unwrap_or_else(|e| e.into_inner()).push_log(format!("Preset: {}", name));
         }
-        KeyCode::Char('1') => { engine.set_preset("main");             state.lock().unwrap_or_else(|e| e.into_inner()).push_log("Preset: main"); }
+        KeyCode::Char('1') => { engine.set_preset("command_rail");     state.lock().unwrap_or_else(|e| e.into_inner()).push_log("Preset: command rail"); }
         KeyCode::Char('2') => { engine.set_preset("spectrum");         state.lock().unwrap_or_else(|e| e.into_inner()).push_log("Preset: spectrum"); }
         KeyCode::Char('3') => { engine.set_preset("waterfall");        state.lock().unwrap_or_else(|e| e.into_inner()).push_log("Preset: waterfall"); }
         KeyCode::Char('4') => { engine.set_preset("spectrum_waterfall"); state.lock().unwrap_or_else(|e| e.into_inner()).push_log("Preset: spectrum+waterfall"); }

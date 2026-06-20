@@ -44,12 +44,16 @@ impl Theme {
             border_default: rgb(60, 120, 145),
             border_accent:  rgb(0, 215, 255),
             border_focused: rgb(255, 255, 255),
-            label:          rgb(145, 160, 180),
+            // label cooled a touch (DSN-2026-01 §05): a hair more blue so it reads
+            // as quiet structure, not warm text.
+            label:          rgb(130, 150, 178),
             value:          rgb(195, 210, 220),
             value_hi:       rgb(255, 175, 0),
             status_ok:      rgb(0, 210, 130),
             status_warn:    rgb(255, 175, 0),
-            status_crit:    rgb(255, 65, 65),
+            // status_crit softened from #ff4141 (DSN-2026-01 §05) — still unmistakably
+            // alarm, but less harsh against the dark deck.
+            status_crit:    rgb(255, 90, 90),
             palette: vec![
                 (0.00,  10,  10,  80),
                 (0.25,   0,  80, 180),

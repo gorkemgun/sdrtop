@@ -8,7 +8,7 @@ fn default_frequency_hz() -> u64     { DEFAULT_FREQUENCY }
 fn default_sample_rate()  -> f64     { DEFAULT_SAMPLE_RATE }
 fn default_lna_gain()     -> u32     { DEFAULT_LNA_GAIN }
 fn default_vga_gain()     -> u32     { DEFAULT_VGA_GAIN }
-fn default_active_preset() -> String { "spectrum_waterfall".into() }
+fn default_active_preset() -> String { "command_rail".into() }
 fn default_waterfall_max_rows() -> usize { 64 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -50,7 +50,7 @@ pub struct DisplayConfig {
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
-            active_preset:      "spectrum_waterfall".into(),
+            active_preset:      "command_rail".into(),
             waterfall_max_rows: 64,
             spectrum_markers:   vec![],
         }
@@ -273,6 +273,19 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),        position: Bottom, height: None,    width_pct: None },
             ],
         };
+        // Command Rail — the [1] poweruser default (DSN-2026-02): a slim header
+        // (status + γ-dial), a left instrument rail gathering freq-hero + signal +
+        // gain + stream + log foot, and the bonded spectrum/waterfall filling the
+        // body. The [spectrum, waterfall] Body pair triggers the bond automatically.
+        let command_rail = PresetConfig {
+            panels: vec![
+                PanelSpec { name: "header_slim".into(),   position: Top,    height: Some(4), width_pct: None     },
+                PanelSpec { name: "command_rail".into(),  position: Left,   height: None,    width_pct: Some(28) },
+                PanelSpec { name: "spectrum".into(),      position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "waterfall".into(),     position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "footer".into(),        position: Bottom, height: None,    width_pct: None     },
+            ],
+        };
         // Lab RF — front-end / gain chain focus: RF chain + NF/MDS left, spectrum
         // centre, hardware health right.
         let lab_rf = PresetConfig {
@@ -367,6 +380,7 @@ impl LayoutConfig {
         presets.insert("spectrum_waterfall".into(), spectrum_waterfall);
         presets.insert("observer".into(), observer);
         presets.insert("main".into(), main);
+        presets.insert("command_rail".into(), command_rail);
         presets.insert("lab_iq".into(), lab_iq);
         presets.insert("lab_rf".into(), lab_rf);
         presets.insert("lab_signal".into(), lab_signal);
@@ -377,7 +391,7 @@ impl LayoutConfig {
         presets.insert("micro_gain".into(), micro_gain);
         presets.insert("micro_health".into(), micro_health);
         presets.insert("micro_sweep".into(), micro_sweep);
-        Self { active_preset: "spectrum_waterfall".into(), presets }
+        Self { active_preset: "command_rail".into(), presets }
     }
 
     /// Built-in presets with the user's custom presets merged on top. A user
@@ -406,7 +420,7 @@ mod tests {
     #[test]
     fn default_config_has_minimal_preset() {
         let cfg = LayoutConfig::default_config();
-        assert_eq!(cfg.active_preset, "spectrum_waterfall");
+        assert_eq!(cfg.active_preset, "command_rail");
         assert!(!cfg.active_panels().is_empty());
     }
 
@@ -414,7 +428,9 @@ mod tests {
     fn active_panels_returns_correct_names() {
         let cfg = LayoutConfig::default_config();
         let names: Vec<&str> = cfg.active_panels().iter().map(|p| p.name.as_str()).collect();
-        assert!(names.contains(&"header"));
+        // The [1] default is now the Command Rail: slim header + left rail + bond.
+        assert!(names.contains(&"header_slim"));
+        assert!(names.contains(&"command_rail"));
         assert!(names.contains(&"footer"));
         assert!(names.contains(&"spectrum"));
         assert!(names.contains(&"waterfall"));
@@ -451,7 +467,7 @@ mod tests {
         let toml_str = "[radio]\nfrequency_hz = 433_000_000\n";
         let cfg: AppConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.radio.frequency_hz, 433_000_000);
-        assert_eq!(cfg.display.active_preset, "spectrum_waterfall");
+        assert_eq!(cfg.display.active_preset, "command_rail");
     }
 
     #[test]
