@@ -106,6 +106,12 @@ pub fn spawn_rx_task(
                 let sat_snapshot = m.signal.adc_saturation_pct;
                 if m.signal.saturation_history.len() >= THROUGHPUT_HISTORY_LEN { m.signal.saturation_history.pop_front(); }
                 m.signal.saturation_history.push_back(sat_snapshot);
+                // Remember the moment of a real clip so the rail can show a fading
+                // "last clip Xs" memory (decays in render; nothing flickers here).
+                if sat_snapshot >= crate::state::SAT_CLIP_PCT {
+                    m.signal.last_clip_at = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).ok();
+                }
 
                 let usb_now = m.signal.usb_errors_session;
                 let usb_delta = usb_now.saturating_sub(m.signal.usb_errors_last_poll);

@@ -128,6 +128,27 @@ fn sat_color(pct: f32, theme: &crate::Theme) -> Color {
     else { theme.value }
 }
 
+/// How long a clip is remembered, and the window in which it's still "fresh"
+/// (loud red) before it fades to a dim memory line.
+const CLIP_FRESH_SECS:  u64 = 6;
+const CLIP_MEMORY_SECS: u64 = 30;
+
+/// Compact relative age for the alert-memory: `"4s"`, `"2m"`, `"1h"`. Pure.
+fn fmt_since(secs: u64) -> String {
+    if secs < 60        { format!("{secs}s") }
+    else if secs < 3600 { format!("{}m", secs / 60) }
+    else                { format!("{}h", secs / 3600) }
+}
+
+/// The SAT clip alert-memory state: `Some((age_secs, fresh))` while a clip is
+/// still remembered, `None` once it's older than [`CLIP_MEMORY_SECS`]. A fresh
+/// clip (≤ [`CLIP_FRESH_SECS`]) renders loud; afterwards it fades. Pure over the
+/// clock so it's testable, and it only ever fades — it never flickers.
+fn clip_alert(last_clip_at: Option<u64>, now: u64) -> Option<(u64, bool)> {
+    let since = now.saturating_sub(last_clip_at?);
+    (since <= CLIP_MEMORY_SECS).then_some((since, since <= CLIP_FRESH_SECS))
+}
+
 /// The `[ HUNT ][ MONITOR ][ BENCH ]` mode strip — the active mode lit as a
 /// chip (`value_hi` bg), the others dim. The mode follows actions automatically
 /// and `Tab` in rail-focus pins it.
@@ -446,6 +467,17 @@ impl Panel for CommandRailPanel {
             &spk(&state.signal.saturation_history),
             trend_arrow(series_delta(&state.signal.saturation_history), 0.5, Some(false), theme),
             iw, theme));
+        // Alert-memory: a recent clip leaves a fading "⚠ last clip Xs" line under
+        // SAT — loud while fresh, then dim, then gone. It only ever fades.
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs()).unwrap_or(0);
+        if let Some((since, fresh)) = clip_alert(state.signal.last_clip_at, now) {
+            let col = if fresh { theme.status_crit } else { theme.stale };
+            lines.push(Line::from(vec![
+                Span::raw(" "),
+                Span::styled(format!("⚠ last clip {}", fmt_since(since)), Style::default().fg(col)),
+            ]));
+        }
         lines.push(Line::raw(""));
 
         // --- GAIN --------------------------------------------------------------
@@ -599,6 +631,24 @@ mod tests {
         assert!(rail_peaks(&[-90.0, -88.0, -90.0], -90.0, 100_000_000, 6_000_000.0, 3).is_empty());
         // No sample rate → no usable frequency map.
         assert!(rail_peaks(&[-90.0, -10.0, -90.0], -90.0, 100_000_000, 0.0, 3).is_empty());
+    }
+
+    #[test]
+    fn fmt_since_scales_units() {
+        assert_eq!(fmt_since(4), "4s");
+        assert_eq!(fmt_since(59), "59s");
+        assert_eq!(fmt_since(120), "2m");
+        assert_eq!(fmt_since(7200), "2h");
+    }
+
+    #[test]
+    fn clip_alert_is_fresh_then_fades_then_expires() {
+        assert_eq!(clip_alert(None, 100), None);                 // never clipped
+        assert_eq!(clip_alert(Some(100), 103), Some((3, true))); // fresh & loud
+        assert_eq!(clip_alert(Some(100), 115), Some((15, false))); // remembered, dim
+        assert_eq!(clip_alert(Some(100), 140), None);            // older than memory
+        // Clock skew (clip "in the future") must not panic or misread.
+        assert_eq!(clip_alert(Some(100), 90), Some((0, true)));
     }
 
     #[test]

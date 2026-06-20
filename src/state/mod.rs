@@ -16,7 +16,7 @@ pub use iq::IqState;
 pub use micro::MicroView;
 pub use observer::ObserverState;
 pub use radio::RadioState;
-pub use signal::SignalState;
+pub use signal::{SignalState, SAT_CLIP_PCT};
 pub use spectrum::{SpectrumMarker, SpectrumState};
 pub use sweep::{SweepConfig, SweepFrame, SweepState, SWEEP_SETTLING_MS};
 pub use system::SystemState;
