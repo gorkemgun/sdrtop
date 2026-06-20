@@ -121,6 +121,65 @@ fn metric_block(label: &str, unit: &str, value: Option<String>, value_color: Col
     [head, Line::from(spans)]
 }
 
+/// One metric rendered with a **big 3-row block-font value** (the freq-hero
+/// language), per the v2 mockup: row 1 is `LABEL … UNIT`, then the value in three
+/// rows of block glyphs, with the sparkline + trend arrow riding the middle row
+/// flush-right. Falls back to the compact [`metric_block`] when the rail is too
+/// narrow for the big number, or when `big` is false (a short rail where the tall
+/// readout would push GAIN/STREAM off the bottom) — so it never overflows.
+fn metric_block_big(big: bool, label: &str, unit: &str, value: Option<String>, value_color: Color,
+                    spark: &str, arrow: Option<Span<'static>>, iw: usize,
+                    theme: &crate::Theme) -> Vec<Line<'static>> {
+    // Short rail → compact two-row metric so the sections below still fit. The
+    // same self-adjusting idea as dropping the blank spacers; big numbers return
+    // when there's vertical room.
+    if !big {
+        return metric_block(label, unit, value, value_color, spark, arrow, iw, theme).to_vec();
+    }
+    // Row 1: label (left) + unit (right) — same head as the compact block.
+    let l1_used = 1 + label.chars().count() + unit.chars().count();
+    let head = Line::from(vec![
+        Span::raw(" "),
+        Span::styled(label.to_string(), Style::default().fg(theme.label)),
+        Span::raw(" ".repeat(iw.saturating_sub(l1_used).max(1))),
+        Span::styled(unit.to_string(), Style::default().fg(theme.border_dim)),
+    ]);
+
+    let Some(val) = value else {
+        return vec![head, Line::from(vec![
+            Span::raw(" "), Span::styled("—".to_string(), Style::default().fg(theme.stale))])];
+    };
+
+    // Narrow rail → keep the compact one-line value rather than clip the glyphs.
+    let bw = bigdigits::big_width(&val);
+    if 1 + bw > iw {
+        return metric_block(label, unit, Some(val), value_color, spark, arrow, iw, theme).to_vec();
+    }
+
+    // Three rows of block glyphs for the value.
+    let mut rows: [Vec<Span<'static>>; 3] =
+        [vec![Span::raw(" ")], vec![Span::raw(" ")], vec![Span::raw(" ")]];
+    for (i, c) in val.chars().enumerate() {
+        let g = bigdigits::glyph(c);
+        for (r, row) in rows.iter_mut().enumerate() {
+            if i > 0 { row.push(Span::raw(" ")); }
+            row.push(Span::styled(g[r].to_string(), Style::default().fg(value_color)));
+        }
+    }
+
+    // Sparkline + arrow ride the middle row, flush-right — only if they fit.
+    let arrow_w = arrow.as_ref().map_or(0, |_| 2);
+    let right_w = spark.chars().count() + arrow_w;
+    if right_w > 0 && 1 + bw + 1 + right_w <= iw {
+        rows[1].push(Span::raw(" ".repeat(iw - (1 + bw) - right_w)));
+        rows[1].push(Span::styled(spark.to_string(), Style::default().fg(value_color)));
+        if let Some(a) = arrow { rows[1].push(Span::raw(" ")); rows[1].push(a); }
+    }
+
+    let [r0, r1, r2] = rows;
+    vec![head, Line::from(r0), Line::from(r1), Line::from(r2)]
+}
+
 /// Colour for the ADC-saturation value: calm below 10 %, warn to 50 %, crit above.
 fn sat_color(pct: f32, theme: &crate::Theme) -> Color {
     if pct >= 50.0 { theme.status_crit }
@@ -415,9 +474,18 @@ impl Panel for CommandRailPanel {
 
         // Width 6 so the 5-char "TOTAL" still keeps a gap before its value.
         let lbl   = |s: &str| Span::styled(format!("{s:<6}"), Style::default().fg(theme.label));
-        // Dim `╴SECTION╶` divider, matching the deck nameplate language.
-        let section = |name: &str| Line::from(chrome::nameplate(
-            vec![chrome::label(name, theme.label)], theme.border_dim));
+        // Thin section separator: ` LABEL ──────…` — a bold caps label followed by
+        // a dim hairline rule to the panel edge (the mockup's quiet divider).
+        let section = |name: &str| {
+            let label = name.to_uppercase();
+            let used  = 1 + label.chars().count() + 1; // " LABEL "
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(label, Style::default().fg(theme.label).add_modifier(Modifier::BOLD)),
+                Span::raw(" "),
+                Span::styled("─".repeat(iw.saturating_sub(used)), Style::default().fg(theme.border_dim)),
+            ])
+        };
 
         let mut lines: Vec<Line> = Vec::new();
 
@@ -449,10 +517,13 @@ impl Panel for CommandRailPanel {
             let v: Vec<f32> = h.iter().copied().collect();
             sparkline(&v, sw)
         };
+        // Big block-font values when the rail is tall enough; on a short rail the
+        // four 4-row metrics would push GAIN/STREAM off the bottom, so use compact.
+        let big = inner.height >= 40;
 
         let snr = state.signal.peak_to_nf_db;
-        lines.extend(metric_block(
-            "SNR", "dB",
+        lines.extend(metric_block_big(
+            big, "SNR", "dB",
             (!stale).then(|| format!("{snr:.1}")),
             snr_color(snr, theme),
             &spk(&state.signal.snr_history),
@@ -460,8 +531,8 @@ impl Panel for CommandRailPanel {
             iw, theme));
 
         let pwr = state.signal.channel_power_dbfs;
-        lines.extend(metric_block(
-            "PWR", "dBFS",
+        lines.extend(metric_block_big(
+            big, "PWR", "dBFS",
             (!stale && pwr.is_finite()).then(|| format!("{pwr:.1}")),
             theme.value,
             &spk(&state.signal.pwr_history),
@@ -469,8 +540,8 @@ impl Panel for CommandRailPanel {
             iw, theme));
 
         let nf = state.waterfall.last_fft.as_ref().filter(|_| !stale).map(|fr| fr.noise_floor);
-        lines.extend(metric_block(
-            "NF", "dBFS",
+        lines.extend(metric_block_big(
+            big, "NF", "dBFS",
             nf.map(|v| format!("{v:.1}")),
             theme.value,
             &spk(&state.signal.nf_history),
@@ -478,8 +549,8 @@ impl Panel for CommandRailPanel {
             iw, theme));
 
         let sat = state.signal.adc_saturation_pct;
-        lines.extend(metric_block(
-            "SAT", "%",
+        lines.extend(metric_block_big(
+            big, "SAT", "%",
             active.then(|| format!("{sat:.1}")),
             sat_color(sat, theme),
             &spk(&state.signal.saturation_history),
