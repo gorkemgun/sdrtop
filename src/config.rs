@@ -8,6 +8,7 @@ fn default_frequency_hz() -> u64     { DEFAULT_FREQUENCY }
 fn default_sample_rate()  -> f64     { DEFAULT_SAMPLE_RATE }
 fn default_lna_gain()     -> u32     { DEFAULT_LNA_GAIN }
 fn default_vga_gain()     -> u32     { DEFAULT_VGA_GAIN }
+fn default_recall()       -> [u64; 3] { [0; 3] }
 fn default_active_preset() -> String { "command_rail".into() }
 fn default_waterfall_max_rows() -> usize { 64 }
 
@@ -23,6 +24,10 @@ pub struct RadioConfig {
     pub vga_gain: u32,
     #[serde(default)]
     pub amp_enabled: bool,
+    /// Command Rail recall slots (the rail's `M` save / `1·2·3` jump). Three
+    /// fixed slots; `0` means empty. Tuning memory belongs with the radio.
+    #[serde(default = "default_recall")]
+    pub recall_hz: [u64; 3],
 }
 
 impl Default for RadioConfig {
@@ -33,6 +38,7 @@ impl Default for RadioConfig {
             lna_gain:     DEFAULT_LNA_GAIN,
             vga_gain:     DEFAULT_VGA_GAIN,
             amp_enabled:  false,
+            recall_hz:    [0; 3],
         }
     }
 }

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::hardware;
-use crate::state::{InputMode, MicroView, SdrMetrics, SpectrumMarker};
+use crate::state::{InputMode, MicroView, RailMode, SdrMetrics, SpectrumMarker};
 use crate::ui::{self, spectrum::{fmt_spectrum_step, next_spectrum_step, prev_spectrum_step}};
 use crate::ui::waterfall::{next_wf_stride, prev_wf_stride, next_wf_zoom, prev_wf_zoom};
 
@@ -95,6 +95,7 @@ fn handle_normal(
         Some("hardware_health") => handle_health_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         Some("timing_panel")    => handle_timing_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         Some("sweep_panel")     => handle_sweep_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("command_rail")    => handle_command_rail_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         _                       => handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
 }
@@ -121,7 +122,7 @@ fn handle_spectrum_focus(
                 let result = device.set_frequency(new_freq);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => m.radio.frequency = new_freq,
+                    Ok(()) => { m.radio.frequency = new_freq; m.ui.note_mode_action(RailMode::Hunt); }
                     Err(e) => m.push_log(format!("Tune error: {}", e)),
                 }
             }
@@ -136,7 +137,7 @@ fn handle_spectrum_focus(
                 let result = device.set_frequency(new_freq);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => m.radio.frequency = new_freq,
+                    Ok(()) => { m.radio.frequency = new_freq; m.ui.note_mode_action(RailMode::Hunt); }
                     Err(e) => m.push_log(format!("Tune error: {}", e)),
                 }
             }
@@ -528,6 +529,52 @@ fn handle_sweep_focus(
     KeyAction::Continue
 }
 
+// ── Command Rail focus keys ───────────────────────────────────────────────────
+
+/// `command_rail` focus (`[C]`): `←/→` tune by the spectrum step (which auto-
+/// switches the lead card to Hunt), `Tab` cycles the mode manually. Recall slots
+/// (`1·2·3·M`) and the log overlay (`L`) arrive in later steps. Every other key
+/// falls through to the global handler (so `Esc` exits focus as usual).
+fn handle_command_rail_focus(
+    key: KeyEvent,
+    state: &Arc<Mutex<SdrMetrics>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
+    engine: &mut ui::LayoutEngine,
+    show_help: &mut bool,
+    show_footer: &mut bool,
+    focus_keys: &HashMap<char, &'static str>,
+) -> KeyAction {
+    match key.code {
+        KeyCode::Left | KeyCode::Right => {
+            if let Some(device) = device {
+                let caps = device.capabilities();
+                let new_freq = {
+                    let m = state.lock().unwrap_or_else(|e| e.into_inner());
+                    let step = m.spectrum.step_hz;
+                    if matches!(key.code, KeyCode::Left) {
+                        m.radio.frequency.saturating_sub(step).max(caps.freq_min_hz)
+                    } else {
+                        (m.radio.frequency + step).min(caps.freq_max_hz)
+                    }
+                };
+                let result = device.set_frequency(new_freq);
+                let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+                match result {
+                    Ok(()) => { m.radio.frequency = new_freq; m.ui.note_mode_action(RailMode::Hunt); }
+                    Err(e) => m.push_log(format!("Tune error: {}", e)),
+                }
+            }
+        }
+        KeyCode::Tab => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let mode = m.ui.cycle_rail_mode();
+            m.push_log(format!("Rail mode: {}", mode.label()));
+        }
+        _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
+    }
+    KeyAction::Continue
+}
+
 // ── Global keys (no panel focus) ─────────────────────────────────────────────
 
 fn handle_global(
@@ -656,7 +703,7 @@ fn handle_global(
                 let result = device.set_lna_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("{} gain → {} dB", primary_gain_label(gain), new_gain)); }
+                    Ok(()) => { m.radio.lna_gain = new_gain; m.ui.note_mode_action(RailMode::Bench); m.push_log(format!("{} gain → {} dB", primary_gain_label(gain), new_gain)); }
                     Err(e) => m.push_log(format!("Gain error: {}", e)),
                 }
             }
@@ -669,7 +716,7 @@ fn handle_global(
                 let result = device.set_lna_gain(new_gain);
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 match result {
-                    Ok(()) => { m.radio.lna_gain = new_gain; m.push_log(format!("{} gain → {} dB", primary_gain_label(gain), new_gain)); }
+                    Ok(()) => { m.radio.lna_gain = new_gain; m.ui.note_mode_action(RailMode::Bench); m.push_log(format!("{} gain → {} dB", primary_gain_label(gain), new_gain)); }
                     Err(e) => m.push_log(format!("Gain error: {}", e)),
                 }
             }
@@ -682,7 +729,7 @@ fn handle_global(
                     let result = device.set_vga_gain(new_gain);
                     let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                     match result {
-                        Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
+                        Ok(()) => { m.radio.vga_gain = new_gain; m.ui.note_mode_action(RailMode::Bench); m.push_log(format!("VGA gain → {} dB", new_gain)); }
                         Err(e) => m.push_log(format!("VGA gain error: {}", e)),
                     }
                 }
@@ -695,7 +742,7 @@ fn handle_global(
                     let result = device.set_vga_gain(new_gain);
                     let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                     match result {
-                        Ok(()) => { m.radio.vga_gain = new_gain; m.push_log(format!("VGA gain → {} dB", new_gain)); }
+                        Ok(()) => { m.radio.vga_gain = new_gain; m.ui.note_mode_action(RailMode::Bench); m.push_log(format!("VGA gain → {} dB", new_gain)); }
                         Err(e) => m.push_log(format!("VGA gain error: {}", e)),
                     }
                 }
@@ -713,6 +760,7 @@ fn handle_global(
                 match result {
                     Ok(()) => {
                         m.radio.amp_enabled = new_state;
+                        m.ui.note_mode_action(RailMode::Bench);
                         m.push_log(format!("{} {}", label, if new_state { "ON" } else { "OFF" }));
                     }
                     Err(e) => m.push_log(format!("{} error: {}", label, e)),
@@ -815,6 +863,7 @@ fn handle_freq_input(
                 match (freq_hz, result) {
                     (Some(hz), Some(Ok(()))) => {
                         m.radio.frequency = hz;
+                        m.ui.note_mode_action(RailMode::Hunt);
                         m.ui.input_mode = InputMode::Normal;
                         m.ui.input_buf.clear();
                         m.push_log(format!("Frequency set to {:.3} MHz", hz as f64 / 1_000_000.0));

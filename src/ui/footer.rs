@@ -315,7 +315,14 @@ fn focus_items(m: &SdrMetrics) -> Vec<String> {
     let mut items: Vec<String> = m.ui.focused_panel_bindings.iter()
         .map(|(k, d)| format!("[{}] {}", k, d))
         .collect();
-    items.push("[Tab] Hide".to_string());
+    // The Command Rail repurposes Tab as its mode cycle (HUNT·MONITOR·BENCH);
+    // every other focused panel keeps Tab as the footer-hide toggle.
+    let tab = if m.ui.focused_panel.as_deref() == Some("command_rail") {
+        "[Tab] Mode"
+    } else {
+        "[Tab] Hide"
+    };
+    items.push(tab.to_string());
     items.push("[Esc] Exit focus".to_string());
     items
 }

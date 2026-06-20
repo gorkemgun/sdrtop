@@ -6,10 +6,13 @@
 //! STREAM health, and a one-line log foot. The header thins to status + dial
 //! (see `SlimHeaderPanel`) and the frequency lives here instead.
 //!
-//! This is LÉPÉS 1 (the skeleton): live values, the existing SNR trend arrow, no
-//! per-metric sparklines / recall slots / HUNT·MONITOR·BENCH modes yet — those
-//! are later steps. Rendering is two non-overlapping `Paragraph`s (the stack and
-//! the bottom-anchored log foot), so it never flickers.
+//! It carries the big frequency hero, value-first metrics with sparklines, and a
+//! HUNT·MONITOR·BENCH mode strip whose lead card adapts to what you're doing
+//! (tuning → Hunt peak-finder, gain → Bench gain-health, idle → Monitor watch).
+//! The mode auto-follows actions and `Tab` (in rail-focus, key `c`) pins it.
+//! Recall slots and the log overlay are still later steps. Rendering is two
+//! non-overlapping `Paragraph`s (the stack and the bottom-anchored log foot), so
+//! it never flickers.
 
 use ratatui::{
     layout::Rect,
@@ -21,11 +24,12 @@ use ratatui::{
 
 use std::collections::VecDeque;
 
-use crate::state::SdrMetrics;
+use crate::state::{RailMode, SdrMetrics};
 use super::charts::sparkline;
 use super::header::{active_digit_idx, gain_bar, vfo_spans, vfo_string};
 use super::micro_common::{fft_stale, fmt_rbw, snr_color};
 use super::panel::Panel;
+use super::spectrum::detect_peaks;
 use super::{bigdigits, chrome, log};
 use crate::ui::band_plan::band_at;
 
@@ -124,6 +128,128 @@ fn sat_color(pct: f32, theme: &crate::Theme) -> Color {
     else { theme.value }
 }
 
+/// The `[ HUNT ][ MONITOR ][ BENCH ]` mode strip — the active mode lit as a
+/// chip (`value_hi` bg), the others dim. The mode follows actions automatically
+/// and `Tab` in rail-focus pins it.
+fn mode_tabs_line(active: RailMode, theme: &crate::Theme) -> Line<'static> {
+    let mut spans = vec![Span::raw(" ")];
+    for m in RailMode::ALL {
+        let chip = format!(" {} ", m.label());
+        let style = if m == active {
+            Style::default().fg(Color::Rgb(4, 6, 15)).bg(theme.value_hi).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.label)
+        };
+        spans.push(Span::styled(chip, style));
+        spans.push(Span::raw(" "));
+    }
+    Line::from(spans)
+}
+
+/// The rail's signal list: the strongest distinct spectral peaks mapped to
+/// `(freq_hz, dbfs)`, strongest-first. A thin wrapper over the spectrum panel's
+/// [`detect_peaks`] (shared prominence ≥ NF+10 dB + min-separation logic) plus
+/// the bin→Hz map, so HUNT and the MONITOR activity count agree with the markers.
+fn rail_peaks(bins: &[f32], noise_floor: f32, center_hz: u64, sample_rate: f64, n: usize)
+    -> Vec<(u64, f32)> {
+    if sample_rate <= 0.0 || bins.is_empty() { return Vec::new(); }
+    let len = bins.len();
+    let sep = (len / 48).max(2);
+    let left_hz = center_hz as f64 - sample_rate / 2.0;
+    detect_peaks(bins, noise_floor, n, sep).into_iter().map(|i| {
+        let hz = (left_hz + i as f64 / len as f64 * sample_rate).max(0.0) as u64;
+        (hz, bins[i])
+    }).collect()
+}
+
+/// BENCH gain-health verdict from ADC saturation and clip headroom. Returns the
+/// word plus whether it's an alarm/warn/ok, so the caller picks the colour.
+/// Pure for testability. `headroom_db` is `-channel_power_dbfs` (how far the
+/// in-channel level sits below full scale).
+fn chain_verdict(sat_pct: f32, headroom_db: f32) -> (&'static str, i8) {
+    if sat_pct >= 10.0      { ("hot",     2) }   // clipping → back off gain
+    else if headroom_db > 45.0 { ("low",  1) }   // lots of room → add gain
+    else                    { ("optimal", 0) }
+}
+
+/// The mode-adaptive lead card that sits between the mode strip and the SIGNAL
+/// zone. Only this block changes with the mode; everything below is fixed.
+fn mode_card_lines(mode: RailMode, state: &SdrMetrics, stale: bool,
+                   theme: &crate::Theme) -> Vec<Line<'static>> {
+    let dim = |s: String| Line::from(vec![
+        Span::raw(" "), Span::styled(s, Style::default().fg(theme.stale))]);
+
+    match mode {
+        // HUNT — the three strongest signals on screen, with band tags.
+        RailMode::Hunt => {
+            let fft = state.waterfall.last_fft.as_ref().filter(|_| !stale);
+            let Some(fr) = fft else { return vec![dim("scanning…".into())]; };
+            let peaks = rail_peaks(&fr.bins_dbfs, fr.noise_floor, state.radio.frequency, fr.sample_rate, 3);
+            if peaks.is_empty() { return vec![dim("no peaks".into())]; }
+            peaks.into_iter().enumerate().map(|(i, (hz, db))| {
+                let mark = if i == 0 { "▸" } else { " " };
+                let mut spans = vec![
+                    Span::styled(mark.to_string(), Style::default().fg(theme.value_hi)),
+                    Span::styled(format!("{:7.2}", hz as f64 / 1e6),
+                                 Style::default().fg(if i == 0 { theme.value_hi } else { theme.value })),
+                    Span::styled(format!(" {db:4.0}"), Style::default().fg(theme.label)),
+                ];
+                if let Some(b) = band_at(hz) {
+                    spans.push(Span::styled(format!("  {b}"), Style::default().fg(theme.border_accent)));
+                }
+                Line::from(spans)
+            }).collect()
+        }
+
+        // MONITOR — a calm watch headline: signal quality + how many signals are up.
+        RailMode::Monitor => {
+            let snr = state.signal.peak_to_nf_db;
+            let (word, col) = if stale { ("—", theme.stale) }
+                else if snr >= 20.0 { ("strong", theme.status_ok) }
+                else if snr >= 10.0 { ("fair",   theme.value) }
+                else                { ("quiet",  theme.label) };
+            // detect_peaks already gates on NF+10 dB, so its count is the activity.
+            let n_active = state.waterfall.last_fft.as_ref().filter(|_| !stale).map_or(0, |fr| {
+                rail_peaks(&fr.bins_dbfs, fr.noise_floor, state.radio.frequency, fr.sample_rate, 8).len()
+            });
+            vec![
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("WATCH ", Style::default().fg(theme.label)),
+                    Span::styled(word.to_string(), Style::default().fg(col).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled(format!("{n_active}"), Style::default().fg(theme.value).add_modifier(Modifier::BOLD)),
+                    Span::styled(" active", Style::default().fg(theme.label)),
+                ]),
+            ]
+        }
+
+        // BENCH — gain-chain health: clip headroom + a one-word verdict.
+        RailMode::Bench => {
+            let power = state.signal.channel_power_dbfs;
+            let headroom = if power.is_finite() { (-power).max(0.0) } else { f32::NAN };
+            let sat = state.signal.adc_saturation_pct;
+            let (verdict, sev) = chain_verdict(sat, if headroom.is_finite() { headroom } else { 0.0 });
+            let vcol = match sev { 2 => theme.status_crit, 1 => theme.status_warn, _ => theme.status_ok };
+            let hstr = if headroom.is_finite() { format!("{headroom:.0} dB") } else { "—".into() };
+            vec![
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("HEADROOM ", Style::default().fg(theme.label)),
+                    Span::styled(hstr, Style::default().fg(theme.value).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled("CHAIN ", Style::default().fg(theme.label)),
+                    Span::styled(verdict.to_string(), Style::default().fg(vcol).add_modifier(Modifier::BOLD)),
+                ]),
+            ]
+        }
+    }
+}
+
 /// The frequency hero: the big 3-row block readout, or a single bold line when
 /// the rail is too narrow for the block font. The actively-tuned digit is lit in
 /// `value_hi` (the same digit the small VFO underlines), the rest in `value`, the
@@ -189,6 +315,13 @@ impl Panel for CommandRailPanel {
     fn name(&self) -> &'static str { "command_rail" }
     fn min_size(&self) -> (u16, u16) { (22, 12) }
 
+    // `c` for Command: focus the rail to drive it directly. In focus, `←/→` tune
+    // (which auto-switches the mode to Hunt) and `Tab` cycles the mode manually.
+    fn focus_key(&self) -> Option<char> { Some('c') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("←→", "Tune")]
+    }
+
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let border = if focused { theme.border_focused } else { theme.border_dim };
         let block = chrome::deck_block(border)
@@ -214,6 +347,14 @@ impl Panel for CommandRailPanel {
         lines.extend(freq_hero_lines(state.radio.frequency, state.spectrum.step_hz,
                                      observer, iw, theme));
         lines.push(band_sr_line(state, theme));
+        lines.push(Line::raw(""));
+
+        // --- MODE STRIP + lead card -------------------------------------------
+        // The mode auto-follows actions (tune→Hunt, gain→Bench) and decays to
+        // Monitor; the lead card below adapts to it. Everything under it is fixed.
+        let mode = state.ui.effective_rail_mode();
+        lines.push(mode_tabs_line(mode, theme));
+        lines.extend(mode_card_lines(mode, state, stale, theme));
         lines.push(Line::raw(""));
 
         // --- SIGNAL ------------------------------------------------------------
@@ -393,5 +534,33 @@ mod tests {
         assert_eq!(sat_color(0.0, &t), t.value);
         assert_eq!(sat_color(20.0, &t), t.status_warn);
         assert_eq!(sat_color(80.0, &t), t.status_crit);
+    }
+
+    #[test]
+    fn rail_peaks_maps_bins_to_frequency_strongest_first() {
+        // Two lobes above the −80 dB noise floor: a tall one left of centre
+        // (bin 2), a shorter one right (bin 6). 10 Msps @ 100 MHz → 95..105 MHz.
+        let bins = [-90.0, -40.0, -10.0, -40.0, -80.0, -50.0, -25.0, -50.0, -90.0];
+        let peaks = rail_peaks(&bins, -80.0, 100_000_000, 10_000_000.0, 3);
+        assert_eq!(peaks.len(), 2, "two distinct lobes above NF+10");
+        assert!(peaks[0].1 > peaks[1].1, "strongest first");
+        assert!((peaks[0].1 - (-10.0)).abs() < 1e-3);
+        // Bin 2 of 9 maps below centre; bin 6 above it.
+        assert!(peaks[0].0 < 100_000_000 && peaks[1].0 > 100_000_000);
+    }
+
+    #[test]
+    fn rail_peaks_empty_without_signal_or_rate() {
+        // All near the floor → nothing clears NF+10 dB.
+        assert!(rail_peaks(&[-90.0, -88.0, -90.0], -90.0, 100_000_000, 6_000_000.0, 3).is_empty());
+        // No sample rate → no usable frequency map.
+        assert!(rail_peaks(&[-90.0, -10.0, -90.0], -90.0, 100_000_000, 0.0, 3).is_empty());
+    }
+
+    #[test]
+    fn chain_verdict_reads_saturation_and_headroom() {
+        assert_eq!(chain_verdict(20.0, 10.0).0, "hot");      // clipping wins
+        assert_eq!(chain_verdict(0.0, 60.0),  ("low", 1));   // lots of headroom
+        assert_eq!(chain_verdict(0.0, 20.0),  ("optimal", 0));
     }
 }

@@ -43,7 +43,7 @@ const PEAK_PROMINENCE_DB: f32 = 10.0;
 /// of local maxima that rise at least `PEAK_PROMINENCE_DB` above `noise_floor`,
 /// each separated from already-chosen peaks by `min_sep` bins, strongest first,
 /// capped at `max_peaks`. Pure + deterministic so it can be unit-tested.
-fn detect_peaks(bins: &[f32], noise_floor: f32, max_peaks: usize, min_sep: usize) -> Vec<usize> {
+pub(crate) fn detect_peaks(bins: &[f32], noise_floor: f32, max_peaks: usize, min_sep: usize) -> Vec<usize> {
     if bins.len() < 3 || max_peaks == 0 { return Vec::new(); }
     let thresh = noise_floor + PEAK_PROMINENCE_DB;
 
