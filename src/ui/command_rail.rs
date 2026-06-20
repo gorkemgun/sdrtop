@@ -19,7 +19,10 @@ use ratatui::{
     Frame,
 };
 
+use std::collections::VecDeque;
+
 use crate::state::SdrMetrics;
+use super::charts::sparkline;
 use super::header::{active_digit_idx, gain_bar, vfo_spans, vfo_string};
 use super::micro_common::{fft_stale, fmt_rbw, snr_color};
 use super::panel::Panel;
@@ -46,18 +49,72 @@ fn gain_bar_width(inner_w: usize) -> usize {
     inner_w.saturating_sub(10).clamp(4, 12)
 }
 
-/// Trend arrow span for the SNR short-term delta: rising green / falling yellow /
-/// steady dim. `None` until there is enough history (mirrors the micro view).
-fn snr_arrow(delta: Option<f32>, theme: &crate::Theme) -> Option<Span<'static>> {
+/// Short-term trend of a metric history: mean of the recent half minus the older
+/// half (same shape as `SignalState::snr_delta`). `None` until ≥4 samples.
+fn series_delta(h: &VecDeque<f32>) -> Option<f32> {
+    let n = h.len();
+    if n < 4 { return None; }
+    let half = n / 2;
+    let older:  f32 = h.iter().take(half).sum::<f32>() / half as f32;
+    let recent: f32 = h.iter().skip(n - half).sum::<f32>() / half as f32;
+    Some(recent - older)
+}
+
+/// A trend arrow for a metric delta. `good_when_rising` colours the direction by
+/// meaning: `Some(true)` → rising is good (SNR), `Some(false)` → rising is bad
+/// (NF, SAT), `None` → neutral (PWR). Below `eps` it's a dim steady `→`.
+fn trend_arrow(delta: Option<f32>, eps: f32, good_when_rising: Option<bool>,
+               theme: &crate::Theme) -> Option<Span<'static>> {
     let d = delta?;
-    let (text, color): (&str, Color) = if d > 0.3 {
-        ("↑", theme.status_ok)
-    } else if d < -0.3 {
-        ("↓", theme.status_warn)
-    } else {
-        ("→", theme.stale)
+    let dir: i8 = if d > eps { 1 } else if d < -eps { -1 } else { 0 };
+    let glyph = match dir { 1 => "↑", -1 => "↓", _ => "→" };
+    let color = match good_when_rising {
+        _ if dir == 0 => theme.stale,
+        None          => theme.stale,
+        Some(gw)      => if (dir == 1) == gw { theme.status_ok } else { theme.status_warn },
     };
-    Some(Span::styled(text, Style::default().fg(color)))
+    Some(Span::styled(glyph, Style::default().fg(color)))
+}
+
+/// One metric as the rail's two-row block: `LABEL … UNIT` over `VALUE … spark ↑`.
+/// `value == None` renders a stale dash and drops the sparkline/arrow. Both lines
+/// are padded to `iw` so the unit and the trend cluster sit flush right.
+fn metric_block(label: &str, unit: &str, value: Option<String>, value_color: Color,
+                spark: &str, arrow: Option<Span<'static>>, iw: usize,
+                theme: &crate::Theme) -> [Line<'static>; 2] {
+    let pad = |n: usize| Span::raw(" ".repeat(n.max(1)));
+
+    // Row 1: label (left) + unit (right).
+    let l1_used = 1 + label.chars().count() + unit.chars().count();
+    let head = Line::from(vec![
+        Span::raw(" "),
+        Span::styled(label.to_string(), Style::default().fg(theme.label)),
+        pad(iw.saturating_sub(l1_used)),
+        Span::styled(unit.to_string(), Style::default().fg(theme.border_dim)),
+    ]);
+
+    // Row 2: big-ish bold value (left) + sparkline + arrow (right).
+    let Some(val) = value else {
+        let stale = Line::from(vec![
+            Span::raw(" "),
+            Span::styled("—".to_string(), Style::default().fg(theme.stale)),
+        ]);
+        return [head, stale];
+    };
+    let arrow_w = arrow.as_ref().map_or(0, |_| 2); // " " + glyph
+    let right_w = spark.chars().count() + arrow_w;
+    let used = 1 + val.chars().count() + right_w;
+    let mut spans = vec![
+        Span::raw(" "),
+        Span::styled(val, Style::default().fg(value_color).add_modifier(Modifier::BOLD)),
+        pad(iw.saturating_sub(used)),
+        Span::styled(spark.to_string(), Style::default().fg(value_color)),
+    ];
+    if let Some(a) = arrow {
+        spans.push(Span::raw(" "));
+        spans.push(a);
+    }
+    [head, Line::from(spans)]
 }
 
 /// Colour for the ADC-saturation value: calm below 10 %, warn to 50 %, crit above.
@@ -147,7 +204,6 @@ impl Panel for CommandRailPanel {
         let active = state.radio.hw_streaming && !observer;
 
         let lbl   = |s: &str| Span::styled(format!("{s:<5}"), Style::default().fg(theme.label));
-        let dash  = || Span::styled("—".to_string(), Style::default().fg(theme.stale));
         // Dim `╴SECTION╶` divider, matching the deck nameplate language.
         let section = |name: &str| Line::from(chrome::nameplate(
             vec![chrome::label(name, theme.label)], theme.border_dim));
@@ -161,37 +217,50 @@ impl Panel for CommandRailPanel {
         lines.push(Line::raw(""));
 
         // --- SIGNAL ------------------------------------------------------------
+        // Each metric: value-first, with an inline sparkline of its recent trend
+        // and a meaning-coloured arrow. Sparkline width scales with the rail.
         lines.push(section("Signal"));
-        // SNR + trend arrow.
-        let snr = state.signal.peak_to_nf_db;
-        let mut snr_row = vec![Span::raw(" "), lbl("SNR")];
-        if stale {
-            snr_row.push(dash());
-        } else {
-            snr_row.push(Span::styled(format!("{:.1} dB", snr),
-                Style::default().fg(snr_color(snr, theme))));
-            if let Some(a) = snr_arrow(state.signal.snr_delta(), theme) {
-                snr_row.push(Span::raw("  "));
-                snr_row.push(a);
-            }
-        }
-        lines.push(Line::from(snr_row));
-        // PWR.
-        let pwr = state.signal.channel_power_dbfs;
-        let pwr_span = if stale || !pwr.is_finite() { dash() }
-            else { Span::styled(format!("{:.1} dBFS", pwr), Style::default().fg(theme.value)) };
-        lines.push(Line::from(vec![Span::raw(" "), lbl("PWR"), pwr_span]));
-        // NF (from the latest FFT frame).
-        let nf_span = match state.waterfall.last_fft.as_ref().filter(|_| !stale) {
-            Some(fr) => Span::styled(format!("{:.1} dBFS", fr.noise_floor), Style::default().fg(theme.value)),
-            None     => dash(),
+        let sw = (iw / 4).clamp(5, 9);
+        let spk = |h: &VecDeque<f32>| {
+            let v: Vec<f32> = h.iter().copied().collect();
+            sparkline(&v, sw)
         };
-        lines.push(Line::from(vec![Span::raw(" "), lbl("NF"), nf_span]));
-        // SAT.
+
+        let snr = state.signal.peak_to_nf_db;
+        lines.extend(metric_block(
+            "SNR", "dB",
+            (!stale).then(|| format!("{snr:.1}")),
+            snr_color(snr, theme),
+            &spk(&state.signal.snr_history),
+            trend_arrow(series_delta(&state.signal.snr_history), 0.3, Some(true), theme),
+            iw, theme));
+
+        let pwr = state.signal.channel_power_dbfs;
+        lines.extend(metric_block(
+            "PWR", "dBFS",
+            (!stale && pwr.is_finite()).then(|| format!("{pwr:.1}")),
+            theme.value,
+            &spk(&state.signal.pwr_history),
+            trend_arrow(series_delta(&state.signal.pwr_history), 0.5, None, theme),
+            iw, theme));
+
+        let nf = state.waterfall.last_fft.as_ref().filter(|_| !stale).map(|fr| fr.noise_floor);
+        lines.extend(metric_block(
+            "NF", "dBFS",
+            nf.map(|v| format!("{v:.1}")),
+            theme.value,
+            &spk(&state.signal.nf_history),
+            trend_arrow(series_delta(&state.signal.nf_history), 0.3, Some(false), theme),
+            iw, theme));
+
         let sat = state.signal.adc_saturation_pct;
-        let sat_span = if !active { dash() }
-            else { Span::styled(format!("{:.1} %", sat), Style::default().fg(sat_color(sat, theme))) };
-        lines.push(Line::from(vec![Span::raw(" "), lbl("SAT"), sat_span]));
+        lines.extend(metric_block(
+            "SAT", "%",
+            active.then(|| format!("{sat:.1}")),
+            sat_color(sat, theme),
+            &spk(&state.signal.saturation_history),
+            trend_arrow(series_delta(&state.signal.saturation_history), 0.5, Some(false), theme),
+            iw, theme));
         lines.push(Line::raw(""));
 
         // --- GAIN --------------------------------------------------------------
@@ -296,12 +365,26 @@ mod tests {
     }
 
     #[test]
-    fn snr_arrow_directions() {
+    fn trend_arrow_colours_by_meaning() {
         let t = Theme::sdr();
-        assert!(snr_arrow(None, &t).is_none());
-        assert_eq!(snr_arrow(Some(1.0), &t).unwrap().style.fg, Some(t.status_ok));
-        assert_eq!(snr_arrow(Some(-1.0), &t).unwrap().style.fg, Some(t.status_warn));
-        assert_eq!(snr_arrow(Some(0.0), &t).unwrap().style.fg, Some(t.stale));
+        assert!(trend_arrow(None, 0.3, Some(true), &t).is_none());
+        // rising-is-good (SNR): up → ok, down → warn
+        assert_eq!(trend_arrow(Some(1.0), 0.3, Some(true), &t).unwrap().style.fg, Some(t.status_ok));
+        assert_eq!(trend_arrow(Some(-1.0), 0.3, Some(true), &t).unwrap().style.fg, Some(t.status_warn));
+        // rising-is-bad (NF/SAT): up → warn
+        assert_eq!(trend_arrow(Some(1.0), 0.3, Some(false), &t).unwrap().style.fg, Some(t.status_warn));
+        // neutral (PWR) and within-eps → dim steady
+        assert_eq!(trend_arrow(Some(1.0), 0.3, None, &t).unwrap().style.fg, Some(t.stale));
+        assert_eq!(trend_arrow(Some(0.0), 0.3, Some(true), &t).unwrap().style.fg, Some(t.stale));
+    }
+
+    #[test]
+    fn series_delta_needs_four_samples() {
+        let mut h: VecDeque<f32> = VecDeque::new();
+        h.extend([10.0, 10.0, 20.0]);
+        assert_eq!(series_delta(&h), None);
+        h.push_back(20.0); // older half [10,10]=10, recent half [20,20]=20 → +10
+        assert!((series_delta(&h).unwrap() - 10.0).abs() < 1e-6);
     }
 
     #[test]

@@ -40,6 +40,35 @@ pub fn draw_hbar(
     );
 }
 
+/// A one-line inline sparkline from the most recent `width` samples, drawn with
+/// the `▁▂▃▄▅▆▇█` ramp and auto-scaled to the window's own min..max. Returns a
+/// string of exactly `width` columns (left-padded with spaces when there are
+/// fewer samples than `width`). Non-finite samples render as a gap. Used by the
+/// command rail's metric rows.
+pub fn sparkline(data: &[f32], width: usize) -> String {
+    const RAMP: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    if width == 0 { return String::new(); }
+    if data.is_empty() { return " ".repeat(width); }
+
+    let start  = data.len().saturating_sub(width);
+    let window = &data[start..];
+    let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for &v in window {
+        if v.is_finite() { lo = lo.min(v); hi = hi.max(v); }
+    }
+    if !lo.is_finite() || !hi.is_finite() { return " ".repeat(width); }
+    let range = (hi - lo).max(1e-6);
+
+    let mut s = String::with_capacity(width);
+    for _ in 0..width.saturating_sub(window.len()) { s.push(' '); }
+    for &v in window {
+        if !v.is_finite() { s.push(' '); continue; }
+        let t = (((v - lo) / range) * 7.0).round().clamp(0.0, 7.0) as usize;
+        s.push(RAMP[t]);
+    }
+    s
+}
+
 /// Canvas filled-column graph — same style as the spectrum panel (filled columns + outline).
 /// Accepts a plain `&[u64]` slice. Scales automatically to the data maximum.
 pub fn draw_mini_graph(f: &mut Frame, area: Rect, data: &[u64], color: Color) {
@@ -72,4 +101,39 @@ pub fn draw_mini_graph(f: &mut Frame, area: Rect, data: &[u64], color: Color) {
             }),
         area,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Every sparkline char is single-column, so chars().count() == display width.
+    #[test]
+    fn sparkline_is_always_width_columns() {
+        assert_eq!(sparkline(&[], 6).chars().count(), 6);
+        assert_eq!(sparkline(&[1.0], 6).chars().count(), 6);
+        assert_eq!(sparkline(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], 6).chars().count(), 6);
+        assert_eq!(sparkline(&[1.0; 3], 0).chars().count(), 0);
+    }
+
+    #[test]
+    fn sparkline_maps_extremes_to_ramp_ends() {
+        // A rising ramp ends low→high: first non-space is ▁, last is █.
+        let s: Vec<char> = sparkline(&[0.0, 1.0, 2.0, 3.0], 4).chars().collect();
+        assert_eq!(s[0], '▁');
+        assert_eq!(s[3], '█');
+    }
+
+    #[test]
+    fn sparkline_flat_series_does_not_panic_or_spike() {
+        // Equal samples → range floored to 1e-6, all map to the lowest bar.
+        let s = sparkline(&[-76.3; 6], 6);
+        assert!(s.chars().all(|c| c == '▁'));
+    }
+
+    #[test]
+    fn sparkline_left_pads_when_too_few_samples() {
+        let s = sparkline(&[5.0, 9.0], 6);
+        assert!(s.starts_with("    "), "got {s:?}");
+    }
 }

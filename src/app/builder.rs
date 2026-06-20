@@ -144,6 +144,8 @@ impl App {
                 usb_errors_last_poll: 0,
                 usb_error_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
                 snr_history: std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
+                pwr_history: std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
+                nf_history:  std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
             },
             iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, cb_period_us: 0, cb_jitter_us: 0, jitter_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), iq_amplitude_hist: [0u64; 32], buf_fill_pct: 0.0, buf_fill_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), phase_imbalance_deg: 0.0 },
             observer: ObserverState::default(),
@@ -262,6 +264,8 @@ impl App {
                 usb_errors_last_poll: 0,
                 usb_error_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN),
                 snr_history: std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
+                pwr_history: std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
+                nf_history:  std::collections::VecDeque::with_capacity(crate::state::SNR_HISTORY_LEN),
             },
             iq: IqState { iq_imbalance_db: 0.0, dc_offset_i: 0.0, dc_offset_q: 0.0, cb_period_us: 0, cb_jitter_us: 0, jitter_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), iq_amplitude_hist: [0u64; 32], buf_fill_pct: 0.0, buf_fill_history: std::collections::VecDeque::with_capacity(THROUGHPUT_HISTORY_LEN), phase_imbalance_deg: 0.0 },
             observer: ObserverState {

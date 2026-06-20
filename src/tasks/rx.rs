@@ -190,14 +190,23 @@ pub fn spawn_rx_task(
                     }
                     m.iq.jitter_history.push_back(jitter);
                 }
-                // Sample SNR into the trend history at ~500 ms while streaming.
+                // Sample SNR / PWR / NF into their trend histories at ~500 ms while
+                // streaming — one cadence so the command rail's sparklines align.
                 if hw_streaming && now.duration_since(last_snr_push) >= Duration::from_millis(500) {
                     last_snr_push = now;
-                    if m.signal.snr_history.len() >= crate::state::SNR_HISTORY_LEN {
-                        m.signal.snr_history.pop_front();
-                    }
+                    let cap = crate::state::SNR_HISTORY_LEN;
+                    let push = |h: &mut std::collections::VecDeque<f32>, v: f32| {
+                        if h.len() >= cap { h.pop_front(); }
+                        h.push_back(v);
+                    };
+                    // Read snapshots first so the mutable history borrows below
+                    // don't overlap an immutable read of `m.signal`.
                     let snr = m.signal.peak_to_nf_db;
-                    m.signal.snr_history.push_back(snr);
+                    let pwr = m.signal.channel_power_dbfs;
+                    let nf  = m.waterfall.last_fft.as_ref().map(|f| f.noise_floor);
+                    push(&mut m.signal.snr_history, snr);
+                    if pwr.is_finite() { push(&mut m.signal.pwr_history, pwr); }
+                    if let Some(nf) = nf { push(&mut m.signal.nf_history, nf); }
                 }
 
                 // Timing accuracy: fold this window's throughput into the running

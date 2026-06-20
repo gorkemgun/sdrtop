@@ -17,6 +17,12 @@ pub struct SignalState {
     /// Recent SNR (peak/noise-floor) samples, pushed by the rx poll task roughly
     /// every 500 ms while streaming. Powers the micro_signal trend arrow.
     pub snr_history:          VecDeque<f32>,
+    /// Recent channel-power (dBFS) samples — pushed alongside `snr_history` at the
+    /// same ~500 ms cadence. Powers the command rail's PWR sparkline + trend.
+    pub pwr_history:          VecDeque<f32>,
+    /// Recent noise-floor (dBFS) samples — pushed alongside `snr_history`. Powers
+    /// the command rail's NF sparkline + trend.
+    pub nf_history:           VecDeque<f32>,
 }
 
 impl SignalState {
@@ -43,7 +49,7 @@ mod tests {
             adc_saturation_pct: 0.0, adc_saturation_peak: 0.0, saturation_history: VecDeque::new(),
             peak_to_nf_db: 0.0, channel_power_dbfs: 0.0, occupied_bw_hz: 0,
             usb_errors_session: 0, usb_errors_last_poll: 0, usb_error_history: VecDeque::new(),
-            snr_history: VecDeque::new(),
+            snr_history: VecDeque::new(), pwr_history: VecDeque::new(), nf_history: VecDeque::new(),
         };
         s.snr_history.extend(samples.iter().copied());
         s
