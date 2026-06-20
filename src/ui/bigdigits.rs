@@ -24,7 +24,6 @@ pub fn glyph(c: char) -> [&'static str; 3] {
         '8' => ["█▀█", "█▀█", "▀▀▀"],
         '9' => ["█▀█", "▀▀█", "▀▀▀"],
         '.' => ["   ", "   ", " ▄ "],
-        '-' => ["   ", "▀▀▀", "   "],
         _   => ["   ", "   ", "   "],
     }
 }
@@ -46,7 +45,7 @@ mod tests {
 
     #[test]
     fn every_glyph_row_is_three_columns() {
-        for c in "0123456789.- ".chars() {
+        for c in "0123456789. ".chars() {
             for (r, row) in glyph(c).iter().enumerate() {
                 assert_eq!(row.chars().count(), GLYPH_W, "char {c:?} row {r} not {GLYPH_W} cols");
             }
