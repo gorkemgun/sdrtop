@@ -267,6 +267,13 @@ fn handle_spectrum_focus(
                 m.push_log("No marker near cursor — place one with [M] first");
             }
         }
+        // `D` cycles the trace render style (braille → fill → scatter); persisted.
+        KeyCode::Char('d') | KeyCode::Char('D') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let next = m.spectrum.style.next();
+            m.spectrum.style = next;
+            m.push_log(format!("Spectrum style: {}", next.label()));
+        }
         // All other keys fall through to global handler
         _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }

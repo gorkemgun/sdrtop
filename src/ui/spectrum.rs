@@ -5,14 +5,14 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        canvas::{Canvas, Line as CanvasLine},
+        canvas::{Canvas, Line as CanvasLine, Points},
         Borders, Paragraph,
     },
     Frame,
 };
 
 use crate::palette::{magnitude_to_color_themed, ColorDepth};
-use crate::state::SdrMetrics;
+use crate::state::{SdrMetrics, SpectrumStyle};
 use crate::ui::band_plan::BAND_PLAN;
 use crate::ui::chrome;
 use crate::ui::panel::{Bond, Panel};
@@ -152,6 +152,7 @@ impl Panel for SpectrumPanel {
             ("M",    "Place/remove marker"),
             ("B",    "Cycle channel BW on nearest marker"),
             ("H",    "Hold/unhold frame"),
+            ("D",    "Draw style"),
         ]
     }
 
@@ -285,6 +286,7 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
                 let lab_trace: Option<Arc<Vec<f32>>> = if lab_mode { state.lab.ref_trace.clone() } else { None };
                 let ref_line_color = theme.value_hi;
                 let cal_color = theme.observer;
+                let style = state.spectrum.style;
 
                 // Cursor power
                 let cursor_power: Option<f32> = state.spectrum.cursor_freq.and_then(|cf| {
@@ -388,42 +390,58 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
                                     });
                                 }
                             }
-                            // 2. Filled body — a dimmed height-gradient glow. Drawn as
-                            //    solid horizontal runs per band (every column that reaches
-                            //    this height), so the fill is continuous: no isolated dots
-                            //    blinking on and off as bins jitter across band edges.
-                            for s in 0..v_steps {
-                                let yb  = band_y[s];
-                                let ybf = yb as f64;
-                                let color = band_dim[s];
-                                let mut i = 0usize;
-                                while i < bins.len() {
-                                    if bins[i] >= yb {
-                                        let start = i;
-                                        while i < bins.len() && bins[i] >= yb { i += 1; }
-                                        ctx.draw(&CanvasLine {
-                                            x1: start as f64, y1: ybf,
-                                            x2: (i - 1) as f64, y2: ybf,
-                                            color,
-                                        });
-                                    } else {
-                                        i += 1;
+                            // 2. Filled body — solid horizontal runs per band (every
+                            //    column that reaches this height), continuous so no
+                            //    isolated dots blink on/off as bins jitter. Skipped for
+                            //    Scatter; Braille dims it (a soft glow under the crisp
+                            //    edge), Fill keeps it full-brightness (a heavy body).
+                            if style != SpectrumStyle::Scatter {
+                                for s in 0..v_steps {
+                                    let yb  = band_y[s];
+                                    let ybf = yb as f64;
+                                    let color = if style == SpectrumStyle::Fill { band_bright[s] } else { band_dim[s] };
+                                    let mut i = 0usize;
+                                    while i < bins.len() {
+                                        if bins[i] >= yb {
+                                            let start = i;
+                                            while i < bins.len() && bins[i] >= yb { i += 1; }
+                                            ctx.draw(&CanvasLine {
+                                                x1: start as f64, y1: ybf,
+                                                x2: (i - 1) as f64, y2: ybf,
+                                                color,
+                                            });
+                                        } else {
+                                            i += 1;
+                                        }
                                     }
                                 }
                             }
                             // 3. Live edge — crisp full-brightness trace connecting the bin
-                            //    tops. Each segment is colored by its HEIGHT (stable), so
-                            //    the edge never flickers in color either.
-                            for i in 1..bins.len() {
-                                let y0 = bins[i - 1].clamp(y_min_f, y_max_f);
-                                let y1 = bins[i].clamp(y_min_f, y_max_f);
-                                let frac = (((y0 + y1) * 0.5 - y_min_f) / span).clamp(0.0, 1.0);
-                                let idx  = ((frac * (v_steps - 1) as f32) as usize).min(v_steps - 1);
-                                ctx.draw(&CanvasLine {
-                                    x1: (i - 1) as f64, y1: y0 as f64,
-                                    x2: i as f64,       y2: y1 as f64,
-                                    color: band_bright[idx],
-                                });
+                            //    tops, coloured by HEIGHT (stable, never flickers). Only
+                            //    Braille draws it (over its dim body); Fill's bright body
+                            //    is its own edge, Scatter has no line.
+                            if style == SpectrumStyle::Braille {
+                                for i in 1..bins.len() {
+                                    let y0 = bins[i - 1].clamp(y_min_f, y_max_f);
+                                    let y1 = bins[i].clamp(y_min_f, y_max_f);
+                                    let frac = (((y0 + y1) * 0.5 - y_min_f) / span).clamp(0.0, 1.0);
+                                    let idx  = ((frac * (v_steps - 1) as f32) as usize).min(v_steps - 1);
+                                    ctx.draw(&CanvasLine {
+                                        x1: (i - 1) as f64, y1: y0 as f64,
+                                        x2: i as f64,       y2: y1 as f64,
+                                        color: band_bright[idx],
+                                    });
+                                }
+                            }
+                            // 3b. Scatter — an airy dot per bin at its top, no fill or line.
+                            if style == SpectrumStyle::Scatter {
+                                for i in 0..bins.len() {
+                                    let yv   = bins[i].clamp(y_min_f, y_max_f);
+                                    let frac = ((yv - y_min_f) / span).clamp(0.0, 1.0);
+                                    let idx  = ((frac * (v_steps - 1) as f32) as usize).min(v_steps - 1);
+                                    let pt = [(i as f64, yv as f64)];
+                                    ctx.draw(&Points { coords: &pt, color: band_bright[idx] });
+                                }
                             }
                             // 4. Peak hold — a single connected gold line tracing the decaying
                             //    max envelope. A line (not scattered points) stays calm and
