@@ -78,6 +78,10 @@ impl FftWorker {
         let mut last_spectrum_update = std::time::Instant::now()
             .checked_sub(SPECTRUM_STALE_GUARD)
             .unwrap_or_else(std::time::Instant::now);
+        // Live EMA factor: refreshed once per display frame from the lab's `AVG ×N`
+        // control (alpha = 1/N), so trace averaging is adjustable without rebuilding
+        // the worker. Starts at the worker's configured default.
+        let mut current_alpha = self.ema_alpha;
 
         while let Ok(chunk) = self.sample_rx.recv() {
             buf.extend_from_slice(&chunk);
@@ -129,7 +133,7 @@ impl FftWorker {
                     peak.copy_from_slice(&shifted);
                     initialized = true;
                 } else {
-                    let alpha = self.ema_alpha;
+                    let alpha = current_alpha;
                     let one_minus = 1.0 - alpha;
                     for (s, &new) in smoothed.iter_mut().zip(shifted.iter()) {
                         *s = alpha * new + one_minus * *s;
@@ -200,6 +204,9 @@ impl FftWorker {
                 };
 
                 if let Ok(mut m) = self.state.lock() {
+                    // Refresh the averaging factor from the lab control (cheap read
+                    // under the lock we already hold for the result write-back).
+                    current_alpha = m.lab.ema_alpha();
                     m.signal.peak_to_nf_db      = peak_to_nf_db;
                     m.signal.channel_power_dbfs = channel_power_dbfs;
                     m.signal.occupied_bw_hz     = occupied_bw_hz;

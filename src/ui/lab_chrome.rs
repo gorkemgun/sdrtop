@@ -77,14 +77,14 @@ fn span_w(spans: &[Span]) -> usize {
     spans.iter().map(|s| s.content.chars().count()).sum()
 }
 
-/// A full-width dim hairline rule.
-fn hairline(iw: usize, theme: &crate::Theme) -> Line<'static> {
-    Line::from(Span::styled("\u{2500}".repeat(iw), Style::default().fg(theme.border_dim)))
+/// A full-width hairline rule in `color`.
+fn hairline(iw: usize, color: ratatui::style::Color) -> Line<'static> {
+    Line::from(Span::styled("\u{2500}".repeat(iw), Style::default().fg(color)))
 }
 
 // ── Banner (top bar) ────────────────────────────────────────────────────────
 
-fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
+fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize, focused: bool) -> Vec<Line<'static>> {
     let (label, num) = match lab_label(&state.ui.active_preset) {
         Some(x) => x,
         None    => return vec![Line::raw("")],
@@ -94,9 +94,14 @@ fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line
     let hi   = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
     let val  = Style::default().fg(theme.value);
 
-    // Left zone: " LAB · RF CHAIN [6]"
+    // Left zone: "▸LAB · RF CHAIN [6]" (▸ when the banner holds focus).
+    let lead = if focused {
+        Span::styled("\u{25B8}", Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD))
+    } else {
+        Span::raw(" ")
+    };
     let left: Vec<Span> = vec![
-        Span::raw(" "),
+        lead,
         Span::styled("LAB", bold),
         Span::styled(" \u{00B7} ", dim),
         Span::styled(label, hi),
@@ -145,7 +150,8 @@ fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line
     spans.push(Span::raw(" ".repeat(filler)));
     spans.extend(right);
 
-    vec![Line::from(spans), hairline(iw, theme)]
+    let rule = if focused { theme.border_focused } else { theme.border_dim };
+    vec![Line::from(spans), hairline(iw, rule)]
 }
 
 // ── Marker bar (bottom bar) ─────────────────────────────────────────────────
@@ -222,7 +228,7 @@ fn marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line
         spans.extend(hints);
     }
 
-    vec![hairline(iw, theme), Line::from(spans)]
+    vec![hairline(iw, theme.border_dim), Line::from(spans)]
 }
 
 // ── Panels ──────────────────────────────────────────────────────────────────
@@ -233,9 +239,14 @@ pub struct LabBannerPanel;
 impl Panel for LabBannerPanel {
     fn name(&self) -> &'static str { "lab_banner" }
     fn min_size(&self) -> (u16, u16) { (20, 1) }
-    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, _focused: bool) {
+    // `b` focuses the measurement banner to drive REF / averaging / CAL directly.
+    fn focus_key(&self) -> Option<char> { Some('b') }
+    fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
+        &[("↑↓", "Ref level"), ("[ ]", "Averaging"), ("C", "Capture cal"), ("R", "Clear ref")]
+    }
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         if area.width == 0 || area.height == 0 { return; }
-        let lines = banner_lines(state, theme, area.width as usize);
+        let lines = banner_lines(state, theme, area.width as usize, focused);
         f.render_widget(Paragraph::new(lines), area);
     }
 }

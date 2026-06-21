@@ -276,6 +276,16 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
                 let y_min_f = state.spectrum.y_min;
                 let y_max_f = state.spectrum.y_max;
 
+                // Lab "instrument mode" overlays: a user-set reference level line and
+                // a captured reference (CAL) trace ghost — only in the measurement labs.
+                let lab_mode = state.ui.is_lab_mode();
+                let lab_ref: Option<f64> = if lab_mode {
+                    state.lab.ref_dbfs.map(|r| r.clamp(y_min_f, y_max_f) as f64)
+                } else { None };
+                let lab_trace: Option<Arc<Vec<f32>>> = if lab_mode { state.lab.ref_trace.clone() } else { None };
+                let ref_line_color = theme.value_hi;
+                let cal_color = theme.observer;
+
                 // Cursor power
                 let cursor_power: Option<f32> = state.spectrum.cursor_freq.and_then(|cf| {
                     let frac = (cf as f64 - left_hz) / bw;
@@ -428,6 +438,24 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
                             // 5. Noise floor reference line.
                             let nf = noise_floor.clamp(y_min_f, y_max_f) as f64;
                             ctx.draw(&CanvasLine { x1: 0.0, y1: nf, x2: n - 1.0, y2: nf, color: noise_floor_color });
+                            // 5b. CAL reference-trace ghost — the captured baseline,
+                            //     drawn only when it matches the current bin count
+                            //     (i.e. at the same zoom it was captured).
+                            if let Some(ref tr) = lab_trace {
+                                if tr.len() == bins.len() {
+                                    for i in 1..tr.len() {
+                                        ctx.draw(&CanvasLine {
+                                            x1: (i - 1) as f64, y1: tr[i - 1].clamp(y_min_f, y_max_f) as f64,
+                                            x2: i as f64,       y2: tr[i].clamp(y_min_f, y_max_f) as f64,
+                                            color: cal_color,
+                                        });
+                                    }
+                                }
+                            }
+                            // 5c. REF level — a horizontal line at the set dBFS.
+                            if let Some(ry) = lab_ref {
+                                ctx.draw(&CanvasLine { x1: 0.0, y1: ry, x2: n - 1.0, y2: ry, color: ref_line_color });
+                            }
                             // 6. Markers + channel-BW boundaries.
                             for md in &marker_data {
                                 if let Some(cx) = md.x {

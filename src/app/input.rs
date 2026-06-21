@@ -96,6 +96,7 @@ fn handle_normal(
         Some("timing_panel")    => handle_timing_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         Some("sweep_panel")     => handle_sweep_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         Some("command_rail")    => handle_command_rail_focus(key, state, device, engine, show_help, show_footer, focus_keys),
+        Some("lab_banner")      => handle_lab_banner_focus(key, state, device, engine, show_help, show_footer, focus_keys),
         _                       => handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
     }
 }
@@ -374,6 +375,55 @@ fn handle_waterfall_focus(
 
 /// `iq_diagnostics` focus: `[C]` logs a one-line snapshot of the current IQ
 /// balance figures as a reference capture.
+/// `lab_banner` focus (`b`): drive the lab measurement controls — REF level
+/// (`↑/↓`, `R` to clear), trace averaging (`[ ]`), and CAL reference-trace
+/// capture/clear (`C`). Everything else falls through to the global handler.
+fn handle_lab_banner_focus(
+    key: KeyEvent,
+    state: &Arc<Mutex<SdrMetrics>>,
+    device: Option<&Arc<dyn hardware::SdrDevice>>,
+    engine: &mut ui::LayoutEngine,
+    show_help: &mut bool,
+    show_footer: &mut bool,
+    focus_keys: &HashMap<char, &'static str>,
+) -> KeyAction {
+    match key.code {
+        KeyCode::Up   => { state.lock().unwrap_or_else(|e| e.into_inner()).lab.adjust_ref(1.0); }
+        KeyCode::Down => { state.lock().unwrap_or_else(|e| e.into_inner()).lab.adjust_ref(-1.0); }
+        KeyCode::Char('[') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.lab.adjust_avg(-1);
+            let n = m.lab.avg_n;
+            m.push_log(format!("Averaging: \u{00D7}{n}"));
+        }
+        KeyCode::Char(']') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.lab.adjust_avg(1);
+            let n = m.lab.avg_n;
+            m.push_log(format!("Averaging: \u{00D7}{n}"));
+        }
+        KeyCode::Char('r') | KeyCode::Char('R') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.lab.ref_dbfs = None;
+            m.push_log("Reference level cleared");
+        }
+        KeyCode::Char('c') | KeyCode::Char('C') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            if m.lab.ref_trace.is_some() {
+                m.lab.ref_trace = None;
+                m.push_log("Reference trace cleared");
+            } else if let Some(bins) = m.waterfall.last_fft.as_ref().map(|fr| Arc::clone(&fr.bins_dbfs)) {
+                m.lab.ref_trace = Some(bins);
+                m.push_log("Reference trace captured");
+            } else {
+                m.push_log("No spectrum frame to capture");
+            }
+        }
+        _ => return handle_global(key, state, device, engine, show_help, show_footer, focus_keys),
+    }
+    KeyAction::Continue
+}
+
 fn handle_iq_focus(
     key: KeyEvent,
     state: &Arc<Mutex<SdrMetrics>>,
