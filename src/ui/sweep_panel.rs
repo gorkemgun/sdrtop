@@ -6,17 +6,30 @@
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{
+        canvas::{Canvas, Line as CanvasLine},
+        Block, BorderType, Borders, Paragraph,
+    },
     Frame,
 };
 
+use crate::palette::{magnitude_to_color_themed, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::{band_at, BAND_PLAN};
 use crate::ui::panel::Panel;
 
 pub struct SweepPanel;
+
+/// Dim a truecolor toward black by factor `f` (256/16 pass through). Matches the
+/// spectrum's filled-body shading so the sweep envelope reads the same way.
+fn dim(c: Color, f: f32) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => Color::Rgb((r as f32 * f) as u8, (g as f32 * f) as u8, (b as f32 * f) as u8),
+        other => other,
+    }
+}
 
 /// dBFS window for the vertical axis.
 const Y_MIN: f32 = -100.0;
@@ -86,39 +99,83 @@ impl Panel for SweepPanel {
         };
 
         let plot = rows[0];
-        let plot_w = plot.width.saturating_sub(AXIS_W) as usize;
-        let plot_h = plot.height as usize;
+        if plot.width <= AXIS_W || plot.height == 0 { return; }
+        // Left dBFS gutter + braille envelope canvas to its right.
+        let gutter = Rect { x: plot.x, y: plot.y, width: AXIS_W, height: plot.height };
+        let canvas_area = Rect { x: plot.x + AXIS_W, y: plot.y, width: plot.width - AXIS_W, height: plot.height };
+        let plot_w = canvas_area.width as usize;   // cells — used by the axis, band-plan and cursor maths
+        let plot_h = canvas_area.height as usize;
         if plot_w == 0 || plot_h == 0 { return; }
 
-        let curve = frame.project(plot_w, sw.show_peak);
-
-        // dBFS bar plot: for each cell row (top = Y_MAX), mark columns that reach it.
         let span_db = (Y_MAX - Y_MIN).max(1.0);
-        let mut plot_lines: Vec<Line> = Vec::with_capacity(plot_h);
+
+        // dBFS gutter labels: top = Y_MAX, middle, bottom = Y_MIN.
+        let mut gutter_lines: Vec<Line> = Vec::with_capacity(plot_h);
         for r in 0..plot_h {
-            // Row r maps to a dBFS threshold (row 0 = top = high dBFS).
-            let row_frac = 1.0 - (r as f32 + 0.5) / plot_h as f32;
-            let threshold = Y_MIN + row_frac * span_db;
-            // Left gutter: a dBFS label every few rows.
-            let label = if r == 0 {
-                format!("{:>4} ", Y_MAX as i32)
-            } else if r == plot_h - 1 {
-                format!("{:>4} ", Y_MIN as i32)
-            } else if plot_h >= 5 && r == plot_h / 2 {
-                format!("{:>4} ", ((Y_MAX + Y_MIN) / 2.0) as i32)
-            } else {
-                "     ".to_string()
-            };
-            let mut bar = String::with_capacity(plot_w);
-            for &v in &curve {
-                bar.push(if v.is_finite() && v >= threshold { '█' } else { ' ' });
-            }
-            plot_lines.push(Line::from(vec![
-                Span::styled(label, Style::default().fg(theme.label)),
-                Span::styled(bar, Style::default().fg(theme.value_hi)),
-            ]));
+            let s = if r == 0 { format!("{:>4} ", Y_MAX as i32) }
+                else if r == plot_h - 1 { format!("{:>4} ", Y_MIN as i32) }
+                else if plot_h >= 5 && r == plot_h / 2 { format!("{:>4} ", ((Y_MAX + Y_MIN) / 2.0) as i32) }
+                else { "     ".to_string() };
+            gutter_lines.push(Line::from(Span::styled(s, Style::default().fg(theme.label))));
         }
-        f.render_widget(Paragraph::new(plot_lines), plot);
+        f.render_widget(Paragraph::new(gutter_lines), gutter);
+
+        // Braille envelope: project at 2 dots per cell so a single-bin peak still
+        // shows as a thin spike instead of being lost in a full-cell block.
+        let n_cols = (plot_w * 2).max(2);
+        let raw = frame.project(n_cols, sw.show_peak);
+        // Envelope heights, clamped into the window (non-finite → floor → no fill).
+        let body: Vec<f32> = raw.iter()
+            .map(|&v| if v.is_finite() { v.clamp(Y_MIN, Y_MAX) } else { Y_MIN })
+            .collect();
+        let n = body.len();
+
+        // Height-only colour (stable, never flickers): a dimmed gradient body with a
+        // crisp top edge, same language as the spectrum.
+        let depth = ColorDepth::detect();
+        let v_steps = (plot_h * 4).clamp(1, 512);
+        let band_y: Vec<f32> = (0..v_steps)
+            .map(|s| Y_MIN + (if v_steps > 1 { s as f32 / (v_steps - 1) as f32 } else { 0.0 }) * span_db)
+            .collect();
+        let band_dim:    Vec<Color> = band_y.iter().map(|&yb| dim(magnitude_to_color_themed(yb, Y_MIN, Y_MAX, depth, theme), 0.45)).collect();
+        let band_bright: Vec<Color> = band_y.iter().map(|&yb| magnitude_to_color_themed(yb, Y_MIN, Y_MAX, depth, theme)).collect();
+
+        let cursor_x = sw.cursor_frac.map(|fr| (fr * (n - 1) as f64).clamp(0.0, (n - 1) as f64));
+        let cursor_color = theme.value_hi;
+        let x_max = (n as f64 - 1.0).max(0.0);
+
+        f.render_widget(
+            Canvas::default()
+                .x_bounds([0.0, x_max])
+                .y_bounds([Y_MIN as f64, Y_MAX as f64])
+                .paint(move |ctx| {
+                    // 1. Filled body — dimmed height-gradient runs per band step.
+                    for s in 0..v_steps {
+                        let yb = band_y[s];
+                        let (ybf, color) = (yb as f64, band_dim[s]);
+                        let mut i = 0usize;
+                        while i < body.len() {
+                            if body[i] >= yb {
+                                let start = i;
+                                while i < body.len() && body[i] >= yb { i += 1; }
+                                ctx.draw(&CanvasLine { x1: start as f64, y1: ybf, x2: (i - 1) as f64, y2: ybf, color });
+                            } else { i += 1; }
+                        }
+                    }
+                    // 2. Crisp top edge — connect column tops, coloured by height.
+                    for i in 1..body.len() {
+                        let (y0, y1) = (body[i - 1], body[i]);
+                        let frac = (((y0 + y1) * 0.5 - Y_MIN) / span_db).clamp(0.0, 1.0);
+                        let idx  = ((frac * (v_steps - 1) as f32) as usize).min(v_steps - 1);
+                        ctx.draw(&CanvasLine { x1: (i - 1) as f64, y1: y0 as f64, x2: i as f64, y2: y1 as f64, color: band_bright[idx] });
+                    }
+                    // 3. Cursor glow — a full-height column at the cursor position.
+                    if let Some(cx) = cursor_x {
+                        ctx.draw(&CanvasLine { x1: cx, y1: Y_MIN as f64, x2: cx, y2: Y_MAX as f64, color: cursor_color });
+                    }
+                }),
+            canvas_area,
+        );
 
         // Cursor marker overlaid as a status (drawn in the status line below).
         let cursor_hz = sw.cursor_frac.map(|fr| frame.freq_at_fraction(fr));
@@ -143,8 +200,8 @@ impl Panel for SweepPanel {
         let status = match cursor_hz {
             Some(hz) => {
                 let frac = sw.cursor_frac.unwrap_or(0.0);
-                let bucket = ((frac * plot_w as f64) as usize).min(plot_w.saturating_sub(1));
-                let level = curve.get(bucket).copied().unwrap_or(f32::NEG_INFINITY);
+                let bucket = ((frac * n as f64) as usize).min(n.saturating_sub(1));
+                let level = raw.get(bucket).copied().unwrap_or(f32::NEG_INFINITY);
                 let level_str = if level.is_finite() { format!("{:.1} dBFS", level) } else { "—".to_string() };
                 let band = band_at(hz).map(|b| format!("  [{}]", b)).unwrap_or_default();
                 Line::from(vec![
@@ -190,5 +247,5 @@ fn band_plan_line(start_hz: u64, stop_hz: u64, plot_w: usize, gutter: usize, the
             }
         }
     }
-    Line::from(Span::styled(row.into_iter().collect::<String>(), Style::default().fg(theme.status_ok)))
+    Line::from(Span::styled(row.into_iter().collect::<String>(), Style::default().fg(theme.border_dim)))
 }
