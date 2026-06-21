@@ -262,18 +262,18 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),           position: Bottom, height: None,    width_pct: None     },
             ],
         };
-        // Lab IQ — I/Q diagnostics focus: constellation/imbalance left, amplitude
-        // histogram centre, spectrum reference right.
+        // Lab IQ — I/Q diagnostics left, constellation 2-D cloud centre, spectrum right.
+        // The amplitude histogram is superseded by the constellation (same data, richer view).
         let lab_iq = PresetConfig {
             panels: vec![
-                PanelSpec { name: "header".into(),         position: Top,    height: Some(5), width_pct: None     },
-                PanelSpec { name: "lab_banner".into(),     position: Top,    height: Some(2), width_pct: None     },
-                PanelSpec { name: "iq_diagnostics".into(), position: Left,   height: None,    width_pct: Some(35) },
-                PanelSpec { name: "iq_histogram".into(),   position: Body,   height: None,    width_pct: None     },
-                PanelSpec { name: "spectrum".into(),       position: Right,  height: None,    width_pct: Some(35) },
-                PanelSpec { name: "lab_marker".into(),     position: Bottom, height: Some(2), width_pct: None     },
-                PanelSpec { name: "log".into(),            position: Bottom, height: Some(5), width_pct: None     },
-                PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
+                PanelSpec { name: "header".into(),              position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "lab_banner".into(),          position: Top,    height: Some(2), width_pct: None     },
+                PanelSpec { name: "iq_diagnostics".into(),      position: Left,   height: None,    width_pct: Some(28) },
+                PanelSpec { name: "iq_constellation".into(),    position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "spectrum".into(),            position: Right,  height: None,    width_pct: Some(32) },
+                PanelSpec { name: "lab_marker".into(),          position: Bottom, height: Some(2), width_pct: None     },
+                PanelSpec { name: "log".into(),                 position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),              position: Bottom, height: None,    width_pct: None     },
             ],
         };
         let main = PresetConfig {

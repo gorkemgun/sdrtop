@@ -15,6 +15,11 @@ use super::traits::{RxContext, SampleFormat};
 /// from `buffer_length − valid_length`; RTL-SDR has no equivalent and passes 0).
 /// `now` is captured by the *caller* so jitter measures the true inter-callback
 /// interval, not callback-entry-plus-processing time.
+/// Take one constellation sample per this many I/Q pairs.
+const CONST_DECIMATE: usize = 1024;
+/// Hard cap on constellation points collected per block (bounds lock time).
+const CONST_MAX_PER_BLOCK: usize = 64;
+
 pub fn process_block(
     buf: &[u8],
     format: SampleFormat,
@@ -23,15 +28,16 @@ pub fn process_block(
     now: Instant,
 ) {
     // Per-sample math runs entirely without the mutex.
-    let mut saturated:  u64 = 0;
-    let mut i_sum:      i64 = 0;
-    let mut q_sum:      i64 = 0;
-    let mut i_sq:       i64 = 0;
-    let mut q_sq:       i64 = 0;
-    let mut iq_cross:   i64 = 0;
-    let mut local_hist: [u64; 32] = [0; 32];
+    let mut saturated:   u64 = 0;
+    let mut i_sum:       i64 = 0;
+    let mut q_sum:       i64 = 0;
+    let mut i_sq:        i64 = 0;
+    let mut q_sq:        i64 = 0;
+    let mut iq_cross:    i64 = 0;
+    let mut local_hist:  [u64; 32] = [0; 32];
+    let mut local_const: Vec<(f32, f32)> = Vec::new();
 
-    for chunk in buf.chunks_exact(2) {
+    for (pair_idx, chunk) in buf.chunks_exact(2).enumerate() {
         // Decode to a centered signed value in [-128, 127] and flag clipping at
         // the format's extremes. Centering Uint8 by 128 (rather than the true
         // 127.5 DC bias) keeps the downstream DC-offset `/128.0` normalization
@@ -62,6 +68,10 @@ pub fn process_block(
         // last bin instead of indexing [32] and panicking inside the callback.
         let amp = i.unsigned_abs().max(q.unsigned_abs());
         local_hist[((amp / 4) as usize).min(31)] += 1;
+        // Constellation decimation: one normalised (I, Q) pair per CONST_DECIMATE.
+        if pair_idx % CONST_DECIMATE == 0 && local_const.len() < CONST_MAX_PER_BLOCK {
+            local_const.push((i as f32 / 128.0, q as f32 / 128.0));
+        }
     }
 
     let pairs = (buf.len() / 2) as u64;
@@ -90,6 +100,15 @@ pub fn process_block(
 
         for (acc, &local) in m.acc.iq_hist.iter_mut().zip(local_hist.iter()) {
             *acc += local;
+        }
+
+        if !local_const.is_empty() {
+            let cap = crate::state::CONSTELLATION_CAP;
+            let excess = m.iq.constellation.len() + local_const.len();
+            if excess > cap {
+                m.iq.constellation.drain(..excess - cap);
+            }
+            m.iq.constellation.extend(local_const.iter().copied());
         }
 
         if let Some(last) = m.acc.last_callback {

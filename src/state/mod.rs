@@ -13,7 +13,7 @@ mod ui;
 mod waterfall;
 
 pub(crate) use acc::Accumulators;
-pub use iq::IqState;
+pub use iq::{IqState, CONSTELLATION_CAP};
 pub use lab::LabState;
 pub use micro::MicroView;
 pub use observer::ObserverState;
