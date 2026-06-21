@@ -126,10 +126,11 @@ impl App {
     fn save_config(&self) {
         if self.device.is_none() { return; }
         let Some(path) = &self.config_path else { return };
-        let (freq, rate, lna, vga, amp, wf_rows, markers, sweep_cfg, recall) = {
+        let (freq, rate, lna, vga, amp, wf_rows, wf_palette, markers, sweep_cfg, recall) = {
             let m = self.state.lock().unwrap_or_else(|e| e.into_inner());
             (m.radio.frequency, m.radio.config_sample_rate, m.radio.lna_gain,
              m.radio.vga_gain, m.radio.amp_enabled, m.waterfall.buffer.max_rows,
+             m.waterfall.palette,
              m.spectrum.markers.clone(), m.sweep.config.clone(),
              crate::state::recall_to_hz(&m.ui.recall))
         };
@@ -138,6 +139,7 @@ impl App {
             display: DisplayConfig {
                 active_preset:      self.engine.active_preset().to_string(),
                 waterfall_max_rows: wf_rows,
+                waterfall_palette:  wf_palette,
                 spectrum_markers:   markers,
             },
             theme: crate::config::ThemeConfig { base: self.theme.name.to_string(), ..Default::default() },

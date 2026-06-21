@@ -100,10 +100,12 @@ pub struct WaterfallState {
     pub hz_zoom:       u32,
     pub buffer:        WaterfallBuffer,
     pub last_fft:      Option<FftFrame>,
+    /// Selected colour gradient (DSN-2026-04 §03); cycled live with `P`.
+    pub palette:       crate::palette::WaterfallPalette,
 }
 
 impl WaterfallState {
-    pub fn new(max_rows: usize) -> Self {
+    pub fn new(max_rows: usize, palette: crate::palette::WaterfallPalette) -> Self {
         Self {
             db_min:        -120.0,
             scroll_offset: 0,
@@ -111,6 +113,7 @@ impl WaterfallState {
             hz_zoom:       1,
             buffer:        WaterfallBuffer::new(max_rows),
             last_fft:      None,
+            palette,
         }
     }
 }

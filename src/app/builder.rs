@@ -157,7 +157,7 @@ impl App {
                 hold: None, cursor_freq: None,
                 markers: cfg.display.spectrum_markers.clone(), pending_marker: None,
             },
-            waterfall: WaterfallState::new(cfg.display.waterfall_max_rows),
+            waterfall: WaterfallState::new(cfg.display.waterfall_max_rows, cfg.display.waterfall_palette),
             system: SystemState {
                 board_name: Arc::from(board_name.as_str()), serial: Arc::from(serial.as_str()),
                 fw_version: Arc::from(fw_version.as_str()), board_rev,
@@ -288,7 +288,7 @@ impl App {
                 step_hz: 100_000, y_min: -120.0, y_max: 0.0,
                 hold: None, cursor_freq: None, markers: vec![], pending_marker: None,
             },
-            waterfall: WaterfallState::new(cfg.display.waterfall_max_rows),
+            waterfall: WaterfallState::new(cfg.display.waterfall_max_rows, cfg.display.waterfall_palette),
             system: SystemState {
                 board_name: Arc::from(board_name.as_str()), serial: Arc::from(serial.as_str()),
                 fw_version: Arc::from("Observer Mode"),

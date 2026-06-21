@@ -352,6 +352,14 @@ fn handle_waterfall_focus(
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             m.waterfall.scroll_offset = m.waterfall.scroll_offset.saturating_sub(1);
         }
+        // `P` cycles the colour gradient (classic → amber → ice → phosphor). The
+        // choice persists to `[display] waterfall_palette` on quit.
+        KeyCode::Char('p') | KeyCode::Char('P') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let next = m.waterfall.palette.next();
+            m.waterfall.palette = next;
+            m.push_log(format!("Waterfall palette: {}", next.label()));
+        }
         _ => return handle_global_no_device(key, state, engine, show_help, show_footer, focus_keys),
     }
     KeyAction::Continue

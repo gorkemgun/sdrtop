@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::palette::WaterfallPalette;
 use crate::state::{SpectrumMarker, DEFAULT_FREQUENCY, DEFAULT_LNA_GAIN, DEFAULT_SAMPLE_RATE, DEFAULT_VGA_GAIN};
 
 fn default_frequency_hz() -> u64     { DEFAULT_FREQUENCY }
@@ -50,6 +51,8 @@ pub struct DisplayConfig {
     #[serde(default = "default_waterfall_max_rows")]
     pub waterfall_max_rows: usize,
     #[serde(default)]
+    pub waterfall_palette: WaterfallPalette,
+    #[serde(default)]
     pub spectrum_markers: Vec<SpectrumMarker>,
 }
 
@@ -58,6 +61,7 @@ impl Default for DisplayConfig {
         Self {
             active_preset:      "command_rail".into(),
             waterfall_max_rows: 64,
+            waterfall_palette:  WaterfallPalette::Classic,
             spectrum_markers:   vec![],
         }
     }
@@ -490,6 +494,20 @@ mod tests {
         let restored: AppConfig = toml::from_str(&serialized).unwrap();
         assert_eq!(restored.radio.lna_gain, 24);
         assert_eq!(restored.display.active_preset, "spectrum");
+    }
+
+    #[test]
+    fn waterfall_palette_round_trips_and_defaults_classic() {
+        // Missing key → Classic (the existing look).
+        let cfg: AppConfig = toml::from_str("[display]\nactive_preset = \"spectrum\"\n").unwrap();
+        assert_eq!(cfg.display.waterfall_palette, WaterfallPalette::Classic);
+        // Explicit choice survives a save/load round trip and serializes lowercase.
+        let mut cfg = AppConfig::default();
+        cfg.display.waterfall_palette = WaterfallPalette::Phosphor;
+        let serialized = toml::to_string_pretty(&cfg).unwrap();
+        assert!(serialized.contains("waterfall_palette = \"phosphor\""), "got:\n{serialized}");
+        let restored: AppConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(restored.display.waterfall_palette, WaterfallPalette::Phosphor);
     }
 
     #[test]

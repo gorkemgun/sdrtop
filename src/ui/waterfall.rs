@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::palette::{magnitude_to_color_themed, ColorDepth};
+use crate::palette::{magnitude_to_color_palette, ColorDepth};
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::BAND_PLAN;
 use crate::ui::chrome;
@@ -58,6 +58,7 @@ impl Panel for WaterfallPanel {
             ("M",    "Place/remove cursor"),
             ("← →",  "Move cursor"),
             ("W",    "Pause / resume"),
+            ("P",    "Colour palette"),
         ]
     }
 
@@ -243,7 +244,8 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
         let skip_data     = skip_chars * 2;
 
         let depth = ColorDepth::detect();
-        let floor_color = magnitude_to_color_themed(f32::NEG_INFINITY, db_min, DB_MAX, depth, theme);
+        let wp = state.waterfall.palette;
+        let floor_color = magnitude_to_color_palette(f32::NEG_INFINITY, db_min, DB_MAX, depth, theme, wp);
         let mut lines: Vec<Line> = Vec::with_capacity(rows_to_show);
 
         // Zoom: show only the centre slice of bins
@@ -261,10 +263,10 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
                 let bin_start = (lo_bin + col * visible_n / cols).min(row_bins - 1);
                 let bin_end   = (lo_bin + ((col + 1) * visible_n) / cols).max(bin_start + 1).min(row_bins);
                 let top_db    = top_row[bin_start..bin_end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                let top_color = magnitude_to_color_themed(top_db, db_min, DB_MAX, depth, theme);
+                let top_color = magnitude_to_color_palette(top_db, db_min, DB_MAX, depth, theme, wp);
                 let bot_color = bot_row.map(|r| {
                     let db = r[bin_start..bin_end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-                    magnitude_to_color_themed(db, db_min, DB_MAX, depth, theme)
+                    magnitude_to_color_palette(db, db_min, DB_MAX, depth, theme, wp)
                 }).unwrap_or(floor_color);
                 if Some(col) == cursor_col {
                     spans.push(Span::styled("▀", Style::default().fg(theme.value_hi).bg(bot_color)));
@@ -350,8 +352,8 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
             for row in 0..h {
                 let t_top = (row * 2) as f32 / (steps - 1) as f32;
                 let t_bot = (row * 2 + 1) as f32 / (steps - 1) as f32;
-                let top_color = magnitude_to_color_themed(DB_MAX + (db_min - DB_MAX) * t_top, db_min, DB_MAX, depth, theme);
-                let bot_color = magnitude_to_color_themed(DB_MAX + (db_min - DB_MAX) * t_bot, db_min, DB_MAX, depth, theme);
+                let top_color = magnitude_to_color_palette(DB_MAX + (db_min - DB_MAX) * t_top, db_min, DB_MAX, depth, theme, wp);
+                let bot_color = magnitude_to_color_palette(DB_MAX + (db_min - DB_MAX) * t_bot, db_min, DB_MAX, depth, theme, wp);
                 let label = match row {
                     0 => format!("{:>+4} ", DB_MAX as i32),
                     r if r == h.saturating_sub(1) => format!("{:>4} ", db_min as i32),

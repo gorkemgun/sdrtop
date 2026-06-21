@@ -1,5 +1,88 @@
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
+
+/// Selectable waterfall colour gradient (DSN-2026-04 §03). `Classic` follows the
+/// active theme's own palette (so each theme keeps its look); the others are
+/// fixed "cyberdeck" gradients independent of the theme. Cycled live with `P`
+/// while the waterfall is focused, persisted in `[display] waterfall_palette`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WaterfallPalette {
+    /// The active theme's gradient — the existing behaviour, and the default.
+    #[default]
+    Classic,
+    /// Warm amber CRT.
+    Amber,
+    /// Cold blue→cyan→white.
+    Ice,
+    /// Retro phosphor green.
+    Phosphor,
+}
+
+impl WaterfallPalette {
+    /// Cycle order for the `P` toggle: Classic → Amber → Ice → Phosphor → Classic.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Classic  => Self::Amber,
+            Self::Amber    => Self::Ice,
+            Self::Ice      => Self::Phosphor,
+            Self::Phosphor => Self::Classic,
+        }
+    }
+
+    /// Lower-case name for log messages (matches the serialized form).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Classic  => "classic",
+            Self::Amber    => "amber",
+            Self::Ice      => "ice",
+            Self::Phosphor => "phosphor",
+        }
+    }
+
+    /// Fixed gradient stops for the non-theme palettes; `None` for `Classic`
+    /// (which defers to the theme's own gradient).
+    fn stops(self) -> Option<&'static [(f32, u8, u8, u8)]> {
+        match self {
+            Self::Classic => None,
+            Self::Amber => Some(&[
+                (0.00,  10,   4,   0),
+                (0.35,  90,  40,   0),
+                (0.65, 200, 110,  10),
+                (0.85, 255, 180,  40),
+                (1.00, 255, 230, 160),
+            ]),
+            Self::Ice => Some(&[
+                (0.00,   0,   4,  20),
+                (0.35,   0,  55, 120),
+                (0.65,   0, 150, 220),
+                (0.85, 120, 220, 255),
+                (1.00, 235, 250, 255),
+            ]),
+            Self::Phosphor => Some(&[
+                (0.00,   0,  12,   4),
+                (0.35,   0,  70,  25),
+                (0.65,  20, 180,  60),
+                (0.85, 120, 240, 130),
+                (1.00, 220, 255, 220),
+            ]),
+        }
+    }
+}
+
+/// Piecewise-linear interpolation over arbitrary gradient stops (sorted by `t`).
+fn interp_stops(stops: &[(f32, u8, u8, u8)], t: f32) -> (u8, u8, u8) {
+    for w in stops.windows(2) {
+        let (t0, r0, g0, b0) = w[0];
+        let (t1, r1, g1, b1) = w[1];
+        if t <= t1 {
+            let s = if (t1 - t0).abs() < f32::EPSILON { 0.0 } else { (t - t0) / (t1 - t0) };
+            return (lerp(r0, r1, s), lerp(g0, g1, s), lerp(b0, b1, s));
+        }
+    }
+    stops.last().map(|&(_, r, g, b)| (r, g, b)).unwrap_or((255, 0, 0))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ColorDepth {
@@ -110,6 +193,30 @@ pub fn magnitude_to_color_themed(
     }
 }
 
+/// Like [`magnitude_to_color_themed`] but honours a selected [`WaterfallPalette`]:
+/// `Classic` defers to the theme gradient (identical to the themed version), the
+/// others use their fixed stops on TrueColor. On 256/16-colour terminals every
+/// palette falls back to the shared hardcoded ramp (the curve stays sharp, only
+/// the colour-AA is lost — DSN-2026-04 §05).
+pub fn magnitude_to_color_palette(
+    db: f32,
+    db_min: f32,
+    db_max: f32,
+    depth: ColorDepth,
+    theme: &crate::Theme,
+    palette: WaterfallPalette,
+) -> Color {
+    match (depth, palette.stops()) {
+        (ColorDepth::TrueColor, Some(stops)) => {
+            let t = ((db - db_min) / (db_max - db_min)).clamp(0.0, 1.0);
+            let (r, g, b) = interp_stops(stops, t);
+            Color::Rgb(r, g, b)
+        }
+        (ColorDepth::TrueColor, None) => magnitude_to_color_themed(db, db_min, db_max, depth, theme),
+        _ => magnitude_to_color(db, db_min, db_max, depth),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +264,42 @@ mod tests {
         let result   = magnitude_to_color_themed(-60.0, -120.0, 0.0, ColorDepth::Color256, &theme);
         let existing = magnitude_to_color(       -60.0, -120.0, 0.0, ColorDepth::Color256);
         assert_eq!(result, existing);
+    }
+
+    #[test]
+    fn palette_cycle_wraps() {
+        use WaterfallPalette::*;
+        assert_eq!(Classic.next(), Amber);
+        assert_eq!(Amber.next(),   Ice);
+        assert_eq!(Ice.next(),     Phosphor);
+        assert_eq!(Phosphor.next(), Classic);
+        assert_eq!(WaterfallPalette::default(), Classic);
+    }
+
+    #[test]
+    fn classic_palette_matches_themed() {
+        let theme = crate::Theme::sdr();
+        for db in [-120.0, -90.0, -40.0, 0.0] {
+            let c = magnitude_to_color_palette(db, -120.0, 0.0, ColorDepth::TrueColor, &theme, WaterfallPalette::Classic);
+            let t = magnitude_to_color_themed(db, -120.0, 0.0, ColorDepth::TrueColor, &theme);
+            assert_eq!(c, t, "classic must equal themed at {db} dBFS");
+        }
+    }
+
+    #[test]
+    fn amber_palette_uses_fixed_stops() {
+        let theme = crate::Theme::sdr();
+        let cold = magnitude_to_color_palette(-120.0, -120.0, 0.0, ColorDepth::TrueColor, &theme, WaterfallPalette::Amber);
+        let hot  = magnitude_to_color_palette(   0.0, -120.0, 0.0, ColorDepth::TrueColor, &theme, WaterfallPalette::Amber);
+        assert_eq!(cold, Color::Rgb(10, 4, 0));      // amber cold end
+        assert_eq!(hot,  Color::Rgb(255, 230, 160)); // amber hot end
+    }
+
+    #[test]
+    fn non_classic_palette_falls_back_on_256() {
+        let theme = crate::Theme::sdr();
+        let amber = magnitude_to_color_palette(-60.0, -120.0, 0.0, ColorDepth::Color256, &theme, WaterfallPalette::Amber);
+        let plain = magnitude_to_color(-60.0, -120.0, 0.0, ColorDepth::Color256);
+        assert_eq!(amber, plain, "256-colour fallback ignores the palette choice");
     }
 }
