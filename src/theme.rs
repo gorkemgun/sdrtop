@@ -34,6 +34,33 @@ pub struct Theme {
 
 fn rgb(r: u8, g: u8, b: u8) -> Color { Color::Rgb(r, g, b) }
 
+/// Shift a colour ~25% toward a cool steel-blue anchor, leaving 256/16-colour
+/// values untouched (only the truecolor path is adjusted). Used by
+/// [`Theme::steeled`] to cool the measurement labs' frames.
+fn steel_color(c: Color) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => {
+            let mix = |ch: u8, anchor: u8| ((ch as u16 * 3 + anchor as u16) / 4) as u8;
+            Color::Rgb(mix(r, 110), mix(g, 125), mix(b, 150))
+        }
+        other => other,
+    }
+}
+
+impl Theme {
+    /// A copy with the resting border tiers cooled toward steel-blue, for the
+    /// measurement labs' "instrument mode". The focus border, text and status
+    /// colours are left untouched so focus stays crisp and meaning stays readable.
+    pub fn steeled(&self) -> Theme {
+        Theme {
+            border_dim:     steel_color(self.border_dim),
+            border_default: steel_color(self.border_default),
+            border_accent:  steel_color(self.border_accent),
+            ..self.clone()
+        }
+    }
+}
+
 impl Theme {
     /// Default theme. Designed specifically for sdrtop: deep black bg, sharp cyan accent,
     /// orange highlighted values, lime-to-red spectrum gradient.

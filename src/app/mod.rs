@@ -108,11 +108,15 @@ impl App {
         let hide_footer = !self.show_footer
             && m.ui.input_mode == crate::state::InputMode::Normal;
         self.engine.set_panel_hidden("footer", hide_footer);
+        // Measurement labs wear "instrument mode": the resting frames cool toward
+        // steel-blue. One per-frame tint at the draw root keeps every lab panel
+        // (and its chrome) cohesive without each panel knowing about lab mode.
+        let frame_theme = if m.ui.is_lab_mode() { self.theme.steeled() } else { self.theme.clone() };
         terminal.draw(|f| {
-            self.engine.draw(f, &m, &self.theme);
+            self.engine.draw(f, &m, &frame_theme);
             // The rail's full-log overlay only floats while the rail is focused.
             if m.ui.log_overlay && m.ui.focused_panel.as_deref() == Some("command_rail") {
-                ui::overlay::render_log(f, &m, &self.theme);
+                ui::overlay::render_log(f, &m, &frame_theme);
             }
             if self.show_help { ui::overlay::render_help(f, &m); }
         })?;

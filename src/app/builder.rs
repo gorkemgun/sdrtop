@@ -28,6 +28,8 @@ impl App {
         registry.register(ui::HeaderPanel);
         registry.register(ui::SlimHeaderPanel);
         registry.register(ui::CommandRailPanel);
+        registry.register(ui::LabBannerPanel);
+        registry.register(ui::LabMarkerPanel);
         registry.register(ui::TelemetryPanel {
             board_name: board_name.to_string(),
             serial: serial.to_string(),
@@ -174,6 +176,7 @@ impl App {
                 ..SweepState::default()
             },
             ui:  UiState { recall: crate::state::recall_from_hz(cfg.radio.recall_hz), ..UiState::default() },
+            lab: crate::state::LabState::default(),
             caps: Arc::clone(&caps),
             acc: Accumulators::default(),
         }));
@@ -304,6 +307,7 @@ impl App {
                 ..SweepState::default()
             },
             ui:  UiState::default(),
+            lab: crate::state::LabState::default(),
             // Observer mode has no open device to query; use the matching
             // backend's capability profile so the UI labels stay correct.
             caps: Arc::new(match kind {

@@ -171,6 +171,13 @@ impl UiState {
         self.log.push_back(LogEntry { at_epoch_secs, level, text: Arc::from(text) });
     }
 
+    /// Whether the active preset is a measurement lab (`lab_*`). Lab presets wear
+    /// the instrument-chrome (banner + marker bar) and a cooler steel frame.
+    /// Reads the per-frame `active_preset` mirror, so it is valid during draw.
+    pub fn is_lab_mode(&self) -> bool {
+        self.active_preset.starts_with("lab_")
+    }
+
     /// Record an auto-follow mode change (tuning → Hunt, gain → Bench): set the
     /// mode and (re)start its idle decay timer.
     pub fn note_mode_action(&mut self, mode: RailMode) {

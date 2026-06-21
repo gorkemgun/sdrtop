@@ -260,10 +260,11 @@ impl LayoutConfig {
         let lab_iq = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),         position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "lab_banner".into(),     position: Top,    height: Some(2), width_pct: None     },
                 PanelSpec { name: "iq_diagnostics".into(), position: Left,   height: None,    width_pct: Some(35) },
                 PanelSpec { name: "iq_histogram".into(),   position: Body,   height: None,    width_pct: None     },
                 PanelSpec { name: "spectrum".into(),       position: Right,  height: None,    width_pct: Some(35) },
-                PanelSpec { name: "signal_strip".into(),   position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "lab_marker".into(),     position: Bottom, height: Some(2), width_pct: None     },
                 PanelSpec { name: "log".into(),            position: Bottom, height: Some(5), width_pct: None     },
                 PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
             ],
@@ -297,10 +298,11 @@ impl LayoutConfig {
         let lab_rf = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),          position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "lab_banner".into(),      position: Top,    height: Some(2), width_pct: None     },
                 PanelSpec { name: "rf_chain".into(),        position: Left,   height: None,    width_pct: Some(30) },
                 PanelSpec { name: "spectrum".into(),        position: Body,   height: None,    width_pct: None     },
                 PanelSpec { name: "hardware_health".into(), position: Right,  height: None,    width_pct: Some(32) },
-                PanelSpec { name: "signal_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "lab_marker".into(),      position: Bottom, height: Some(2), width_pct: None     },
                 PanelSpec { name: "log".into(),             position: Bottom, height: Some(5), width_pct: None     },
                 PanelSpec { name: "footer".into(),          position: Bottom, height: None,    width_pct: None     },
             ],
@@ -310,10 +312,11 @@ impl LayoutConfig {
         let lab_signal = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),         position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "lab_banner".into(),     position: Top,    height: Some(2), width_pct: None     },
                 PanelSpec { name: "spectrum".into(),       position: Body,   height: None,    width_pct: None     },
                 PanelSpec { name: "signal_metrics".into(), position: Right,  height: None,    width_pct: Some(28) },
                 PanelSpec { name: "waterfall".into(),      position: Bottom, height: Some(8), width_pct: None     },
-                PanelSpec { name: "signal_strip".into(),   position: Bottom, height: Some(3), width_pct: None     },
+                PanelSpec { name: "lab_marker".into(),     position: Bottom, height: Some(2), width_pct: None     },
                 PanelSpec { name: "log".into(),            position: Bottom, height: Some(5), width_pct: None     },
                 PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
             ],
@@ -324,6 +327,7 @@ impl LayoutConfig {
         let lab_timing = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),          position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "lab_banner".into(),      position: Top,    height: Some(2), width_pct: None     },
                 PanelSpec { name: "timing_panel".into(),    position: Left,   height: None,    width_pct: Some(45) },
                 PanelSpec { name: "hardware_health".into(), position: Body,   height: None,    width_pct: None     },
                 PanelSpec { name: "signal_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
@@ -337,6 +341,7 @@ impl LayoutConfig {
         let lab_sweep = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),         position: Top,    height: Some(3), width_pct: None     },
+                PanelSpec { name: "lab_banner".into(),     position: Top,    height: Some(2), width_pct: None     },
                 PanelSpec { name: "sweep_panel".into(),    position: Body,   height: None,    width_pct: None     },
                 PanelSpec { name: "signal_metrics".into(), position: Right,  height: None,    width_pct: Some(22) },
                 PanelSpec { name: "sweep_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },

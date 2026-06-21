@@ -1,5 +1,6 @@
 mod acc;
 mod iq;
+mod lab;
 mod micro;
 mod observer;
 mod radio;
@@ -13,6 +14,7 @@ mod waterfall;
 
 pub(crate) use acc::Accumulators;
 pub use iq::IqState;
+pub use lab::LabState;
 pub use micro::MicroView;
 pub use observer::ObserverState;
 pub use radio::RadioState;
@@ -45,6 +47,8 @@ pub struct SdrMetrics {
     pub timing:   TimingState,
     pub sweep:    SweepState,
     pub ui:       UiState,
+    /// Lab "instrument mode" measurement state (REF/AVG/CAL). See [`LabState`].
+    pub lab:      LabState,
     /// Active device's capability descriptor — drives capability-aware UI
     /// rendering (gain model, BB filter / Friis applicability, ranges). Shared
     /// (Arc) so the per-frame `SdrMetrics` clone stays cheap.
