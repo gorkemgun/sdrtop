@@ -2,7 +2,7 @@
 
 Welcome. This is the plain-language guide to using sdrtop.
 
-> **Status:** the interactive TUI is feature-complete (spectrum, waterfall, the lab presets, the sweep scanner, and the micro field views), and **RTL-SDR** support has landed. The current arc is **instrument-grade UI polish** — the Command Rail cockpit and the redrawn Lab IQ — plus bug-fixing and sharper radio math. See [What's New](whats-new.md).
+> **Status:** the interactive TUI is feature-complete (spectrum, waterfall, the lab presets, the sweep scanner, and the micro field views), and **RTL-SDR** support has landed. The current arc is **instrument-grade UI polish** (the Command Rail cockpit and the redrawn Lab IQ), plus bug-fixing and sharper radio math. See [What's New](whats-new.md).
 
 ---
 

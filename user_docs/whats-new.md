@@ -4,7 +4,7 @@
 
 The story of sdrtop so far — not as a wall of dates, but as **checkpoints**: the big moments where the app levelled up. Each one is condensed to the essentials.
 
-> **Where we are now:** the interactive TUI is feature-complete, RTL-SDR support has landed, and the current arc is **instrument-grade polish** — the **Command Rail** cockpit and the redrawn **Lab IQ** are the latest (see Checkpoint 10). The ongoing work is polishing the UI, sharpening the radio math, and squashing bugs. So if something looks off or behaves oddly, that's exactly what we're hunting.
+> **Where we are now:** the interactive TUI is feature-complete, RTL-SDR support has landed, and the current arc is **instrument-grade polish**: the **Command Rail** cockpit and the redrawn **Lab IQ** are the latest (see Checkpoint 10). The ongoing work is polishing the UI, sharpening the radio math, and squashing bugs. So if something looks off or behaves oddly, that's exactly what we're hunting.
 
 ---
 
@@ -60,9 +60,9 @@ sdrtop stopped being a one-device app.
 
 ## 🎛️ Checkpoint 10 — The instrument cockpit (you are here)
 The polish arc grew teeth: the UI started reading like a real radio's front panel, not a table of numbers.
-- **Command Rail** (`1`, now the default) — a left instrument rail with a big segmented **frequency hero**, an analog **S-meter**, the HUNT·MONITOR·BENCH mode tabs whose lead card follows what you're doing, recall slots with live activity pips, and a **SIGNAL** zone where SNR·PWR·NF·SAT each ride their own braille oscilloscope trace beside the value
-- **Lab IQ, reimagined** — IQ diagnostics redrawn as analog **null-meters** (centre is ideal, the needle shows the deviation), paired with a **persistence constellation**: a density-coloured I/Q cloud with a fitted imbalance ellipse whose stretch is amplitude imbalance and whose tilt is phase imbalance
-- A shared braille-instrument language — oscilloscope traces, ⅛-block gain bars, gradient fills — applied across the rail, with the radio math left exactly as honest as it always was
+- **Command Rail** (`1`, now the default): a left instrument rail with a big segmented **frequency hero**, an analog **S-meter**, the HUNT·MONITOR·BENCH mode tabs whose lead card follows what you're doing, recall slots with live activity pips, and a **SIGNAL** zone where SNR·PWR·NF·SAT each ride their own braille oscilloscope trace beside the value
+- **Lab IQ, reimagined**: IQ diagnostics redrawn as analog **null-meters** (centre is ideal, the needle shows the deviation), paired with a **persistence constellation**, a density-coloured I/Q cloud with a fitted imbalance ellipse whose stretch is amplitude imbalance and whose tilt is phase imbalance
+- A shared braille-instrument language (oscilloscope traces, ⅛-block gain bars, gradient fills) applied across the rail, with the radio math left exactly as honest as it always was. No "AI-enhanced" anything; the only thing that learns here is you
 
 ---
 
