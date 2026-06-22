@@ -28,6 +28,11 @@ pub struct SignalState {
     /// Recent noise-floor (dBFS) samples — pushed alongside `snr_history`. Powers
     /// the command rail's NF sparkline + trend.
     pub nf_history:           VecDeque<f32>,
+    /// Recent ADC-saturation (%) samples — pushed alongside `snr_history` at the
+    /// same ~500 ms / [`crate::state::SNR_HISTORY_LEN`] depth so the command rail's
+    /// SAT trace fills like the other three. Distinct from [`Self::saturation_history`],
+    /// which feeds the health panels' mini-graph at the 200 ms / 64-deep cadence.
+    pub sat_history:          VecDeque<f32>,
     /// Unix-epoch second of the most recent ADC clip (saturation ≥ [`SAT_CLIP_PCT`]),
     /// for the rail's fading "last clip Xs" alert-memory. `None` = none this session.
     pub last_clip_at:         Option<u64>,
@@ -58,6 +63,7 @@ mod tests {
             peak_to_nf_db: 0.0, channel_power_dbfs: 0.0, occupied_bw_hz: 0,
             usb_errors_session: 0, usb_errors_last_poll: 0, usb_error_history: VecDeque::new(),
             snr_history: VecDeque::new(), pwr_history: VecDeque::new(), nf_history: VecDeque::new(),
+            sat_history: VecDeque::new(),
             last_clip_at: None,
         };
         s.snr_history.extend(samples.iter().copied());

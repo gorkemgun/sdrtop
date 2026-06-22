@@ -196,8 +196,9 @@ pub fn spawn_rx_task(
                     }
                     m.iq.jitter_history.push_back(jitter);
                 }
-                // Sample SNR / PWR / NF into their trend histories at ~500 ms while
-                // streaming — one cadence so the command rail's sparklines align.
+                // Sample SNR / PWR / NF / SAT into their trend histories at ~500 ms
+                // while streaming — one cadence and depth so the command rail's four
+                // SIGNAL traces fill and align together.
                 if hw_streaming && now.duration_since(last_snr_push) >= Duration::from_millis(500) {
                     last_snr_push = now;
                     let cap = crate::state::SNR_HISTORY_LEN;
@@ -209,10 +210,12 @@ pub fn spawn_rx_task(
                     // don't overlap an immutable read of `m.signal`.
                     let snr = m.signal.peak_to_nf_db;
                     let pwr = m.signal.channel_power_dbfs;
+                    let sat = m.signal.adc_saturation_pct;
                     let nf  = m.waterfall.last_fft.as_ref().map(|f| f.noise_floor);
                     push(&mut m.signal.snr_history, snr);
                     if pwr.is_finite() { push(&mut m.signal.pwr_history, pwr); }
                     if let Some(nf) = nf { push(&mut m.signal.nf_history, nf); }
+                    push(&mut m.signal.sat_history, sat);
                 }
 
                 // Timing accuracy: fold this window's throughput into the running

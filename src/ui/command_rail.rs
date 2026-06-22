@@ -678,8 +678,8 @@ impl Panel for CommandRailPanel {
             "SAT", "%",
             active.then(|| format!("{sat:.1}")),
             sat_color(sat, theme),
-            &state.signal.saturation_history,
-            trend_arrow(series_delta(&state.signal.saturation_history), 0.5, Some(false), theme),
+            &state.signal.sat_history,
+            trend_arrow(series_delta(&state.signal.sat_history), 0.5, Some(false), theme),
             iw, theme));
         // Alert-memory: a recent clip leaves a fading "⚠ last clip Xs" line under
         // SAT — 256-step bg tint decays from dark red to nothing, never flickers.
