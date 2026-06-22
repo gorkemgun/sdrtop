@@ -69,6 +69,51 @@ pub fn eighth_block_bar(val: u32, max_val: u32, n: usize) -> (String, String) {
     (filled, empty)
 }
 
+/// Linear blend of two colours along `t∈[0,1]`. Falls back to `a` for non-Rgb
+/// inputs (the SDR theme is truecolor, so the Rgb arm is what actually runs).
+fn lerp_color(a: Color, b: Color, t: f64) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    match (a, b) {
+        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => Color::Rgb(
+            (r1 as f64 + (r2 as f64 - r1 as f64) * t) as u8,
+            (g1 as f64 + (g2 as f64 - g1 as f64) * t) as u8,
+            (b1 as f64 + (b2 as f64 - b1 as f64) * t) as u8,
+        ),
+        _ => a,
+    }
+}
+
+/// Continuous ⅛-block gain bar with a position-based gradient. Same fill maths as
+/// [`eighth_block_bar`], but returns per-column [`Span`]s so the filled part shades
+/// from `lo` (left) to `hi` (right); empty columns get `empty_col`. The colour of a
+/// column is fixed by its position across the full `n`-wide bar — the fill just
+/// reveals more of the gradient. Used by the command rail's GAIN section.
+pub fn gain_bar_colored(val: u32, max_val: u32, n: usize,
+                        lo: Color, hi: Color, empty_col: Color) -> Vec<Span<'static>> {
+    if n == 0 { return Vec::new(); }
+    if max_val == 0 {
+        return vec![Span::styled(" ".repeat(n), Style::default().fg(empty_col))];
+    }
+    let total_eighths = ((val as f64 / max_val as f64) * n as f64 * 8.0).round() as usize;
+    let full = total_eighths / 8;
+    let rem  = total_eighths % 8;
+    let denom = (n - 1).max(1) as f64;
+
+    let mut spans = Vec::with_capacity(n);
+    for x in 0..n {
+        let (ch, filled) = if x < full {
+            ('█', true)
+        } else if x == full && rem > 0 {
+            (EIGHTHS[rem], true)
+        } else {
+            (' ', false)
+        };
+        let col = if filled { lerp_color(lo, hi, x as f64 / denom) } else { empty_col };
+        spans.push(Span::styled(ch.to_string(), Style::default().fg(col)));
+    }
+    spans
+}
+
 /// Single-row braille filled-area mini-scope. Returns exactly `width` braille
 /// chars, each encoding 2 time samples (left/right dot columns) at 0..4 vertical
 /// levels, auto-scaled to the most recent 2×width samples' min..max. Used by the
@@ -228,5 +273,51 @@ mod tests {
         let (f, e) = eighth_block_bar(1, 16, 8);
         assert!(f.contains('▌'), "expected '▌', got {f:?}");
         assert_eq!(f.chars().count() + e.chars().count(), 8);
+    }
+
+    #[test]
+    fn lerp_color_endpoints_exact() {
+        let a = Color::Rgb(0, 0, 0);
+        let b = Color::Rgb(200, 100, 50);
+        assert_eq!(lerp_color(a, b, 0.0), a);
+        assert_eq!(lerp_color(a, b, 1.0), b);
+        // Clamps out-of-range t to the endpoints.
+        assert_eq!(lerp_color(a, b, -1.0), a);
+        assert_eq!(lerp_color(a, b, 2.0), b);
+    }
+
+    #[test]
+    fn lerp_color_midpoint_blends() {
+        let mid = lerp_color(Color::Rgb(0, 0, 0), Color::Rgb(200, 100, 40), 0.5);
+        assert_eq!(mid, Color::Rgb(100, 50, 20));
+    }
+
+    #[test]
+    fn gain_bar_colored_total_width_is_n() {
+        for val in [0u32, 8, 16, 24, 40] {
+            let spans = gain_bar_colored(val, 40, 10,
+                Color::Rgb(0, 200, 0), Color::Rgb(200, 200, 0), Color::Rgb(20, 20, 20));
+            let total: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+            assert_eq!(total, 10, "val={val}");
+        }
+    }
+
+    #[test]
+    fn gain_bar_colored_zero_val_all_empty() {
+        let spans = gain_bar_colored(0, 40, 6,
+            Color::Rgb(0, 200, 0), Color::Rgb(200, 200, 0), Color::Rgb(20, 20, 20));
+        let s: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(s.chars().all(|c| c == ' '), "got {s:?}");
+    }
+
+    #[test]
+    fn gain_bar_colored_full_val_all_filled() {
+        let spans = gain_bar_colored(40, 40, 6,
+            Color::Rgb(0, 200, 0), Color::Rgb(200, 200, 0), Color::Rgb(20, 20, 20));
+        let s: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(s, "██████");
+        // Left end is `lo`, right end is `hi`.
+        assert_eq!(spans.first().unwrap().style.fg, Some(Color::Rgb(0, 200, 0)));
+        assert_eq!(spans.last().unwrap().style.fg, Some(Color::Rgb(200, 200, 0)));
     }
 }

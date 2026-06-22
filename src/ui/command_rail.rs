@@ -25,7 +25,7 @@ use ratatui::{
 use std::collections::VecDeque;
 
 use crate::state::{active_recall_slot, RailMode, SdrMetrics, RECALL_SLOTS};
-use super::charts::{ema_smooth, mini_braille_row};
+use super::charts::{ema_smooth, gain_bar_colored, mini_braille_row};
 use super::header::{active_digit_idx, gain_bar, vfo_spans, vfo_string};
 use super::micro_common::{fft_stale, fmt_rbw, snr_color};
 use super::panel::Panel;
@@ -717,25 +717,31 @@ impl Panel for CommandRailPanel {
             Span::raw(" "), lbl(gm.boost_label()),
             Span::styled(boost_val, Style::default().fg(boost_col)),
         ]));
-        // Primary stage (LNA / Tuner).
-        let (p_f, p_e) = gain_bar(state.radio.lna_gain, gm.primary_max_db(), bw);
-        lines.push(Line::from(vec![
-            Span::raw(" "), lbl(gm.primary_label()),
-            Span::styled(p_f, Style::default().fg(if active { theme.status_ok } else { theme.label })),
-            Span::styled(p_e, Style::default().fg(theme.border_dim)),
-            Span::raw(" "),
-            Span::styled(format!("{:2}", state.radio.lna_gain), Style::default().fg(val_col)),
-        ]));
-        // Secondary stage (HackRF VGA only).
+        // A gain row: ` LABEL [⅛-block bar] value`. When streaming the bar shades
+        // along a meaning gradient (LNA green→yellow, VGA cyan→orange); idle it's a
+        // flat dim ⅛-block (the header keeps its own flat bar — separate code path).
+        let gain_row = |label_span: Span<'static>, gain: u32, max: u32,
+                        lo: Color, hi: Color| -> Line<'static> {
+            let bar: Vec<Span<'static>> = if active {
+                gain_bar_colored(gain, max, bw, lo, hi, theme.border_dim)
+            } else {
+                let (f, e) = gain_bar(gain, max, bw);
+                vec![Span::styled(f, Style::default().fg(theme.label)),
+                     Span::styled(e, Style::default().fg(theme.border_dim))]
+            };
+            let mut spans = vec![Span::raw(" "), label_span];
+            spans.extend(bar);
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(format!("{gain:2}"), Style::default().fg(val_col)));
+            Line::from(spans)
+        };
+        // Primary stage (LNA / Tuner): green → yellow.
+        lines.push(gain_row(lbl(gm.primary_label()), state.radio.lna_gain,
+                            gm.primary_max_db(), theme.status_ok, theme.value_hi));
+        // Secondary stage (HackRF VGA only): cyan → orange.
         if gm.has_second_stage() {
-            let (v_f, v_e) = gain_bar(state.radio.vga_gain, 62, bw);
-            lines.push(Line::from(vec![
-                Span::raw(" "), lbl("VGA"),
-                Span::styled(v_f, Style::default().fg(if active { theme.status_warn } else { theme.label })),
-                Span::styled(v_e, Style::default().fg(theme.border_dim)),
-                Span::raw(" "),
-                Span::styled(format!("{:2}", state.radio.vga_gain), Style::default().fg(val_col)),
-            ]));
+            lines.push(gain_row(lbl("VGA"), state.radio.vga_gain, 62,
+                                theme.border_accent, theme.status_warn));
         }
         let total = total_gain(state.radio.lna_gain, state.radio.vga_gain, gm.has_second_stage());
         // TOTAL gain, plus the clip headroom (how far the in-channel level sits below
