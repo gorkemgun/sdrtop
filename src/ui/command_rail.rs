@@ -304,20 +304,26 @@ fn mode_tabs_full_w() -> usize {
     1 + RailMode::ALL.iter().map(|m| m.label().len() + 3).sum::<usize>()
 }
 
-/// The `HUNT·MONITOR·BENCH` mode strip — the active mode lit as a chip
-/// (`value_hi` bg), the others dim. Falls back to 3-letter codes when the rail is
-/// too narrow for the full labels, so the strip never clips mid-word.
+/// The `HUNT·MONITOR·BENCH` mode strip — every mode framed as a `[LABEL]` chip:
+/// the active one lit (bright `value_hi` brackets + filled label), the inactive
+/// ones a dim grey outline (`border_dim` brackets + muted label) so they read as
+/// framed-but-off. Falls back to 3-letter codes when the rail is too narrow for the
+/// full labels, so the strip never clips mid-word. `[LABEL]` is the same width as
+/// the old ` LABEL ` chip, so the strip's width budget is unchanged.
 fn mode_tabs_line(active: RailMode, iw: usize, theme: &crate::Theme) -> Line<'static> {
     let compact = mode_tabs_full_w() > iw;
     let mut spans = vec![Span::raw(" ")];
     for m in RailMode::ALL {
         let label = if compact { &m.label()[..3] } else { m.label() };
-        let style = if m == active {
-            Style::default().fg(Color::Rgb(4, 6, 15)).bg(theme.value_hi).add_modifier(Modifier::BOLD)
+        let (bracket_col, label_style) = if m == active {
+            (theme.value_hi,
+             Style::default().fg(Color::Rgb(4, 6, 15)).bg(theme.value_hi).add_modifier(Modifier::BOLD))
         } else {
-            Style::default().fg(theme.label)
+            (theme.border_dim, Style::default().fg(theme.label))
         };
-        spans.push(Span::styled(format!(" {label} "), style));
+        spans.push(Span::styled("[", Style::default().fg(bracket_col)));
+        spans.push(Span::styled(label.to_string(), label_style));
+        spans.push(Span::styled("]", Style::default().fg(bracket_col)));
         spans.push(Span::raw(" "));
     }
     Line::from(spans)
@@ -885,8 +891,9 @@ mod tests {
 
     #[test]
     fn mode_tabs_full_width_is_the_label_budget() {
-        // " HUNT " + gap + " MONITOR " + gap + " BENCH " + gap, plus leading space.
-        // (4+3) + (7+3) + (5+3) + 1 = 26.
+        // "[HUNT]" + gap + "[MONITOR]" + gap + "[BENCH]" + gap, plus leading space.
+        // Each chip is label+2 (brackets) + 1 gap = label+3, same budget as the old
+        // " LABEL " chip: (4+3) + (7+3) + (5+3) + 1 = 26.
         assert_eq!(mode_tabs_full_w(), 26);
         // Compact kicks in below that — the strip then uses 3-letter codes.
         assert!(mode_tabs_full_w() > 20, "narrow rail must compact");
