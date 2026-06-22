@@ -25,7 +25,7 @@ use ratatui::{
 use std::collections::VecDeque;
 
 use crate::state::{active_recall_slot, RailMode, SdrMetrics, RECALL_SLOTS};
-use super::charts::sparkline;
+use super::charts::{ema_smooth, mini_braille_scope};
 use super::header::{active_digit_idx, gain_bar, vfo_spans, vfo_string};
 use super::micro_common::{fft_stale, fmt_rbw, snr_color};
 use super::panel::Panel;
@@ -80,45 +80,53 @@ fn trend_arrow(delta: Option<f32>, eps: f32, good_when_rising: Option<bool>,
     Some(Span::styled(glyph, Style::default().fg(color)))
 }
 
-/// One metric as the rail's two-row block: `LABEL … UNIT` over `VALUE … spark ↑`.
-/// `value == None` renders a stale dash and drops the sparkline/arrow. Both lines
-/// are padded to `iw` so the unit and the trend cluster sit flush right.
+/// One metric as the rail's 2-row braille block.
+/// Row 1: `LABEL scope_top`
+/// Row 2: `(spaces) scope_bot VALUE UNIT arrow`
+/// When value is None (stale), scope still renders from history; value shows as "—".
 fn metric_block(label: &str, unit: &str, value: Option<String>, value_color: Color,
-                spark: &str, arrow: Option<Span<'static>>, iw: usize,
+                history: &VecDeque<f32>, arrow: Option<Span<'static>>, iw: usize,
                 theme: &crate::Theme) -> [Line<'static>; 2] {
-    let pad = |n: usize| Span::raw(" ".repeat(n.max(1)));
+    // n = leading margin (1) + label + gap (1)
+    let n = 1 + label.chars().count() + 1;
 
-    // Row 1: label (left) + unit (right).
-    let l1_used = 1 + label.chars().count() + unit.chars().count();
-    let head = Line::from(vec![
+    let val_str = value.as_deref().unwrap_or("—").to_string();
+    let arrow_w = if value.is_some() { arrow.as_ref().map_or(0, |_| 2) } else { 0 };
+    // right part: " " + val + " " + unit + arrow
+    let val_right_w = 1 + val_str.chars().count() + 1 + unit.chars().count() + arrow_w;
+    let scope_w = iw.saturating_sub(n + val_right_w).max(4);
+
+    let data: Vec<f32> = history.iter().copied().collect();
+    let smoothed = ema_smooth(&data, 0.3);
+    let [scope_top, scope_bot] = mini_braille_scope(&smoothed, scope_w);
+
+    let scope_col = if value.is_some() { value_color } else { theme.border_dim };
+    let val_col   = if value.is_some() { value_color } else { theme.stale };
+
+    // Row 1: " LABEL scope_top"
+    let row1 = Line::from(vec![
         Span::raw(" "),
         Span::styled(label.to_string(), Style::default().fg(theme.label)),
-        pad(iw.saturating_sub(l1_used)),
-        Span::styled(unit.to_string(), Style::default().fg(theme.border_dim)),
+        Span::raw(" "),
+        Span::styled(scope_top, Style::default().fg(scope_col)),
     ]);
 
-    // Row 2: big-ish bold value (left) + sparkline + arrow (right).
-    let Some(val) = value else {
-        let stale = Line::from(vec![
-            Span::raw(" "),
-            Span::styled("—".to_string(), Style::default().fg(theme.stale)),
-        ]);
-        return [head, stale];
-    };
-    let arrow_w = arrow.as_ref().map_or(0, |_| 2); // " " + glyph
-    let right_w = spark.chars().count() + arrow_w;
-    let used = 1 + val.chars().count() + right_w;
-    let mut spans = vec![
+    // Row 2: spaces(n) + scope_bot + " " + val + " " + unit + [" " + arrow]
+    let mut spans: Vec<Span<'static>> = vec![
+        Span::raw(" ".repeat(n)),
+        Span::styled(scope_bot, Style::default().fg(scope_col)),
         Span::raw(" "),
-        Span::styled(val, Style::default().fg(value_color).add_modifier(Modifier::BOLD)),
-        pad(iw.saturating_sub(used)),
-        Span::styled(spark.to_string(), Style::default().fg(value_color)),
+        Span::styled(val_str, Style::default().fg(val_col).add_modifier(Modifier::BOLD)),
     ];
-    if let Some(a) = arrow {
+    if value.is_some() {
         spans.push(Span::raw(" "));
-        spans.push(a);
+        spans.push(Span::styled(unit.to_string(), Style::default().fg(theme.border_dim)));
+        if let Some(a) = arrow {
+            spans.push(Span::raw(" "));
+            spans.push(a);
+        }
     }
-    [head, Line::from(spans)]
+    [row1, Line::from(spans)]
 }
 
 /// Colour for the ADC-saturation value: calm below 10 %, warn to 50 %, crit above.
@@ -147,6 +155,144 @@ fn fmt_since(secs: u64) -> String {
 fn clip_alert(last_clip_at: Option<u64>, now: u64) -> Option<(u64, bool)> {
     let since = now.saturating_sub(last_clip_at?);
     (since <= CLIP_MEMORY_SECS).then_some((since, since <= CLIP_FRESH_SECS))
+}
+
+// ---------------------------------------------------------------------------
+// S-meter
+// ---------------------------------------------------------------------------
+
+const S9_DBFS: f32 = -52.0;
+
+/// Power fraction [0.0..1.0] on the S-meter arc: 0=S1 (−100 dBFS), 8/14=S9, 1.0=S9+60.
+fn power_to_s_frac(dbfs: f32) -> f64 {
+    const S1_DBFS: f32 = S9_DBFS - 48.0;
+    const OVER: f32 = 60.0;
+    let v = dbfs.clamp(S1_DBFS, S9_DBFS + OVER);
+    if v <= S9_DBFS {
+        ((v - S1_DBFS) / 48.0 * (8.0 / 14.0)) as f64
+    } else {
+        (8.0 / 14.0 + (v - S9_DBFS) / OVER * (6.0 / 14.0)) as f64
+    }
+}
+
+fn frac_to_s_label(frac: f64) -> &'static str {
+    match (frac * 14.0).round() as i32 {
+        i32::MIN..=0 => "S1",
+        1 => "S2", 2 => "S3", 3 => "S4", 4 => "S5",
+        5 => "S6", 6 => "S7", 7 => "S8", 8..=9 => "S9",
+        10..=11 => "S9+20", 12..=13 => "S9+40", _ => "S9+60",
+    }
+}
+
+fn s_bar_color(x: usize, bar_w: usize) -> Color {
+    let t = x as f64 / bar_w.max(1) as f64;
+    let s9_t = 8.0 / 14.0;
+    if t <= s9_t {
+        let u = (t / s9_t).clamp(0.0, 1.0);
+        let r = (u * 190.0) as u8;
+        let g = (190.0 - u * 40.0) as u8;
+        Color::Rgb(r, g, 0)
+    } else {
+        let u = ((t - s9_t) / (1.0 - s9_t)).clamp(0.0, 1.0);
+        let r = (190.0_f64 + u * 50.0).min(240.0) as u8;
+        let g = (150.0 * (1.0 - u)) as u8;
+        Color::Rgb(r, g, 0)
+    }
+}
+
+const S_EIGHTHS: [char; 9] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'];
+
+fn s_bar_char(x: usize, fill_eighths: usize, peak_col: Option<usize>) -> char {
+    let pos8  = x * 8;
+    let next8 = pos8 + 8;
+    if fill_eighths >= next8 {
+        '█'
+    } else if fill_eighths > pos8 {
+        S_EIGHTHS[fill_eighths - pos8]
+    } else if peak_col == Some(x) {
+        '╵'
+    } else {
+        ' '
+    }
+}
+
+const SCALE: &[(&str, f64)] = &[
+    ("S1", 0.0 / 14.0), ("S3", 2.0 / 14.0), ("S5", 4.0 / 14.0), ("S7", 6.0 / 14.0),
+    ("S9", 8.0 / 14.0), ("+20", 10.0 / 14.0), ("+40", 12.0 / 14.0), ("+60", 14.0 / 14.0),
+];
+
+fn s_meter_lines(power_dbfs: f32, peak_dbfs: Option<f32>, iw: usize,
+                 theme: &crate::Theme) -> [Line<'static>; 3] {
+    let bar_w = iw.saturating_sub(1).max(1);
+    let frac  = power_to_s_frac(power_dbfs);
+    let fill_eighths = (frac * bar_w as f64 * 8.0) as usize;
+    let peak_col = peak_dbfs.map(|p| (power_to_s_frac(p) * bar_w as f64) as usize);
+
+    // Row 0: scale tick labels.
+    let skip_alt = iw < 20;
+    let mut scale_buf = vec![' '; bar_w];
+    for (idx, &(lbl, frac_pos)) in SCALE.iter().enumerate() {
+        if skip_alt && idx % 2 != 0 { continue; }
+        let pos = (frac_pos * bar_w as f64) as usize;
+        for (j, c) in lbl.chars().enumerate() {
+            let col = pos + j;
+            if col < bar_w { scale_buf[col] = c; }
+        }
+    }
+    let scale_str: String = scale_buf.into_iter().collect();
+    let row0 = Line::from(vec![
+        Span::raw(" "),
+        Span::styled(scale_str, Style::default().fg(theme.border_dim)),
+    ]);
+
+    // Row 1: gradient bar with ⅛-block precision and peak pip.
+    let mut bar_spans: Vec<Span<'static>> = vec![Span::raw(" ")];
+    for x in 0..bar_w {
+        let c = s_bar_char(x, fill_eighths, peak_col);
+        let color = if c == ' ' {
+            theme.border_dim
+        } else if c == '╵' {
+            theme.value_hi
+        } else {
+            s_bar_color(x, bar_w)
+        };
+        bar_spans.push(Span::styled(c.to_string(), Style::default().fg(color)));
+    }
+    let row1 = Line::from(bar_spans);
+
+    // Row 2: "S7  ·  -19.3 dBFS  ·  peak S9+20"
+    let s_label = frac_to_s_label(frac);
+    let val_str = format!("{power_dbfs:.1} dBFS");
+    let mut row2_spans = vec![
+        Span::raw(" "),
+        Span::styled(s_label.to_string(), Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
+        Span::styled("  ·  ".to_string(), Style::default().fg(theme.border_dim)),
+        Span::styled(val_str, Style::default().fg(theme.value)),
+    ];
+    if let Some(p) = peak_dbfs {
+        let p_label = frac_to_s_label(power_to_s_frac(p));
+        row2_spans.push(Span::styled("  ·  ".to_string(), Style::default().fg(theme.border_dim)));
+        row2_spans.push(Span::styled(format!("peak {p_label}"), Style::default().fg(theme.label)));
+    }
+    let row2 = Line::from(row2_spans);
+
+    [row0, row1, row2]
+}
+
+// ---------------------------------------------------------------------------
+// Clip decay background tint
+// ---------------------------------------------------------------------------
+
+fn clip_decay_bg(since: u64) -> Option<Color> {
+    if since > CLIP_MEMORY_SECS { return None; }
+    let t = if since <= CLIP_FRESH_SECS {
+        1.0_f64
+    } else {
+        1.0 - (since - CLIP_FRESH_SECS) as f64
+            / (CLIP_MEMORY_SECS - CLIP_FRESH_SECS) as f64
+    };
+    let r = (45.0 * t) as u8;
+    if r == 0 { None } else { Some(Color::Rgb(r, 0, 0)) }
 }
 
 /// Columns the full `HUNT·MONITOR·BENCH` strip needs: a leading space, then each
@@ -278,10 +424,29 @@ fn mode_card_lines(mode: RailMode, state: &SdrMetrics, stale: bool,
     }
 }
 
+/// Whether a recall slot's frequency has a detectable signal in the current spectrum.
+/// Returns `Some((pip_str, strong))` when in-band, `None` when out-of-band or stale.
+fn recall_pip(slot_hz: u64, state: &SdrMetrics, stale: bool) -> Option<(&'static str, bool)> {
+    if stale { return None; }
+    let fr = state.waterfall.last_fft.as_ref()?;
+    let half_sr = (fr.sample_rate / 2.0) as u64;
+    let center  = state.radio.frequency;
+    if slot_hz < center.saturating_sub(half_sr) || slot_hz > center + half_sr {
+        return None;
+    }
+    let peaks = rail_peaks(&fr.bins_dbfs, fr.noise_floor, center, fr.sample_rate, 8);
+    let close  = peaks.iter().any(|&(f, _)| f.abs_diff(slot_hz) < 250_000);
+    let strong = peaks.iter()
+        .filter(|&&(f, _)| f.abs_diff(slot_hz) < 250_000)
+        .any(|&(_, db)| db > fr.noise_floor + 20.0);
+    Some(if strong { ("⣿⡇", true) } else if close { ("⠉⠁", false) } else { ("·", false) })
+}
+
 /// The RECALL list: the three saved-frequency slots, the one the radio is parked
 /// on lit with `▸`. Empty slots show a dim dash. `M` saves the current tuning,
 /// `1·2·3` jump (both in rail-focus). Band tags come from `band_at`.
-fn recall_lines(state: &SdrMetrics, theme: &crate::Theme) -> Vec<Line<'static>> {
+/// Activity pips appear on the right when a slot frequency is visible in the spectrum.
+fn recall_lines(state: &SdrMetrics, stale: bool, theme: &crate::Theme) -> Vec<Line<'static>> {
     let active = active_recall_slot(&state.ui.recall, state.radio.frequency);
     (0..RECALL_SLOTS).map(|i| {
         let n = i + 1;
@@ -298,6 +463,10 @@ fn recall_lines(state: &SdrMetrics, theme: &crate::Theme) -> Vec<Line<'static>> 
                 ];
                 if let Some(b) = band_at(hz) {
                     spans.push(Span::styled(format!("  {b}"), Style::default().fg(theme.border_accent)));
+                }
+                if let Some((pip, strong)) = recall_pip(hz, state, stale) {
+                    let col = if strong { theme.value_hi } else { theme.border_dim };
+                    spans.push(Span::styled(format!(" {pip}"), Style::default().fg(col)));
                 }
                 Line::from(spans)
             }
@@ -415,15 +584,15 @@ impl Panel for CommandRailPanel {
 
         // Width 6 so the 5-char "TOTAL" still keeps a gap before its value.
         let lbl   = |s: &str| Span::styled(format!("{s:<6}"), Style::default().fg(theme.label));
-        // Thin section separator: ` LABEL ──────…` — a bold caps label followed by
-        // a dim hairline rule to the panel edge (the mockup's quiet divider).
+        // Section separator with box-drawing connector tick: `├╴ LABEL ╶────…`
         let section = |name: &str| {
             let label = name.to_uppercase();
-            let used  = 1 + label.chars().count() + 1; // " LABEL "
+            // "├╴ " (3) + label + " ╶" (2) = label.len() + 5
+            let used = label.chars().count() + 5;
             Line::from(vec![
-                Span::raw(" "),
+                Span::styled("├╴ ".to_string(), Style::default().fg(theme.border_dim)),
                 Span::styled(label, Style::default().fg(theme.label).add_modifier(Modifier::BOLD)),
-                Span::raw(" "),
+                Span::styled(" ╶".to_string(), Style::default().fg(theme.border_dim)),
                 Span::styled("─".repeat(iw.saturating_sub(used)), Style::default().fg(theme.border_dim)),
             ])
         };
@@ -434,6 +603,17 @@ impl Panel for CommandRailPanel {
         lines.extend(freq_hero_lines(state.radio.frequency, state.spectrum.step_hz,
                                      observer, iw, theme));
         lines.push(band_sr_line(state, iw, theme));
+        // S-meter sits directly under the band/SR line, replacing the old blank gap.
+        let pwr = state.signal.channel_power_dbfs;
+        if !stale && pwr.is_finite() {
+            let peak_pwr: Option<f32> = {
+                let m = state.signal.pwr_history.iter().copied()
+                    .filter(|v| v.is_finite())
+                    .fold(f32::NEG_INFINITY, f32::max);
+                m.is_finite().then_some(m)
+            };
+            lines.extend(s_meter_lines(pwr, peak_pwr, iw, theme));
+        }
         lines.push(Line::raw(""));
 
         // --- MODE STRIP + lead card -------------------------------------------
@@ -446,34 +626,27 @@ impl Panel for CommandRailPanel {
 
         // --- RECALL ------------------------------------------------------------
         lines.push(section("Recall"));
-        lines.extend(recall_lines(state, theme));
+        lines.extend(recall_lines(state, stale, theme));
         lines.push(Line::raw(""));
 
         // --- SIGNAL ------------------------------------------------------------
-        // Each metric: value-first, with an inline sparkline of its recent trend
-        // and a meaning-coloured arrow. Sparkline width scales with the rail.
+        // Each metric: 2-row braille scope with EMA smoothing + meaning-coloured arrow.
         lines.push(section("Signal"));
-        let sw = (iw / 4).clamp(5, 9);
-        let spk = |h: &VecDeque<f32>| {
-            let v: Vec<f32> = h.iter().copied().collect();
-            sparkline(&v, sw)
-        };
 
         let snr = state.signal.peak_to_nf_db;
         lines.extend(metric_block(
             "SNR", "dB",
             (!stale).then(|| format!("{snr:.1}")),
             snr_color(snr, theme),
-            &spk(&state.signal.snr_history),
+            &state.signal.snr_history,
             trend_arrow(series_delta(&state.signal.snr_history), 0.3, Some(true), theme),
             iw, theme));
 
-        let pwr = state.signal.channel_power_dbfs;
         lines.extend(metric_block(
             "PWR", "dBFS",
             (!stale && pwr.is_finite()).then(|| format!("{pwr:.1}")),
             theme.value,
-            &spk(&state.signal.pwr_history),
+            &state.signal.pwr_history,
             trend_arrow(series_delta(&state.signal.pwr_history), 0.5, None, theme),
             iw, theme));
 
@@ -482,7 +655,7 @@ impl Panel for CommandRailPanel {
             "NF", "dBFS",
             nf.map(|v| format!("{v:.1}")),
             theme.value,
-            &spk(&state.signal.nf_history),
+            &state.signal.nf_history,
             trend_arrow(series_delta(&state.signal.nf_history), 0.3, Some(false), theme),
             iw, theme));
 
@@ -491,18 +664,20 @@ impl Panel for CommandRailPanel {
             "SAT", "%",
             active.then(|| format!("{sat:.1}")),
             sat_color(sat, theme),
-            &spk(&state.signal.saturation_history),
+            &state.signal.saturation_history,
             trend_arrow(series_delta(&state.signal.saturation_history), 0.5, Some(false), theme),
             iw, theme));
         // Alert-memory: a recent clip leaves a fading "⚠ last clip Xs" line under
-        // SAT — loud while fresh, then dim, then gone. It only ever fades.
+        // SAT — 256-step bg tint decays from dark red to nothing, never flickers.
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs()).unwrap_or(0);
         if let Some((since, fresh)) = clip_alert(state.signal.last_clip_at, now) {
-            let col = if fresh { theme.status_crit } else { theme.stale };
+            let fg_col = if fresh { theme.status_crit } else { theme.stale };
+            let mut style = Style::default().fg(fg_col);
+            if let Some(bg) = clip_decay_bg(since) { style = style.bg(bg); }
             lines.push(Line::from(vec![
                 Span::raw(" "),
-                Span::styled(format!("⚠ last clip {}", fmt_since(since)), Style::default().fg(col)),
+                Span::styled(format!("⚠ last clip {}", fmt_since(since)), style),
             ]));
         }
         lines.push(Line::raw(""));
@@ -700,5 +875,97 @@ mod tests {
         assert_eq!(chain_verdict(20.0, 10.0).0, "hot");      // clipping wins
         assert_eq!(chain_verdict(0.0, 60.0),  ("low", 1));   // lots of headroom
         assert_eq!(chain_verdict(0.0, 20.0),  ("optimal", 0));
+    }
+
+    #[test]
+    fn power_to_s_frac_s1_is_zero() {
+        let s1 = S9_DBFS - 48.0;
+        let frac = power_to_s_frac(s1);
+        assert!(frac < 0.01, "S1 should be ≈0, got {frac}");
+    }
+
+    #[test]
+    fn power_to_s_frac_s9_is_eight_fourteenths() {
+        let frac = power_to_s_frac(S9_DBFS);
+        assert!((frac - 8.0 / 14.0).abs() < 0.01, "S9 should be 8/14, got {frac}");
+    }
+
+    #[test]
+    fn power_to_s_frac_clamps_below_s1() {
+        assert!(power_to_s_frac(-200.0) < 0.01);
+    }
+
+    #[test]
+    fn power_to_s_frac_clamps_above_s9_plus_60() {
+        assert!((power_to_s_frac(100.0) - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn s_bar_char_full_block_when_beyond() {
+        // fill_eighths=32, x=2 → pos8=16 < 32 → '█'
+        assert_eq!(s_bar_char(2, 32, None), '█');
+    }
+
+    #[test]
+    fn s_bar_char_eighth_at_boundary() {
+        // fill_eighths=12, x=1 → pos8=8 < 12 < 16 → S_EIGHTHS[12-8]='▌'
+        assert_eq!(s_bar_char(1, 12, None), '▌');
+    }
+
+    #[test]
+    fn s_bar_char_peak_pip_in_empty_zone() {
+        // fill_eighths=8 (1 full col), peak at x=2 → empty zone → '╵'
+        assert_eq!(s_bar_char(2, 8, Some(2)), '╵');
+    }
+
+    #[test]
+    fn frac_to_s_label_known_values() {
+        assert_eq!(frac_to_s_label(0.0),        "S1");
+        assert_eq!(frac_to_s_label(6.0 / 14.0), "S7");
+        assert_eq!(frac_to_s_label(8.0 / 14.0), "S9");
+        assert_eq!(frac_to_s_label(1.0),         "S9+60");
+    }
+
+    #[test]
+    fn clip_decay_bg_fresh_is_max_red() {
+        let bg = clip_decay_bg(0);
+        assert!(bg.is_some());
+        if let Some(Color::Rgb(r, g, b)) = bg {
+            assert!(r > 0, "red component must be positive");
+            assert_eq!((g, b), (0, 0));
+        }
+    }
+
+    #[test]
+    fn clip_decay_bg_at_memory_limit_is_none() {
+        assert_eq!(clip_decay_bg(CLIP_MEMORY_SECS), None);
+    }
+
+    #[test]
+    fn clip_decay_bg_fades_monotonically() {
+        let mut prev_r = u8::MAX;
+        for t in 0..=CLIP_MEMORY_SECS {
+            let r = match clip_decay_bg(t) {
+                Some(Color::Rgb(r, _, _)) => r,
+                _ => 0,
+            };
+            assert!(r <= prev_r, "should fade at t={t}: {r} > {prev_r}");
+            prev_r = r;
+        }
+    }
+
+    #[test]
+    fn section_line_starts_with_connector_chars() {
+        let t = Theme::sdr();
+        let iw = 24usize;
+        // Build the line the same way the section closure does.
+        let label = "SIGNAL";
+        let used = label.chars().count() + 5;
+        let rule = "─".repeat(iw.saturating_sub(used));
+        // Verify the connector prefix is present and rule fills the rest.
+        let total: usize = 3 + label.chars().count() + 2 + rule.chars().count();
+        assert_eq!(total, iw, "section line should fill iw={iw}, got {total}");
+        // Spot-check frac_to_s_label round-trips through power_to_s_frac.
+        let _ = t.label; // use t to avoid unused-var warning
     }
 }

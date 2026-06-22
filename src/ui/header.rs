@@ -37,12 +37,10 @@ fn leader(gap: usize, color: ratatui::style::Color) -> Span<'static> {
 }
 
 /// Returns (filled_str, empty_str). Each string is exactly `n` terminal columns.
-/// Uses the same segmented glyphs as the signal-strip gauges: ▮ filled, ▯ empty.
+/// Uses continuous ⅛-block glyphs for smooth sub-cell resolution.
 /// Shared with the command rail so the gain bars read identically there.
 pub(crate) fn gain_bar(gain: u32, max_gain: u32, n: usize) -> (String, String) {
-    let filled = ((gain as f32 / max_gain as f32) * n as f32).round() as usize;
-    let filled = filled.min(n);
-    ("▮".repeat(filled), "▯".repeat(n - filled))
+    crate::ui::charts::eighth_block_bar(gain, max_gain, n)
 }
 
 /// Power-of-ten exponent (in Hz) of the digit the current tuning step acts on:
@@ -497,13 +495,13 @@ mod tests {
     fn gain_bar_zero_gain_all_empty() {
         let (filled, empty) = gain_bar(0, 40, 8);
         assert_eq!(filled, "");
-        assert_eq!(empty, "▯▯▯▯▯▯▯▯");
+        assert_eq!(empty, " ".repeat(8));
     }
 
     #[test]
     fn gain_bar_full_gain_all_filled() {
         let (filled, empty) = gain_bar(40, 40, 8);
-        assert_eq!(filled, "▮▮▮▮▮▮▮▮");
+        assert_eq!(filled, "█".repeat(8));
         assert_eq!(empty, "");
     }
 
