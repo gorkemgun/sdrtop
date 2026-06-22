@@ -25,7 +25,7 @@ use ratatui::{
 use std::collections::VecDeque;
 
 use crate::state::{active_recall_slot, RailMode, SdrMetrics, RECALL_SLOTS};
-use super::charts::{ema_smooth, gain_bar_colored, mini_braille_row};
+use super::charts::{ema_smooth, gain_bar_colored, mini_braille_line};
 use super::header::{active_digit_idx, gain_bar, vfo_spans, vfo_string};
 use super::micro_common::{fft_stale, fmt_rbw, snr_color};
 use super::panel::Panel;
@@ -81,74 +81,55 @@ fn trend_arrow(delta: Option<f32>, eps: f32, good_when_rising: Option<bool>,
 }
 
 /// Width of the fixed label field (margin + 3-char label + gap) so every metric
-/// box left edge aligns — labels are SNR/PWR/SAT (3) and NF (2).
+/// trace starts at the same column — labels are SNR/PWR/SAT (3) and NF (2).
 const METRIC_LABEL_W: usize = 3;
 const METRIC_LEAD: usize = 1 + METRIC_LABEL_W + 1;
-/// Fixed right-column budget reserved for the value, so every metric box has the
-/// same width and their right edges align. Sized for the widest reading,
-/// `" -120.0 dBFS ↘"` (space + value + space + unit + space + arrow = 14).
+/// Fixed right-column budget reserved for the value, so every trace is the same
+/// width and the values line up. Sized for the widest reading, `" -120.0 dBFS ↘"`
+/// (space + value + space + unit + space + arrow = 14).
 const METRIC_VALUE_W: usize = 14;
 
-/// One metric as a framed single-row braille history box (3 rows):
+/// One metric as a single instrument row:
 /// ```text
-///       ┌────────────┐
-///  SNR  │⣷⣶⣄⣀⣤⣶⣷⣿⣷⣶│  43.7 dB ↗
-///       └────────────┘
+///  SNR ▏⣀⣠⡔⡒⡉⡒⡢⡄⣀      43.7 dB ↗
 /// ```
-/// The box never overlaps the label (left) or the value (right); the scope width
-/// shrinks with the rail. When value is None (stale) the box still draws history
-/// from the buffer and the value shows as a dim "—".
+/// A faint `▏` left axis anchors an oscilloscope-style braille line trace; the
+/// label sits left of the axis, the value right of the trace — neither overlaps it.
+/// The trace width is fixed (label field + axis + value budget reserved) so traces
+/// and values align across metrics and shrink together with the rail. When value is
+/// None (stale) the trace still draws from the buffer and the value shows a dim "—".
 fn metric_block(label: &str, unit: &str, value: Option<String>, value_color: Color,
                 history: &VecDeque<f32>, arrow: Option<Span<'static>>, iw: usize,
-                theme: &crate::Theme) -> [Line<'static>; 3] {
+                theme: &crate::Theme) -> Line<'static> {
     let val_str = value.as_deref().unwrap_or("—").to_string();
-    // Two columns go to the box borders (│ … │); the value column is a fixed budget
-    // so every box is the same width and their right edges line up. Floor keeps a
-    // usable scope on a narrow rail.
-    let scope_w = iw.saturating_sub(METRIC_LEAD + 2 + METRIC_VALUE_W).max(4);
+    // One column for the axis, plus the fixed value budget → constant trace width.
+    let scope_w = iw.saturating_sub(METRIC_LEAD + 1 + METRIC_VALUE_W).max(4);
 
     let data: Vec<f32> = history.iter().copied().collect();
     let smoothed = ema_smooth(&data, 0.3);
-    let scope = mini_braille_row(&smoothed, scope_w);
+    let trace = mini_braille_line(&smoothed, scope_w);
 
-    let scope_col = if value.is_some() { value_color } else { theme.border_dim };
+    let trace_col = if value.is_some() { value_color } else { theme.border_dim };
     let val_col   = if value.is_some() { value_color } else { theme.stale };
-    let border_st = Style::default().fg(theme.border_dim);
 
-    // Row 0: top border, aligned under the box left edge.
-    let row0 = Line::from(vec![
-        Span::raw(" ".repeat(METRIC_LEAD)),
-        Span::styled(format!("┌{}┐", "─".repeat(scope_w)), border_st),
-    ]);
-
-    // Row 1: " LABEL │ scope │  VALUE UNIT arrow"
-    let mut mid: Vec<Span<'static>> = vec![
+    let mut spans: Vec<Span<'static>> = vec![
         Span::raw(" "),
         Span::styled(format!("{label:<w$}", w = METRIC_LABEL_W), Style::default().fg(theme.label)),
         Span::raw(" "),
-        Span::styled("│".to_string(), border_st),
-        Span::styled(scope, Style::default().fg(scope_col)),
-        Span::styled("│".to_string(), border_st),
+        Span::styled("▏".to_string(), Style::default().fg(theme.border_dim)), // faint axis
+        Span::styled(trace, Style::default().fg(trace_col)),
         Span::raw(" "),
         Span::styled(val_str, Style::default().fg(val_col).add_modifier(Modifier::BOLD)),
     ];
     if value.is_some() {
-        mid.push(Span::raw(" "));
-        mid.push(Span::styled(unit.to_string(), Style::default().fg(theme.border_dim)));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(unit.to_string(), Style::default().fg(theme.border_dim)));
         if let Some(a) = arrow {
-            mid.push(Span::raw(" "));
-            mid.push(a);
+            spans.push(Span::raw(" "));
+            spans.push(a);
         }
     }
-    let row1 = Line::from(mid);
-
-    // Row 2: bottom border.
-    let row2 = Line::from(vec![
-        Span::raw(" ".repeat(METRIC_LEAD)),
-        Span::styled(format!("└{}┘", "─".repeat(scope_w)), border_st),
-    ]);
-
-    [row0, row1, row2]
+    Line::from(spans)
 }
 
 /// Colour for the ADC-saturation value: calm below 10 %, warn to 50 %, crit above.
@@ -652,37 +633,42 @@ impl Panel for CommandRailPanel {
         lines.push(Line::raw(""));
 
         // --- SIGNAL ------------------------------------------------------------
-        // Each metric: 2-row braille scope with EMA smoothing + meaning-coloured arrow.
+        // Each metric: one instrument row — faint axis + braille line trace + value.
+        // A blank spacer between them gives breathing room (dropped by dense-mode on
+        // a short rail, so the layout stays adaptive).
         lines.push(section("Signal"));
 
         let snr = state.signal.peak_to_nf_db;
-        lines.extend(metric_block(
+        lines.push(metric_block(
             "SNR", "dB",
             (!stale).then(|| format!("{snr:.1}")),
             snr_color(snr, theme),
             &state.signal.snr_history,
             trend_arrow(series_delta(&state.signal.snr_history), 0.3, Some(true), theme),
             iw, theme));
+        lines.push(Line::raw(""));
 
-        lines.extend(metric_block(
+        lines.push(metric_block(
             "PWR", "dBFS",
             (!stale && pwr.is_finite()).then(|| format!("{pwr:.1}")),
             theme.value,
             &state.signal.pwr_history,
             trend_arrow(series_delta(&state.signal.pwr_history), 0.5, None, theme),
             iw, theme));
+        lines.push(Line::raw(""));
 
         let nf = state.waterfall.last_fft.as_ref().filter(|_| !stale).map(|fr| fr.noise_floor);
-        lines.extend(metric_block(
+        lines.push(metric_block(
             "NF", "dBFS",
             nf.map(|v| format!("{v:.1}")),
             theme.value,
             &state.signal.nf_history,
             trend_arrow(series_delta(&state.signal.nf_history), 0.3, Some(false), theme),
             iw, theme));
+        lines.push(Line::raw(""));
 
         let sat = state.signal.adc_saturation_pct;
-        lines.extend(metric_block(
+        lines.push(metric_block(
             "SAT", "%",
             active.then(|| format!("{sat:.1}")),
             sat_color(sat, theme),

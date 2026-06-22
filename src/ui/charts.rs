@@ -114,11 +114,13 @@ pub fn gain_bar_colored(val: u32, max_val: u32, n: usize,
     spans
 }
 
-/// Single-row braille filled-area mini-scope. Returns exactly `width` braille
-/// chars, each encoding 2 time samples (left/right dot columns) at 0..4 vertical
-/// levels, auto-scaled to the most recent 2×width samples' min..max. Used by the
-/// command rail's framed metric boxes (one braille row inside a `┌─┐` border).
-pub fn mini_braille_row(data: &[f32], width: usize) -> String {
+/// Single-row braille **line trace** — an oscilloscope-style connected curve (not a
+/// filled area). Returns exactly `width` braille chars, each holding 2 time samples
+/// (left/right dot columns) over 4 vertical levels, auto-scaled to the most recent
+/// 2×width samples' min..max. Consecutive samples are joined by filling the dot rows
+/// between their levels, so the trace reads as a continuous line. Empty/flat input
+/// renders as spaces. Used by the command rail's SIGNAL metric rows.
+pub fn mini_braille_line(data: &[f32], width: usize) -> String {
     if width == 0 { return String::new(); }
 
     let n_samples = width * 2;
@@ -134,36 +136,36 @@ pub fn mini_braille_row(data: &[f32], width: usize) -> String {
         return " ".repeat(width);
     };
 
-    let level = |v: f32| -> usize {
-        if !v.is_finite() { return 0; }
-        ((v - lo) / range * 4.0).round().clamp(0.0, 4.0) as usize
+    // Per-sample level: 0 (bottom) .. 3 (top) within one braille cell; -1 = no data.
+    let lvl_at = |i: usize| -> i32 {
+        match window.get(i) {
+            Some(v) if v.is_finite() => (((v - lo) / range) * 3.0).round().clamp(0.0, 3.0) as i32,
+            _ => -1,
+        }
     };
-    // Fill upward within a single braille cell: left column dots 7,3,2,1; right
-    // column dots 8,6,5,4 (bottom→top).
-    let left_bits = |lv: usize| -> u8 {
-        let mut b = 0u8;
-        if lv >= 1 { b |= 0x40; } // dot 7
-        if lv >= 2 { b |= 0x04; } // dot 3
-        if lv >= 3 { b |= 0x02; } // dot 2
-        if lv >= 4 { b |= 0x01; } // dot 1
-        b
-    };
-    let right_bits = |lv: usize| -> u8 {
-        let mut b = 0u8;
-        if lv >= 1 { b |= 0x80; } // dot 8
-        if lv >= 2 { b |= 0x20; } // dot 6
-        if lv >= 3 { b |= 0x10; } // dot 5
-        if lv >= 4 { b |= 0x08; } // dot 4
-        b
-    };
+    // Dot bits per column side, indexed by level 0 (bottom) .. 3 (top).
+    const LEFT:  [u8; 4] = [0x40, 0x04, 0x02, 0x01]; // dots 7,3,2,1
+    const RIGHT: [u8; 4] = [0x80, 0x20, 0x10, 0x08]; // dots 8,6,5,4
 
     let mut s = String::with_capacity(width * 3);
     for col in 0..width {
         let li = col * 2;
         let ri = li + 1;
-        let lv = if li < window.len() { level(window[li]) } else { 0 };
-        let rv = if ri < window.len() { level(window[ri]) } else { 0 };
-        s.push(char::from_u32(0x2800 + (left_bits(lv) | right_bits(rv)) as u32).unwrap_or(' '));
+        let mut bits = 0u8;
+        // Left column: light the level, plus the rows up to the previous sample so
+        // the segment between them is connected.
+        let ll = lvl_at(li);
+        if ll >= 0 {
+            let prev = if li > 0 { lvl_at(li - 1).max(0) } else { ll };
+            for l in ll.min(prev)..=ll.max(prev) { bits |= LEFT[l as usize]; }
+        }
+        // Right column: connect to the left sample of this same cell.
+        let rl = lvl_at(ri);
+        if rl >= 0 {
+            let prev = lvl_at(li).max(0); // li is finite whenever ri is
+            for l in rl.min(prev)..=rl.max(prev) { bits |= RIGHT[l as usize]; }
+        }
+        s.push(char::from_u32(0x2800 + bits as u32).unwrap_or(' '));
     }
     s
 }
@@ -223,25 +225,34 @@ mod tests {
     }
 
     #[test]
-    fn mini_braille_row_always_width_chars() {
-        assert_eq!(mini_braille_row(&[], 6).chars().count(), 6);
-        assert_eq!(mini_braille_row(&[1.0; 20], 6).chars().count(), 6);
-        assert_eq!(mini_braille_row(&[1.0; 3], 0).chars().count(), 0);
+    fn mini_braille_line_always_width_chars() {
+        assert_eq!(mini_braille_line(&[], 6).chars().count(), 6);
+        assert_eq!(mini_braille_line(&[1.0; 20], 6).chars().count(), 6);
+        assert_eq!(mini_braille_line(&[1.0; 3], 0).chars().count(), 0);
     }
 
     #[test]
-    fn mini_braille_row_empty_data_returns_spaces() {
-        assert!(mini_braille_row(&[], 4).chars().all(|c| c == ' '));
+    fn mini_braille_line_empty_or_flat_returns_spaces() {
+        assert!(mini_braille_line(&[], 4).chars().all(|c| c == ' '));
         // A flat series has no range → spaces (nothing to plot).
-        assert!(mini_braille_row(&[-50.0; 8], 4).chars().all(|c| c == ' '));
+        assert!(mini_braille_line(&[-50.0; 8], 4).chars().all(|c| c == ' '));
     }
 
     #[test]
-    fn mini_braille_row_rising_ramp_is_braille() {
+    fn mini_braille_line_rising_ramp_is_braille() {
         let data: Vec<f32> = (0..=16).map(|i| i as f32).collect();
-        for c in mini_braille_row(&data, 4).chars() {
+        for c in mini_braille_line(&data, 4).chars() {
             assert!(c as u32 >= 0x2800 && c as u32 <= 0x28FF, "non-braille char: {c:?}");
         }
+    }
+
+    #[test]
+    fn mini_braille_line_sparse_history_fills_from_left() {
+        // Only 4 samples for a width-6 (12-sample) trace: data on the left, the
+        // empty right tail has no dots (blank braille U+2800).
+        let s: Vec<char> = mini_braille_line(&[0.0, 1.0, 2.0, 3.0], 6).chars().collect();
+        assert!(s[0] as u32 > 0x2800, "left end should carry dots, got {:?}", s[0]);
+        assert_eq!(s[5] as u32, 0x2800, "right end has no data yet");
     }
 
     #[test]

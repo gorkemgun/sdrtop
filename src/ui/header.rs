@@ -1,6 +1,6 @@
 use ratatui::{
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::state::SdrMetrics;
 use crate::ui::band_plan::band_at;
+use crate::ui::charts::gain_bar_colored;
 use crate::ui::chrome;
 use super::panel::Panel;
 
@@ -365,9 +366,19 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
 
     let freq_color = if state.observer.active { theme.label } else { theme.border_accent };
     let val_color  = if active { theme.value } else { theme.label };
-    let lna_color  = if active { theme.status_ok } else { theme.label };
-    let vga_color  = if active { theme.status_warn } else { theme.label };
     let dim        = theme.border_dim;
+
+    // ⅛-block gain bar that matches the command rail: a meaning gradient while
+    // streaming (LNA green→yellow, VGA cyan→orange), flat dim when idle.
+    let gain_bar_spans = |gain: u32, max: u32, lo: Color, hi: Color| -> Vec<Span<'static>> {
+        if active {
+            gain_bar_colored(gain, max, 8, lo, hi, dim)
+        } else {
+            let (f, e) = gain_bar(gain, max, 8);
+            vec![Span::styled(f, Style::default().fg(theme.label)),
+                 Span::styled(e, Style::default().fg(dim))]
+        }
+    };
 
     // Left block: segmented VFO readout + unit + sample-rate. Its width varies
     // with the number of MHz digits and the active-digit underline, so it is
@@ -390,17 +401,16 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
     let right = 22 + 20;
     let gap = (inner_width as usize).saturating_sub(left_w + right);
 
-    // Primary stage: HackRF LNA / RTL-SDR tuner.
-    let (p_filled, p_empty) = gain_bar(state.radio.lna_gain, gm.primary_max_db(), 8);
+    // Primary stage: HackRF LNA / RTL-SDR tuner — green → yellow gradient.
     let p_str = format!("{:2}", state.radio.lna_gain);
     let p_label = if gm.is_single() { "TUN " } else { "LNA " };
 
     let mut spans = left_spans;
+    spans.push(leader(gap, theme.border_dim));
+    spans.push(Span::styled(p_label, Style::default().fg(theme.label)));
+    spans.extend(gain_bar_spans(state.radio.lna_gain, gm.primary_max_db(),
+                                theme.status_ok, theme.value_hi));
     spans.extend([
-        leader(gap, theme.border_dim),
-        Span::styled(p_label, Style::default().fg(theme.label)),
-        Span::styled(p_filled, Style::default().fg(lna_color)),
-        Span::styled(p_empty, Style::default().fg(dim)),
         Span::raw(" "),
         Span::styled(p_str, Style::default().fg(val_color)),
         Span::styled(" dB", Style::default().fg(theme.label)),
@@ -408,12 +418,12 @@ fn bottom_band_line(state: &SdrMetrics, theme: &crate::Theme, inner_width: u16) 
     ]);
 
     if gm.has_second_stage() {
-        let (vga_filled, vga_empty) = gain_bar(state.radio.vga_gain, 62, 8);
+        // Secondary stage (HackRF VGA only) — cyan → orange gradient.
         let vga_str = format!("{:2}", state.radio.vga_gain);
+        spans.push(Span::styled("VGA ", Style::default().fg(theme.label)));
+        spans.extend(gain_bar_spans(state.radio.vga_gain, 62,
+                                    theme.border_accent, theme.status_warn));
         spans.extend([
-            Span::styled("VGA ", Style::default().fg(theme.label)),
-            Span::styled(vga_filled, Style::default().fg(vga_color)),
-            Span::styled(vga_empty, Style::default().fg(dim)),
             Span::raw(" "),
             Span::styled(vga_str, Style::default().fg(val_color)),
             Span::styled(" dB", Style::default().fg(theme.label)),
