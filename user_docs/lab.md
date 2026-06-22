@@ -8,7 +8,7 @@ The measurements are split across four focused presets, each on its own number k
 
 | Key | Preset | Focus |
 |-----|--------|-------|
-| `5` | **Lab IQ** | IQ diagnostics + amplitude histogram + spectrum |
+| `5` | **Lab IQ** | IQ diagnostics + constellation + spectrum |
 | `6` | **Lab RF** | RF chain (NF / MDS) + spectrum + hardware vitals |
 | `7` | **Lab Timing** | stream-timing diagnostics + hardware vitals |
 | `8` | **Lab Signal** | spectrum + signal metrics + waterfall |
@@ -61,7 +61,9 @@ A typical value at 10 MHz bandwidth with a 3.5 dB noise figure is about −100 d
 
 ---
 
-## IQ Amplitude Distribution  ·  *Lab IQ (`5`)*
+## IQ Amplitude Distribution  ·  *optional panel (`iq_histogram`)*
+
+> In the default **Lab IQ** preset the constellation (below) now fills this slot — the same ADC data shown as a richer 2-D cloud. The histogram is still available as a panel if you want the exact Low/Mid/Clip percentages: add `iq_histogram` to a [custom layout](config.md#custom-layout-presets).
 
 A histogram of incoming sample amplitudes across 32 bins, log-scaled vertically so both rare strong peaks and the bulk of weak samples are visible at once. Colour zones:
 
@@ -90,15 +92,30 @@ A status line at the bottom summarises the picture: "Dynamic range OK", "weak si
 
 ## IQ Diagnostics  ·  *Lab IQ (`5`)*
 
-The quality of the I/Q signal coming off the ADC. Problems here show up as artefacts in the spectrum.
+The quality of the I/Q signal coming off the ADC. Problems here show up as artefacts in the spectrum. Each *deviation-from-ideal* is drawn as an analog **null-meter** — a centre tick is "perfect", and a coloured needle deflects left/right by how far off you are, with the span between centre and needle filled. A glance reads the state; the number beside it reads the exact value.
 
-- **DC I / DC Q** — how far each channel is offset from zero, with a combined **DC magnitude** gauge.
-- **DC spike** — how tall the resulting spike at the centre frequency is, in dBFS. A high DC offset puts a fixed tone right in the middle of your spectrum; this tells you how loud it is. Green below −40 dBFS.
-- **Amp imbalance** — whether I and Q carry the same power. A mismatch creates mirror images of signals on the opposite side of centre.
-- **Phase imbalance** — whether I and Q are exactly 90° apart. Also causes mirroring.
-- **IRR** — **Image Rejection Ratio** in dB, computed from the amplitude and phase imbalance. This is the key quadrature-quality figure: it tells you how far *below* every real signal its mirror image appears. 30 dB or more is good (images are faint); below 20 dB and the images become a problem.
+- **DC I / DC Q** — how far each channel is offset from zero (a null-meter each), with a combined **DC magnitude** quality bar. A high DC offset puts a fixed tone right in the middle of your spectrum.
+- **DC spike** — how tall that centre-frequency spike is, in dBFS. Green below −40 dBFS.
+- **Amp imbalance** — whether I and Q carry the same power (null-meter). A mismatch creates mirror images of signals on the opposite side of centre.
+- **Phase imbalance** — whether I and Q are exactly 90° apart (null-meter). Also causes mirroring.
+- **IRR** — **Image Rejection Ratio** in dB, as a red→green quality bar. This is the key quadrature-quality figure: it tells you how far *below* every real signal its mirror image appears. 30 dB or more is good (images are faint); below 20 dB and the images become a problem.
 
 A contextual hint at the bottom summarises whether anything needs attention, colour-matched to severity.
+
+---
+
+## IQ Constellation  ·  *Lab IQ (`5`)*
+
+The 2-D picture of the same I/Q stream, in the centre of the Lab IQ preset. Where the diagnostics give you the numbers, the constellation gives you the *shape* — and shape is often faster to read.
+
+It plots recent I/Q sample pairs as a dot-cloud over a fixed reference frame (the unit circle, a faint ±0.5 ring, and I/Q axes). What to look for:
+
+- A **circle** centred on the origin → healthy quadrature.
+- An **ellipse** → amplitude imbalance (I and Q at different levels).
+- A **tilt** → phase imbalance (I and Q not 90° apart).
+- The cloud's **offset** from centre → DC offset (a small crosshair marks the measured DC point).
+
+The cloud is coloured by **point density** — a phosphor-scope look where sparse edges are a cool blue and the dense core glows orange, so you can see where the signal's energy actually concentrates. A measured **imbalance ellipse** is fitted over it: its axis ratio is the amplitude imbalance, its tilt the phase imbalance — the same two faults the diagnostics quantify, drawn straight onto the cloud. No live numbers sit here on purpose; they're one panel to the left.
 
 ---
 
@@ -137,7 +154,7 @@ dwell also live in the config (see [Configuration → Sweep scanner](config.md#s
 A typical setup flow, switching presets as you go:
 
 1. Tune to your target and start RX (`Space`).
-2. In **Lab IQ (`5`)**, watch the **IQ Amplitude Distribution**. Adjust LNA/VGA (`↑`/`↓`, `[`/`]`) until Mid is high and Clip stays at 0%; glance at **IQ Diagnostics** — IRR above 30 dB and DC spike below −40 dBFS mean clean quadrature.
+2. In **Lab IQ (`5`)**, watch the **constellation**: adjust LNA/VGA (`↑`/`↓`, `[`/`]`) until the cloud is a bright, well-filled ring sitting comfortably *inside* the unit circle — smearing out to the edge means clipping. Glance at **IQ Diagnostics** — a centred needle on each null-meter, IRR above 30 dB and DC spike below −40 dBFS mean clean quadrature.
 3. In **Lab RF (`6`)**, check the **gain advisor**, **Est. NF** and **MDS** — confirm the receiver is sensitive enough for what you're chasing.
 4. In **Lab Timing (`7`)**, confirm the timing verdict is Good/Excellent before committing to a long run.
 5. During a long capture, keep an eye on **Hardware Vitals** (in the `6`/`7` labs) — CPU, BUF fill, and Drops together tell you whether the run is sustainable.

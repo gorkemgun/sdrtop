@@ -17,7 +17,8 @@
 | `h` | Freeze the spectrum (hold the current frame) |
 | `e` | Enter spectrum focus mode |
 | `l` | Enter waterfall focus mode |
-| `1`–`4` | Switch built-in layout preset |
+| `c` | Enter Command Rail focus mode (in the `1` preset) |
+| `1` / `2` / `3` / `4` | Layout presets — Command Rail (default) · spectrum · waterfall · both |
 | `5` / `6` / `7` / `8` / `9` | Lab presets — IQ, RF, timing, signal, sweep (specialised diagnostics layouts) |
 | `0` | Micro field-mode view — compact layout for small screens / SSH; press again to cycle (signal → gain → health → sweep) |
 | `p` | Cycle through presets |
@@ -72,6 +73,21 @@ Press `l` to enter focus mode on the waterfall panel.
 | `←` / `→` | Move the cursor frequency when one is placed |
 | `j` / `k` | Scroll back and forth through waterfall history |
 | `Esc` | Exit focus mode |
+
+---
+
+## Command Rail focus mode
+
+Press `c` to drive the Command Rail (the `1` preset). The border highlights and the footer lists the keys; `Esc` exits.
+
+| Key | What it does |
+|-----|-------------|
+| `←` / `→` | Tune the center frequency by one step (auto-switches the mode strip to Hunt) |
+| `1` / `2` / `3` | Jump to recall slot 1, 2 or 3 |
+| `M` | Save the current tuning to the next recall slot |
+| `Tab` | Cycle the HUNT · MONITOR · BENCH mode manually (otherwise it auto-follows your actions) |
+| `L` | Toggle the full-log overlay |
+| `Esc` | Close the log overlay if open, otherwise exit focus mode |
 
 ---
 

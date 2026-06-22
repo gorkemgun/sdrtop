@@ -67,6 +67,9 @@ Screenshots, split by device. More to come. Got a clean capture on your hardware
 
 Everything your radio knows about itself, in real time, without leaving the terminal.
 
+### The Command Rail — the default cockpit (`1`)
+The view sdrtop opens on: a slim header plus a left **instrument rail** that packs what a poweruser reads at a glance — a big segmented **frequency hero**, an analog **S-meter**, the **HUNT · MONITOR · BENCH** mode tabs whose lead card follows what you're doing, **recall slots** with live activity pips, and a SIGNAL zone where SNR · PWR · NF · SAT each ride their own little braille oscilloscope trace beside the value. Gain and stream health round it out; the bonded spectrum + waterfall fill the rest. Press `c` to drive it, `←/→` to tune.
+
 ### Live spectrum & waterfall
 - **Spectrum analyzer** - FFT with EMA smoothing, peak hold, noise floor tracking, dBFS axis, zoom, band-plan overlay, and persistent frequency markers
 - **Waterfall** - scrolling spectrogram in truecolor / 256-color / 16-color, with adjustable color scale, history scroll-back, and frame averaging for longer time windows
@@ -74,7 +77,7 @@ Everything your radio knows about itself, in real time, without leaving the term
 
 ### Bench-engineer measurements (the Lab presets)
 - **RF chain** - tuned frequency with wavelength (λ, λ/4 for cutting antennas), a visual gain chain, estimated **noise figure** (Friis), **minimum detectable signal** (MDS) in dBm, an ADC-utilisation gauge, and a gain advisor that tells you when you're starving or clipping the front end
-- **IQ diagnostics** - DC offset (I/Q + magnitude gauge), DC spike level, amplitude/phase imbalance, and **image rejection ratio** (IRR), the number that tells you how clean your quadrature really is
+- **IQ diagnostics** - DC offset, amplitude/phase imbalance and **image rejection ratio** (IRR), drawn as analog **null-meters** (centre is ideal, the needle shows the deviation) — paired with a **persistence constellation**: a phosphor-style I/Q cloud coloured by density, with a fitted imbalance ellipse whose stretch reads amplitude imbalance and whose tilt reads phase imbalance
 - **IQ histogram** - ADC amplitude distribution with a Low/Mid/Clip breakdown and **PAPR** (crest factor) that fingerprints the signal type at a glance
 - **Timing** - USB transfer cadence, throughput, and jitter with a quality verdict and session peak tracking
 - **Hardware vitals** - drops, ADC saturation, sdrtop's own CPU/RAM, USB errors, configured-vs-measured sample rate, and buffer fill, every one with a trend sparkline

@@ -4,7 +4,7 @@
 
 The story of sdrtop so far — not as a wall of dates, but as **checkpoints**: the big moments where the app levelled up. Each one is condensed to the essentials.
 
-> **Where we are now:** the interactive TUI is feature-complete, and **RTL-SDR support has just landed and works** (new — see Checkpoint 9). The ongoing work is **polishing the UI, sharpening the radio math, and squashing bugs**. So if something looks off or behaves oddly, that's exactly what we're hunting.
+> **Where we are now:** the interactive TUI is feature-complete, RTL-SDR support has landed, and the current arc is **instrument-grade polish** — the **Command Rail** cockpit and the redrawn **Lab IQ** are the latest (see Checkpoint 10). The ongoing work is polishing the UI, sharpening the radio math, and squashing bugs. So if something looks off or behaves oddly, that's exactly what we're hunting.
 
 ---
 
@@ -51,12 +51,18 @@ Bench-engineer views for people who care about the numbers, not just the picture
 ## 🔧 Checkpoint 8 — Polish
 The feature list is closed for now. This checkpoint is about taste: refining layout and readability, **reworking the micro view's UI**, double-checking every radio calculation, and fixing the rough edges — the groundwork that made the next leap safe to land.
 
-## 📡 Checkpoint 9 — A second radio (you are here)
+## 📡 Checkpoint 9 — A second radio
 sdrtop stopped being a one-device app.
 - **RTL-SDR support** (R820T / R828D / E4000) lands alongside the HackRF One, behind a clean `SdrDevice` abstraction layer — the HackRF path is untouched, the RTL path shares the same RX → FFT → UI pipeline
 - The UI **adapts to the hardware**: HackRF's LNA/VGA/AMP vs RTL-SDR's single tuner gain + AGC, the right frequency and sample-rate ranges, and N/A where a measurement doesn't apply (no BB filter, no Friis NF)
 - Plug in more than one radio and a **device picker** greets you at launch; `--device hackrf|rtlsdr` pins one
 - **Status: working, new.** Community-contributed and confirmed on real hardware — normal RX *and* observer mode, with FM reception, tuner gain, AGC and sweep all checked out. The only open question is the zoo of RTL clones, which no single person owns. **So this is where you come in:** run it on yours and [open an issue](../../../issues) with how it went — real-world reports are what make "works" universal.
+
+## 🎛️ Checkpoint 10 — The instrument cockpit (you are here)
+The polish arc grew teeth: the UI started reading like a real radio's front panel, not a table of numbers.
+- **Command Rail** (`1`, now the default) — a left instrument rail with a big segmented **frequency hero**, an analog **S-meter**, the HUNT·MONITOR·BENCH mode tabs whose lead card follows what you're doing, recall slots with live activity pips, and a **SIGNAL** zone where SNR·PWR·NF·SAT each ride their own braille oscilloscope trace beside the value
+- **Lab IQ, reimagined** — IQ diagnostics redrawn as analog **null-meters** (centre is ideal, the needle shows the deviation), paired with a **persistence constellation**: a density-coloured I/Q cloud with a fitted imbalance ellipse whose stretch is amplitude imbalance and whose tilt is phase imbalance
+- A shared braille-instrument language — oscilloscope traces, ⅛-block gain bars, gradient fills — applied across the rail, with the radio math left exactly as honest as it always was
 
 ---
 
