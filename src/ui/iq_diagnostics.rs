@@ -277,10 +277,12 @@ impl Panel for IqDiagnosticsPanel {
 
         // --- IMAGE REJECTION ---------------------------------------------------
         lines.push(section("Image rejection", "IRR \u{00b7} higher better"));
+        lines.push(Line::raw(""));
         let irr = image_rejection_db(state.iq.iq_imbalance_db, state.iq.phase_imbalance_deg);
         let irr_str = if irr >= 60.0 { "> 60 dB".to_string() } else { format!("{irr:.1} dB") };
         lines.push(bar_row("IRR", irr / 60.0, theme.status_crit, theme.status_ok,
                            irr_color(irr, theme), irr_str));
+        lines.push(Line::raw(""));
         // 60 s trend sparkline, auto-scaled so the IRR jitter is visible even when
         // it sits high and flat. Annotated with the window's peak-to-peak spread.
         let irr_hist: Vec<f32> = state.iq.irr_history.iter().copied().collect();
