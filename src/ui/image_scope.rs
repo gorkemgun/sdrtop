@@ -23,6 +23,9 @@ pub struct ImageScopePanel;
 pub(crate) struct CarrierImage {
     pub carrier_hz:     u64,
     pub image_hz:       u64,
+    pub carrier_dbfs:   f32,
+    pub image_dbfs:     f32,
+    /// carrier − image, in dB (positive = image is below the carrier).
     pub suppression_db: f32,
 }
 
@@ -38,6 +41,8 @@ pub(crate) fn carrier_image(state: &SdrMetrics) -> Option<CarrierImage> {
     Some(CarrierImage {
         carrier_hz:     (center + r.carrier_offset_hz).round() as u64,
         image_hz:       (center - r.carrier_offset_hz).round() as u64,
+        carrier_dbfs:   r.carrier_dbfs,
+        image_dbfs:     r.image_dbfs,
         suppression_db: r.suppression_db,
     })
 }
@@ -73,13 +78,16 @@ struct ImageReadout {
 }
 
 /// Map an absolute frequency to a bin index in the fftshifted frame, or `None` if
-/// it falls outside the captured span.
+/// it falls outside the captured span. Uses the canonical fftshift convention
+/// (`bin = n/2 + (f − f_c)·n/rate`, bin `n/2` = DC), the exact inverse of the
+/// per-bin frequency the scope and `carrier_offset_hz` use — so a frequency and
+/// its bin round-trip without the off-by-one an `(n−1)` mapping introduces.
 fn freq_to_bin(freq_hz: u64, center_freq_hz: u64, sample_rate: f64, n: usize) -> Option<usize> {
     if n == 0 || sample_rate <= 0.0 { return None; }
-    let left = center_freq_hz as f64 - sample_rate / 2.0;
-    let frac = (freq_hz as f64 - left) / sample_rate;
-    if !(0.0..=1.0).contains(&frac) { return None; }
-    Some((frac * (n - 1) as f64).round() as usize)
+    let bin_hz = sample_rate / n as f64;
+    let b = (n as f64 / 2.0 + (freq_hz as f64 - center_freq_hz as f64) / bin_hz).round();
+    if b < 0.0 || b >= n as f64 { return None; }
+    Some(b as usize)
 }
 
 /// Locate the carrier, its mirror about the centre (LO) bin, and the DC-spike
@@ -223,8 +231,12 @@ impl Panel for ImageScopePanel {
         let image_f   = center - r.carrier_offset_hz;
 
         // Readout block (always shown); the bar chart fills whatever height is left.
-        let supp = r.suppression_db.max(0.0);
-        let supp_c = supp_color(supp, theme);
+        // Image level relative to the carrier: normally negative (image below); a
+        // positive value flags that the "carrier" is weaker than its mirror.
+        let supp_c = supp_color(r.suppression_db, theme);
+        let rel = r.image_dbfs - r.carrier_dbfs;
+        let rel_str = if rel <= 0.0 { format!("\u{2212}{:.1} dB", -rel) }
+                      else          { format!("+{rel:.1} dB") };
         let readouts: Vec<Line> = vec![
             Line::from(vec![
                 Span::styled(" \u{25bc} ", Style::default().fg(car_col)),
@@ -248,7 +260,7 @@ impl Panel for ImageScopePanel {
             Line::from(vec![
                 Span::raw(" "),
                 Span::styled("image supp. ", lbl),
-                Span::styled(format!("\u{2212}{supp:.1} dB"),
+                Span::styled(rel_str,
                              Style::default().fg(supp_c).add_modifier(Modifier::BOLD)),
             ]),
         ];

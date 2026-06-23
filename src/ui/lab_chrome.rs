@@ -207,28 +207,23 @@ fn append_focus_hints(state: &SdrMetrics, theme: &crate::Theme, iw: usize,
 fn iq_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
     let dim = Style::default().fg(theme.label);
 
-    // carrier_image already resolves pin → placed marker → auto, so the bar and the
-    // scope always agree on which carrier/image pair is in play.
+    // carrier_image resolves pin → placed marker → auto and returns the carrier /
+    // image *levels it actually measured*, so the bar reads the exact same numbers
+    // as the scope (no second frequency→bin round-trip to drift on).
     let pin = state.lab.iq_marker_pin;
-    let (carrier_hz, image_hz) = match super::image_scope::carrier_image(state) {
-        Some(ci) => (Some(ci.carrier_hz), Some(ci.image_hz)),
-        None     => (None, None),
-    };
+    let ci  = super::image_scope::carrier_image(state);
 
-    let slot = |n: usize, name: &str, color: ratatui::style::Color, freq: Option<u64>| -> Vec<Span<'static>> {
+    let slot = |n: usize, name: &str, color: ratatui::style::Color, data: Option<(u64, f32)>| -> Vec<Span<'static>> {
         let mut v = vec![
             Span::styled(format!("MKR{n} \u{00b7} "), dim),
             Span::styled(name.to_string(), Style::default().fg(color).add_modifier(Modifier::BOLD)),
         ];
-        match freq {
-            Some(f) => {
-                let lvl = level_at_freq(state, f)
-                    .map(|d| format!("{d:.1} dBFS"))
-                    .unwrap_or_else(|| "\u{2014}".to_string());
+        match data {
+            Some((f, lvl)) => {
                 v.push(Span::raw(" "));
                 v.push(Span::styled(fmt_freq_mhz(f), Style::default().fg(theme.value)));
                 v.push(Span::raw("  "));
-                v.push(Span::styled(lvl, Style::default().fg(theme.value)));
+                v.push(Span::styled(format!("{lvl:.1} dBFS"), Style::default().fg(theme.value)));
             }
             None => {
                 v.push(Span::raw(" "));
@@ -238,8 +233,11 @@ fn iq_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<L
         v
     };
 
+    let image_data   = ci.as_ref().map(|c| (c.image_hz, c.image_dbfs));
+    let carrier_data = ci.as_ref().map(|c| (c.carrier_hz, c.carrier_dbfs));
+
     let mut spans: Vec<Span> = vec![Span::raw(" ")];
-    spans.extend(slot(1, "IMAGE", theme.status_warn, image_hz));
+    spans.extend(slot(1, "IMAGE", theme.status_warn, image_data));
     let mut used = span_w(&spans);
 
     let try_add = |cand: Vec<Span<'static>>, used: &mut usize, spans: &mut Vec<Span<'static>>| {
@@ -248,24 +246,24 @@ fn iq_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<L
     };
 
     let mut c2 = vec![Span::raw("   ")];
-    c2.extend(slot(2, "CARRIER", theme.value_hi, carrier_hz));
+    c2.extend(slot(2, "CARRIER", theme.value_hi, carrier_data));
     try_add(c2, &mut used, &mut spans);
 
-    // Δ image suppression (carrier − image, read live at the marker freqs).
-    if let (Some(ch), Some(ih)) = (carrier_hz, image_hz) {
-        if let (Some(c), Some(i)) = (level_at_freq(state, ch), level_at_freq(state, ih)) {
-            let supp = c - i;
-            let scol = if supp >= 40.0 { theme.status_ok }
-                       else if supp >= 20.0 { theme.status_warn }
-                       else { theme.status_crit };
-            let cand = vec![
-                Span::raw("   "),
-                Span::styled("\u{0394} image ", dim),
-                Span::styled(format!("\u{2212}{:.1} dB", supp.abs()),
-                             Style::default().fg(scol).add_modifier(Modifier::BOLD)),
-            ];
-            try_add(cand, &mut used, &mut spans);
-        }
+    // Δ image: image level relative to the carrier (signed; normally negative),
+    // colour-graded by the true suppression so an inverted pick is not flattered.
+    if let Some(c) = &ci {
+        let rel = c.image_dbfs - c.carrier_dbfs;
+        let scol = if c.suppression_db >= 40.0 { theme.status_ok }
+                   else if c.suppression_db >= 20.0 { theme.status_warn }
+                   else { theme.status_crit };
+        let rel_str = if rel <= 0.0 { format!("\u{2212}{:.1} dB", -rel) }
+                      else          { format!("+{rel:.1} dB") };
+        let cand = vec![
+            Span::raw("   "),
+            Span::styled("\u{0394} image ", dim),
+            Span::styled(rel_str, Style::default().fg(scol).add_modifier(Modifier::BOLD)),
+        ];
+        try_add(cand, &mut used, &mut spans);
     }
 
     if pin.is_some() {
