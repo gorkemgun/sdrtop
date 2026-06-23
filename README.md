@@ -36,7 +36,7 @@ It's a one-person project built in my spare time, and honestly, I made it for *y
 ## Gallery
 
 <p align="center">
-  <img src="user_docs/pics/annotate-2026-06-22_22-44-33" width="100%" alt="sdrtop in motion">
+  <img src="user_docs/pics/annotate-2026-06-22_22-44-33.png" width="100%" alt="sdrtop in motion">
 </p>
 
 *It's a terminal app, so brace yourself for the visual spectacle of monospace text in color. The only special effects are honest dBFS numbers.*
@@ -48,7 +48,6 @@ Screenshots, split by device. More to come. Got a clean capture on your hardware
 <table>
   <tr>
     <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-41-49.png" alt="HackRF - spectrum & waterfall"></td>
-    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-41-49.png" alt="HackRF - spectrum"></td>
     <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-01.png" alt="HackRF - lab presets"></td>
   </tr>
 </table>
