@@ -44,6 +44,7 @@ impl App {
         registry.register(ui::HardwareHealthPanel);
         registry.register(ui::IqConstellationPanel);
         registry.register(ui::IqDiagnosticsPanel);
+        registry.register(ui::ImageScopePanel);
         registry.register(ui::SystemResourcesPanel);
         registry.register(ui::SpectrumPanel);
         registry.register(ui::WaterfallPanel::new());

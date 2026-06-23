@@ -262,15 +262,17 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),           position: Bottom, height: None,    width_pct: None     },
             ],
         };
-        // Lab IQ — I/Q diagnostics left, constellation 2-D cloud centre, spectrum right.
-        // The amplitude histogram is superseded by the constellation (same data, richer view).
+        // Lab IQ — the I/Q quality bench: diagnostics left, constellation 2-D cloud
+        // centre, image-rejection scope right (carrier vs mirror vs DC spike). The
+        // amplitude histogram is superseded by the constellation (richer view of the
+        // same data); the broadband spectrum gives way to the LO-centred scope.
         let lab_iq = PresetConfig {
             panels: vec![
                 PanelSpec { name: "header".into(),              position: Top,    height: Some(5), width_pct: None     },
                 PanelSpec { name: "lab_banner".into(),          position: Top,    height: Some(2), width_pct: None     },
                 PanelSpec { name: "iq_diagnostics".into(),      position: Left,   height: None,    width_pct: Some(28) },
                 PanelSpec { name: "iq_constellation".into(),    position: Body,   height: None,    width_pct: None     },
-                PanelSpec { name: "spectrum".into(),            position: Right,  height: None,    width_pct: Some(32) },
+                PanelSpec { name: "image_scope".into(),         position: Right,  height: None,    width_pct: Some(32) },
                 PanelSpec { name: "lab_marker".into(),          position: Bottom, height: Some(2), width_pct: None     },
                 PanelSpec { name: "log".into(),                 position: Bottom, height: Some(5), width_pct: None     },
                 PanelSpec { name: "footer".into(),              position: Bottom, height: None,    width_pct: None     },
