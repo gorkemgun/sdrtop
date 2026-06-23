@@ -207,12 +207,12 @@ fn append_focus_hints(state: &SdrMetrics, theme: &crate::Theme, iw: usize,
 fn iq_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
     let dim = Style::default().fg(theme.label);
 
-    let pin  = state.lab.iq_marker_pin;
-    let auto = state.waterfall.last_fft.as_ref().and_then(super::image_scope::carrier_image);
-    let (carrier_hz, image_hz) = match (pin, &auto) {
-        (Some((c, i)), _) => (Some(c), Some(i)),
-        (None, Some(ci))  => (Some(ci.carrier_hz), Some(ci.image_hz)),
-        (None, None)      => (None, None),
+    // carrier_image already resolves pin → placed marker → auto, so the bar and the
+    // scope always agree on which carrier/image pair is in play.
+    let pin = state.lab.iq_marker_pin;
+    let (carrier_hz, image_hz) = match super::image_scope::carrier_image(state) {
+        Some(ci) => (Some(ci.carrier_hz), Some(ci.image_hz)),
+        None     => (None, None),
     };
 
     let slot = |n: usize, name: &str, color: ratatui::style::Color, freq: Option<u64>| -> Vec<Span<'static>> {

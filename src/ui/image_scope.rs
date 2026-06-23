@@ -26,11 +26,14 @@ pub(crate) struct CarrierImage {
     pub suppression_db: f32,
 }
 
-/// Resolve the carrier and its LO-mirror image from an FFT frame into absolute
-/// frequencies + levels. Shared by the scope panel and the marker bar so both tell
-/// the same story. `None` when the frame is too small / silent.
-pub(crate) fn carrier_image(frame: &FftFrame) -> Option<CarrierImage> {
-    let r = detect_image(&frame.bins_dbfs, frame.sample_rate)?;
+/// Resolve the carrier and its LO-mirror image into absolute frequencies + levels,
+/// honouring a placed marker / pin as the carrier (see [`carrier_hint_bin`]).
+/// Shared by the scope panel and the marker bar so both tell the same story.
+/// `None` when there is no frame yet or it is too small / silent.
+pub(crate) fn carrier_image(state: &SdrMetrics) -> Option<CarrierImage> {
+    let frame = state.waterfall.last_fft.as_ref()?;
+    let hint = carrier_hint_bin(state, frame);
+    let r = detect_image(&frame.bins_dbfs, frame.sample_rate, hint)?;
     let center = frame.center_freq_hz as f64;
     Some(CarrierImage {
         carrier_hz:     (center + r.carrier_offset_hz).round() as u64,
@@ -69,22 +72,42 @@ struct ImageReadout {
     carrier_offset_hz: f64,
 }
 
-/// Locate the carrier (strongest bin outside a small DC guard), its mirror about
-/// the centre bin, and the DC-spike level. `None` when the frame is too small.
-/// Pure + deterministic for unit testing.
-fn detect_image(bins: &[f32], sample_rate: f64) -> Option<ImageReadout> {
+/// Map an absolute frequency to a bin index in the fftshifted frame, or `None` if
+/// it falls outside the captured span.
+fn freq_to_bin(freq_hz: u64, center_freq_hz: u64, sample_rate: f64, n: usize) -> Option<usize> {
+    if n == 0 || sample_rate <= 0.0 { return None; }
+    let left = center_freq_hz as f64 - sample_rate / 2.0;
+    let frac = (freq_hz as f64 - left) / sample_rate;
+    if !(0.0..=1.0).contains(&frac) { return None; }
+    Some((frac * (n - 1) as f64).round() as usize)
+}
+
+/// Locate the carrier, its mirror about the centre (LO) bin, and the DC-spike
+/// level. The carrier is `carrier_hint` when supplied and valid (a placed marker
+/// or pin); otherwise the strongest bin outside a small DC guard. `None` when the
+/// frame is too small / silent. Pure + deterministic for unit testing.
+fn detect_image(bins: &[f32], sample_rate: f64, carrier_hint: Option<usize>) -> Option<ImageReadout> {
     let n = bins.len();
     if n < 8 { return None; }
     let center = n / 2;
     let guard  = (n / 64).max(2);
+    let in_band = |i: usize| i < n && (i as isize - center as isize).unsigned_abs() > guard;
 
-    let mut carrier_idx = center;
-    let mut best = f32::NEG_INFINITY;
-    for (i, &v) in bins.iter().enumerate() {
-        if (i as isize - center as isize).unsigned_abs() <= guard { continue; }
-        if v > best { best = v; carrier_idx = i; }
-    }
-    if best == f32::NEG_INFINITY { return None; }
+    let carrier_idx = match carrier_hint {
+        // Honour a hinted carrier (marker / pin) when it lands in a usable band.
+        Some(h) if in_band(h) => h,
+        // Otherwise fall back to the strongest bin outside the DC guard.
+        _ => {
+            let mut idx = center;
+            let mut best = f32::NEG_INFINITY;
+            for (i, &v) in bins.iter().enumerate() {
+                if !in_band(i) { continue; }
+                if v > best { best = v; idx = i; }
+            }
+            if best == f32::NEG_INFINITY { return None; }
+            idx
+        }
+    };
 
     let image_idx = (2 * center).saturating_sub(carrier_idx).min(n - 1);
     let bin_hz = sample_rate / n as f64;
@@ -96,6 +119,23 @@ fn detect_image(bins: &[f32], sample_rate: f64) -> Option<ImageReadout> {
         suppression_db:    bins[carrier_idx] - bins[image_idx],
         carrier_offset_hz: (carrier_idx as f64 - center as f64) * bin_hz,
     })
+}
+
+/// Resolve the carrier bin from operator intent, in priority order:
+/// 1. an explicit `[M]` pin, 2. the strongest **placed spectrum marker**, else
+/// `None` so [`detect_image`] auto-picks the strongest bin. This is what makes a
+/// marker you set on the spectrum actually drive the image calculation.
+fn carrier_hint_bin(state: &SdrMetrics, frame: &FftFrame) -> Option<usize> {
+    let n = frame.bins_dbfs.len();
+    let to_bin = |f: u64| freq_to_bin(f, frame.center_freq_hz, frame.sample_rate, n);
+
+    if let Some((carrier_hz, _)) = state.lab.iq_marker_pin {
+        if let Some(b) = to_bin(carrier_hz) { return Some(b); }
+    }
+    state.spectrum.markers.iter()
+        .filter_map(|m| to_bin(m.freq_hz).map(|b| (b, frame.bins_dbfs[b])))
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(b, _)| b)
 }
 
 /// Colour for an image-suppression figure: deeper is better.
@@ -148,10 +188,11 @@ impl Panel for ImageScopePanel {
             );
             return;
         };
+        let hint   = carrier_hint_bin(state, frame);
         let bins   = &frame.bins_dbfs;
         let center = frame.center_freq_hz as f64;
         let rate   = frame.sample_rate;
-        let Some(r) = detect_image(bins, rate) else {
+        let Some(r) = detect_image(bins, rate, hint) else {
             f.render_widget(
                 Paragraph::new(Span::styled("No signal yet\u{2026}", Style::default().fg(theme.label))),
                 inner,
@@ -355,7 +396,7 @@ mod tests {
         b[40] = -8.0;    // carrier, +8 bins from centre (32)
         b[24] = -64.0;   // its mirror, −8 bins
         b[32] = -20.0;   // DC spike
-        let r = detect_image(&b, 64.0).unwrap();
+        let r = detect_image(&b, 64.0, None).unwrap();
         assert_eq!(r.carrier_idx, 40);
         assert!((r.carrier_dbfs - (-8.0)).abs() < 1e-6);
         assert!((r.image_dbfs - (-64.0)).abs() < 1e-6);
@@ -370,13 +411,45 @@ mod tests {
         let mut b = frame(64);
         b[32] = 0.0;     // huge DC, at centre
         b[44] = -12.0;   // the real carrier
-        let r = detect_image(&b, 64.0).unwrap();
+        let r = detect_image(&b, 64.0, None).unwrap();
         assert_eq!(r.carrier_idx, 44, "carrier should skip the guarded DC bin");
     }
 
     #[test]
+    fn detect_image_honours_carrier_hint() {
+        // A weaker bin chosen by a marker must override the strongest-bin auto-pick.
+        let mut b = frame(64);
+        b[50] = -4.0;    // strongest peak (would auto-win)
+        b[40] = -18.0;   // the bin the operator marked
+        let r = detect_image(&b, 64.0, Some(40)).unwrap();
+        assert_eq!(r.carrier_idx, 40, "hint should drive the carrier");
+        assert_eq!((2 * 32usize) - 40, 24);
+        assert!((r.carrier_dbfs - (-18.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn detect_image_invalid_hint_falls_back_to_auto() {
+        let mut b = frame(64);
+        b[50] = -4.0;
+        // A hint inside the DC guard is rejected → auto-pick the strongest bin.
+        let r = detect_image(&b, 64.0, Some(33)).unwrap();
+        assert_eq!(r.carrier_idx, 50);
+        // An out-of-range hint is likewise ignored.
+        let r2 = detect_image(&b, 64.0, Some(999)).unwrap();
+        assert_eq!(r2.carrier_idx, 50);
+    }
+
+    #[test]
+    fn freq_to_bin_maps_endpoints_and_centre() {
+        // 64-bin frame, 64 Hz span centred on 1000 Hz → 1 Hz/bin, left edge = 968.
+        assert_eq!(freq_to_bin(968, 1000, 64.0, 64), Some(0));
+        assert_eq!(freq_to_bin(1000, 1000, 64.0, 64), Some(32)); // centre = n/2
+        assert_eq!(freq_to_bin(2000, 1000, 64.0, 64), None);     // out of span
+    }
+
+    #[test]
     fn detect_image_too_small_is_none() {
-        assert!(detect_image(&frame(4), 64.0).is_none());
+        assert!(detect_image(&frame(4), 64.0, None).is_none());
     }
 
     #[test]

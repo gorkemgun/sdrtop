@@ -445,7 +445,7 @@ fn handle_iq_focus(
         // [M] — pin / unpin the carrier+image markers (override the live auto-track).
         KeyCode::Char('m') | KeyCode::Char('M') => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
-            let auto = m.waterfall.last_fft.as_ref().and_then(ui::image_scope::carrier_image);
+            let auto = ui::image_scope::carrier_image(&m);
             if m.lab.iq_marker_pin.is_some() {
                 m.lab.iq_marker_pin = None;
                 m.push_log("IQ markers: auto-tracking carrier/image".to_string());
