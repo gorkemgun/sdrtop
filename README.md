@@ -3,10 +3,18 @@
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-linux-lightgrey?logo=linux&logoColor=white)]()
+[![Development Stage](https://img.shields.io/badge/stage-early%20development-red)]()
+
 [![HackRF One](https://img.shields.io/badge/hardware-HackRF%20One-brightgreen)](https://greatscottgadgets.com/hackrf/one/)
 [![RTL-SDR](https://img.shields.io/badge/hardware-RTL--SDR-green)](https://www.rtl-sdr.com/)
 [![PortaPack](https://img.shields.io/badge/hardware-PortaPack%20H4M-blueviolet)](https://github.com/portapack-mayhem/mayhem-firmware)
-[![Development Stage](https://img.shields.io/badge/stage-early%20development-red)]()
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#keys">Keys</a> ·
+  <a href="#config">Config</a> ·
+  <a href="#supported-hardware">Hardware</a>
+</p>
 
 **Hey there! This is my take on a terminal monitor for SDR hardware.** I wanted something that could hunt down every bit of diagnostic data from your radio and stream it straight to your terminal.
 
@@ -44,7 +52,7 @@ It's a one-person project built in my spare time, and honestly, I made it for *y
 Screenshots, split by device. More to come. Got a clean capture on your hardware? Drop it in [`user_docs/pics/`](user_docs/pics/) and send a PR (RTL-SDR shots from different tuners especially welcome).
 
 <details open>
-  <summary><b>📻 HackRF One</b> &mdash; spectrum, waterfall &amp; lab presets</summary>
+  <summary><b>📻 HackRF One</b> - spectrum, waterfall &amp; lab presets</summary>
   <br>
   <table>
     <tr>
@@ -55,7 +63,7 @@ Screenshots, split by device. More to come. Got a clean capture on your hardware
 </details>
 
 <details>
-  <summary><b>📡 RTL-SDR</b> &mdash; spectrum, waterfall &amp; observer mode</summary>
+  <summary><b>📡 RTL-SDR</b> - spectrum, waterfall &amp; observer mode</summary>
   <br>
   <table>
     <tr>
@@ -75,7 +83,7 @@ Everything your radio knows about itself, in real time, without leaving the term
 The view sdrtop opens on. A slim header plus a left **instrument rail** that packs what a poweruser reads at a glance: a big segmented **frequency hero**, an analog **S-meter**, the **HUNT · MONITOR · BENCH** mode tabs whose lead card follows what you're doing, **recall slots** with live activity pips, and a SIGNAL zone where SNR · PWR · NF · SAT each ride their own little braille oscilloscope trace beside the value. Gain and stream health round it out, and the bonded spectrum + waterfall fill the rest. Press `c` to drive it, `←/→` to tune. All dials, no autopilot. It's a radio, not a self-driving car.
 
 <details>
-  <summary><b>🛰️ Command Rail</b> &mdash; the BENCH &amp; HUNT mode cards</summary>
+  <summary><b>🛰️ Command Rail</b> - the BENCH &amp; HUNT mode cards</summary>
   <br>
   <table>
     <tr>
@@ -85,10 +93,14 @@ The view sdrtop opens on. A slim header plus a left **instrument rail** that pac
   </table>
 </details>
 
+<p align="center"><sub>· · ·</sub></p>
+
 ### Live spectrum & waterfall
 - **Spectrum analyzer** - FFT with EMA smoothing, peak hold, noise floor tracking, dBFS axis, zoom, band-plan overlay, and persistent frequency markers
 - **Waterfall** - scrolling spectrogram in truecolor / 256-color / 16-color, with adjustable color scale, history scroll-back, and frame averaging for longer time windows
 - **Focus modes** - press the highlighted letter in a panel's title to take it over: `e` spectrum, `l` waterfall, plus cursor read-outs, holds, and markers without ever touching the mouse
+
+<p align="center"><sub>· · ·</sub></p>
 
 ### Bench-engineer measurements (the Lab presets)
 - **RF chain** - tuned frequency with wavelength (λ, λ/4 for cutting antennas), a visual gain chain, estimated **noise figure** (Friis), **minimum detectable signal** (MDS) in dBm, an ADC-utilisation gauge, and a gain advisor that tells you when you're starving or clipping the front end
@@ -97,11 +109,15 @@ The view sdrtop opens on. A slim header plus a left **instrument rail** that pac
 - **Timing** - USB transfer cadence, throughput, and jitter with a quality verdict and session peak tracking
 - **Hardware vitals** - drops, ADC saturation, sdrtop's own CPU/RAM, USB errors, configured-vs-measured sample rate, and buffer fill, every one with a trend sparkline
 
+<p align="center"><sub>· · ·</sub></p>
+
 ### Scanning & field views
 - **Frequency sweep** - scan a band wider than one window can show; sdrtop retunes across it, stitches the result into a single curve with band-plan labels, and lets you press `Enter` on a peak to tune straight to it
 - **Micro field views** - the deliberately tiny mode (`0`). The idea: sdrtop shouldn't need a full terminal to be useful. When it's squeezed into a slim tmux split, an SSH session on a phone, or the postage-stamp screen of a cyberdeck, the full panels stop being readable, so the micro views strip each concern down to a single glance (signal · gain · health · sweep) and let you cycle between them. One number that matters, big enough to read across the room. *(Heads up: the looks are still cooking, the idea's solid, the pixels are a work in progress.)*
 - **Signal strip** - one live bar with the essentials: P/NF · channel power · noise floor · ADC saturation · drops · buffer fill · IQ imbalance · RBW
 - **Observer mode** - if another app already holds the radio, sdrtop shows device identity, the owning process, and USB stats instead of falling over, then reclaims the device when it's free
+
+<p align="center"><sub>· · ·</sub></p>
 
 ### Make it yours
 - **Six themes** - `sdr` · `nord` · `dracula` · `gruvbox` · `catppuccin` · `solarized`
