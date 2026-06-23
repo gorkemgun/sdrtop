@@ -48,7 +48,7 @@ Screenshots, split by device. More to come. Got a clean capture on your hardware
 <table>
   <tr>
     <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-41-49.png" alt="HackRF - spectrum & waterfall"></td>
-    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-01.png" alt="HackRF - lab presets"></td>
+    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-29.png" alt="HackRF - lab presets"></td>
   </tr>
 </table>
 
