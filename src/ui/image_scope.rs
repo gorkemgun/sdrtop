@@ -14,10 +14,30 @@ use ratatui::{
     Frame,
 };
 
-use crate::state::SdrMetrics;
+use crate::state::{FftFrame, SdrMetrics};
 use crate::ui::panel::Panel;
 
 pub struct ImageScopePanel;
+
+/// Carrier + mirror image read-out in absolute terms, for the Lab IQ marker bar.
+pub(crate) struct CarrierImage {
+    pub carrier_hz:     u64,
+    pub image_hz:       u64,
+    pub suppression_db: f32,
+}
+
+/// Resolve the carrier and its LO-mirror image from an FFT frame into absolute
+/// frequencies + levels. Shared by the scope panel and the marker bar so both tell
+/// the same story. `None` when the frame is too small / silent.
+pub(crate) fn carrier_image(frame: &FftFrame) -> Option<CarrierImage> {
+    let r = detect_image(&frame.bins_dbfs, frame.sample_rate)?;
+    let center = frame.center_freq_hz as f64;
+    Some(CarrierImage {
+        carrier_hz:     (center + r.carrier_offset_hz).round() as u64,
+        image_hz:       (center - r.carrier_offset_hz).round() as u64,
+        suppression_db: r.suppression_db,
+    })
+}
 
 /// Fixed dBFS window for the bar chart — a stable axis (0 at top, −120 at the
 /// floor) reads better than an auto-ranging one when comparing two peaks.

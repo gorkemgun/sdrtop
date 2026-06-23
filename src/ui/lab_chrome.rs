@@ -123,11 +123,17 @@ fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize, focused: bo
     let mut rw = span_w(&right);
     if iw <= lw + rw + 1 { right.clear(); rw = 0; } // too narrow for the right zone
 
-    // Middle fields in priority order (REF > MKR > AVG > CAL).
-    let mkr = state.spectrum.markers.len();
+    // Middle fields in priority order (REF > MKR > AVG > CAL). In Lab IQ the two
+    // markers are the auto-tracked carrier + image, so MKR reads "2" (and "pin"
+    // when frozen) rather than the placed-marker count.
+    let mkr_str = if state.ui.active_preset == "lab_iq" {
+        if state.lab.iq_marker_pin.is_some() { "2 pin".to_string() } else { "2".to_string() }
+    } else {
+        state.spectrum.markers.len().to_string()
+    };
     let fields = [
         ("REF", state.lab.ref_label()),
-        ("MKR", mkr.to_string()),
+        ("MKR", mkr_str),
         ("AVG", state.lab.avg_label()),
         ("CAL", state.lab.cal_label().to_string()),
     ];
@@ -177,7 +183,107 @@ fn marker_spans(idx: usize, mk: Option<&SpectrumMarker>, state: &SdrMetrics,
     }
 }
 
+/// Right-side focus hints from the currently focused panel, appended if they fit.
+fn append_focus_hints(state: &SdrMetrics, theme: &crate::Theme, iw: usize,
+                      used: usize, spans: &mut Vec<Span<'static>>) {
+    let key = Style::default().fg(theme.value_hi);
+    let dim = Style::default().fg(theme.label);
+    let hints: Vec<Span> = state.ui.focused_panel_bindings.iter()
+        .flat_map(|(k, l)| vec![
+            Span::styled(format!("[{k}] "), key),
+            Span::styled(format!("{l}  "), dim),
+        ]).collect();
+    let hw = span_w(&hints);
+    if !hints.is_empty() && used + hw + 2 <= iw {
+        let filler = iw.saturating_sub(used + hw);
+        spans.push(Span::raw(" ".repeat(filler)));
+        spans.extend(hints);
+    }
+}
+
+/// Lab IQ marker bar: MKR1 = IMAGE, MKR2 = CARRIER (mirror about the LO), and
+/// `Δ image` = the measured suppression. Auto-tracks the strongest carrier live
+/// unless pinned via `[M]` ([`LabState::iq_marker_pin`]).
+fn iq_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
+    let dim = Style::default().fg(theme.label);
+
+    let pin  = state.lab.iq_marker_pin;
+    let auto = state.waterfall.last_fft.as_ref().and_then(super::image_scope::carrier_image);
+    let (carrier_hz, image_hz) = match (pin, &auto) {
+        (Some((c, i)), _) => (Some(c), Some(i)),
+        (None, Some(ci))  => (Some(ci.carrier_hz), Some(ci.image_hz)),
+        (None, None)      => (None, None),
+    };
+
+    let slot = |n: usize, name: &str, color: ratatui::style::Color, freq: Option<u64>| -> Vec<Span<'static>> {
+        let mut v = vec![
+            Span::styled(format!("MKR{n} \u{00b7} "), dim),
+            Span::styled(name.to_string(), Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        ];
+        match freq {
+            Some(f) => {
+                let lvl = level_at_freq(state, f)
+                    .map(|d| format!("{d:.1} dBFS"))
+                    .unwrap_or_else(|| "\u{2014}".to_string());
+                v.push(Span::raw(" "));
+                v.push(Span::styled(fmt_freq_mhz(f), Style::default().fg(theme.value)));
+                v.push(Span::raw("  "));
+                v.push(Span::styled(lvl, Style::default().fg(theme.value)));
+            }
+            None => {
+                v.push(Span::raw(" "));
+                v.push(Span::styled("\u{2014}", Style::default().fg(theme.border_dim)));
+            }
+        }
+        v
+    };
+
+    let mut spans: Vec<Span> = vec![Span::raw(" ")];
+    spans.extend(slot(1, "IMAGE", theme.status_warn, image_hz));
+    let mut used = span_w(&spans);
+
+    let try_add = |cand: Vec<Span<'static>>, used: &mut usize, spans: &mut Vec<Span<'static>>| {
+        let cw = span_w(&cand);
+        if *used + cw + 1 <= iw { spans.extend(cand); *used += cw; }
+    };
+
+    let mut c2 = vec![Span::raw("   ")];
+    c2.extend(slot(2, "CARRIER", theme.value_hi, carrier_hz));
+    try_add(c2, &mut used, &mut spans);
+
+    // Δ image suppression (carrier − image, read live at the marker freqs).
+    if let (Some(ch), Some(ih)) = (carrier_hz, image_hz) {
+        if let (Some(c), Some(i)) = (level_at_freq(state, ch), level_at_freq(state, ih)) {
+            let supp = c - i;
+            let scol = if supp >= 40.0 { theme.status_ok }
+                       else if supp >= 20.0 { theme.status_warn }
+                       else { theme.status_crit };
+            let cand = vec![
+                Span::raw("   "),
+                Span::styled("\u{0394} image ", dim),
+                Span::styled(format!("\u{2212}{:.1} dB", supp.abs()),
+                             Style::default().fg(scol).add_modifier(Modifier::BOLD)),
+            ];
+            try_add(cand, &mut used, &mut spans);
+        }
+    }
+
+    if pin.is_some() {
+        let cand = vec![
+            Span::raw("   "),
+            Span::styled("\u{25cf} pinned", Style::default().fg(theme.status_warn)),
+        ];
+        try_add(cand, &mut used, &mut spans);
+    }
+
+    append_focus_hints(state, theme, iw, used, &mut spans);
+    vec![hairline(iw, theme.border_dim), Line::from(spans)]
+}
+
 fn marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
+    if state.ui.active_preset == "lab_iq" {
+        return iq_marker_lines(state, theme, iw);
+    }
     let dim = Style::default().fg(theme.label);
     let key = Style::default().fg(theme.value_hi);
 

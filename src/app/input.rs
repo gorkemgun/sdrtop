@@ -441,14 +441,35 @@ fn handle_iq_focus(
     show_footer: &mut bool,
     focus_keys: &HashMap<char, &'static str>,
 ) -> KeyAction {
-    if let KeyCode::Char('c') = key.code {
-        let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
-        let (dci, dcq, imb, ph) = (m.iq.dc_offset_i, m.iq.dc_offset_q, m.iq.iq_imbalance_db, m.iq.phase_imbalance_deg);
-        m.push_log(format!(
-            "IQ snapshot — DC I:{:+.3} Q:{:+.3} · imbalance {:+.1} dB · phase {:+.1}°",
-            dci, dcq, imb, ph
-        ));
-        return KeyAction::Continue;
+    match key.code {
+        // [M] — pin / unpin the carrier+image markers (override the live auto-track).
+        KeyCode::Char('m') | KeyCode::Char('M') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let auto = m.waterfall.last_fft.as_ref().and_then(ui::image_scope::carrier_image);
+            if m.lab.iq_marker_pin.is_some() {
+                m.lab.iq_marker_pin = None;
+                m.push_log("IQ markers: auto-tracking carrier/image".to_string());
+            } else if let Some(ci) = auto {
+                m.lab.iq_marker_pin = Some((ci.carrier_hz, ci.image_hz));
+                m.push_log(format!(
+                    "IQ markers pinned — carrier {:.3} MHz · image {:.3} MHz · supp {:.1} dB",
+                    ci.carrier_hz as f64 / 1e6, ci.image_hz as f64 / 1e6, ci.suppression_db,
+                ));
+            } else {
+                m.push_log("IQ markers: no carrier detected yet".to_string());
+            }
+            return KeyAction::Continue;
+        }
+        KeyCode::Char('c') | KeyCode::Char('C') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            let (dci, dcq, imb, ph) = (m.iq.dc_offset_i, m.iq.dc_offset_q, m.iq.iq_imbalance_db, m.iq.phase_imbalance_deg);
+            m.push_log(format!(
+                "IQ snapshot — DC I:{:+.3} Q:{:+.3} · imbalance {:+.1} dB · phase {:+.1}°",
+                dci, dcq, imb, ph
+            ));
+            return KeyAction::Continue;
+        }
+        _ => {}
     }
     handle_global(key, state, device, engine, show_help, show_footer, focus_keys)
 }

@@ -118,7 +118,7 @@ impl Panel for IqDiagnosticsPanel {
     fn min_size(&self) -> (u16, u16) { (30, 12) }
     fn focus_key(&self) -> Option<char> { Some('i') }
     fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
-        &[("C", "Snapshot to log")]
+        &[("M", "Pin carrier/image"), ("C", "Snapshot to log")]
     }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {

@@ -24,11 +24,15 @@ pub struct LabState {
     /// Captured reference trace (CAL): drawn as a static ghost on the lab spectrum
     /// for before/after comparison. `Some` ⇒ `CAL ✓`.
     pub ref_trace: Option<Arc<Vec<f32>>>,
+    /// Lab IQ carrier/image marker override. `None` → the marker bar auto-tracks the
+    /// strongest carrier and its mirror live; `Some((carrier_hz, image_hz))` pins
+    /// them (set by `[M]`), so the readout freezes onto a chosen pair.
+    pub iq_marker_pin: Option<(u64, u64)>,
 }
 
 impl Default for LabState {
     fn default() -> Self {
-        Self { ref_dbfs: None, avg_n: 5, ref_trace: None }
+        Self { ref_dbfs: None, avg_n: 5, ref_trace: None, iq_marker_pin: None }
     }
 }
 
