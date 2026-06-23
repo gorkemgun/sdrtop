@@ -43,23 +43,27 @@ It's a one-person project built in my spare time, and honestly, I made it for *y
 
 Screenshots, split by device. More to come. Got a clean capture on your hardware? Drop it in [`user_docs/pics/`](user_docs/pics/) and send a PR (RTL-SDR shots from different tuners especially welcome).
 
-### HackRF One
- 
-<table>
-  <tr>
-    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-41-49.png" alt="HackRF - spectrum & waterfall"></td>
-    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-29.png" alt="HackRF - lab presets"></td>
-  </tr>
-</table>
+<details open>
+  <summary><b>📻 HackRF One</b> &mdash; spectrum, waterfall &amp; lab presets</summary>
+  <br>
+  <table>
+    <tr>
+      <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-41-49.png" alt="HackRF - spectrum & waterfall"></td>
+      <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-29.png" alt="HackRF - lab presets"></td>
+    </tr>
+  </table>
+</details>
 
-### RTL-SDR
-
-<table>
-  <tr>
-    <td width="50%"><img src="user_docs/pics/rtlsdr/rtl-sdr1.png" alt="RTL-SDR - spectrum & waterfall"></td>
-    <td width="50%"><img src="user_docs/pics/rtlsdr/rtl-sdr2.png" alt="RTL-SDR - observer mode"></td>
-  </tr>
-</table>
+<details>
+  <summary><b>📡 RTL-SDR</b> &mdash; spectrum, waterfall &amp; observer mode</summary>
+  <br>
+  <table>
+    <tr>
+      <td width="50%"><img src="user_docs/pics/rtlsdr/rtl-sdr1.png" alt="RTL-SDR - spectrum & waterfall"></td>
+      <td width="50%"><img src="user_docs/pics/rtlsdr/rtl-sdr2.png" alt="RTL-SDR - observer mode"></td>
+    </tr>
+  </table>
+</details>
 
 ---
 
@@ -70,12 +74,16 @@ Everything your radio knows about itself, in real time, without leaving the term
 ### The Command Rail: the default cockpit (`1`)
 The view sdrtop opens on. A slim header plus a left **instrument rail** that packs what a poweruser reads at a glance: a big segmented **frequency hero**, an analog **S-meter**, the **HUNT · MONITOR · BENCH** mode tabs whose lead card follows what you're doing, **recall slots** with live activity pips, and a SIGNAL zone where SNR · PWR · NF · SAT each ride their own little braille oscilloscope trace beside the value. Gain and stream health round it out, and the bonded spectrum + waterfall fill the rest. Press `c` to drive it, `←/→` to tune. All dials, no autopilot. It's a radio, not a self-driving car.
 
-<table>
-  <tr>
-    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-55.png" alt="HackRF - bench"></td>
-    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-43-06.png" alt="HackRF - hunt"></td>
-  </tr>
-</table>
+<details>
+  <summary><b>🛰️ Command Rail</b> &mdash; the BENCH &amp; HUNT mode cards</summary>
+  <br>
+  <table>
+    <tr>
+      <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-55.png" alt="HackRF - bench"></td>
+      <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-43-06.png" alt="HackRF - hunt"></td>
+    </tr>
+  </table>
+</details>
 
 ### Live spectrum & waterfall
 - **Spectrum analyzer** - FFT with EMA smoothing, peak hold, noise floor tracking, dBFS axis, zoom, band-plan overlay, and persistent frequency markers
