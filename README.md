@@ -70,6 +70,13 @@ Everything your radio knows about itself, in real time, without leaving the term
 ### The Command Rail: the default cockpit (`1`)
 The view sdrtop opens on. A slim header plus a left **instrument rail** that packs what a poweruser reads at a glance: a big segmented **frequency hero**, an analog **S-meter**, the **HUNT · MONITOR · BENCH** mode tabs whose lead card follows what you're doing, **recall slots** with live activity pips, and a SIGNAL zone where SNR · PWR · NF · SAT each ride their own little braille oscilloscope trace beside the value. Gain and stream health round it out, and the bonded spectrum + waterfall fill the rest. Press `c` to drive it, `←/→` to tune. All dials, no autopilot. It's a radio, not a self-driving car.
 
+<table>
+  <tr>
+    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-42-55.png" alt="HackRF - bench"></td>
+    <td width="50%"><img src="user_docs/pics/annotate-2026-06-22_22-43-06.png" alt="HackRF - hunt"></td>
+  </tr>
+</table>
+
 ### Live spectrum & waterfall
 - **Spectrum analyzer** - FFT with EMA smoothing, peak hold, noise floor tracking, dBFS axis, zoom, band-plan overlay, and persistent frequency markers
 - **Waterfall** - scrolling spectrogram in truecolor / 256-color / 16-color, with adjustable color scale, history scroll-back, and frame averaging for longer time windows
