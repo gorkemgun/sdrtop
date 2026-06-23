@@ -131,11 +131,20 @@ fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize, focused: bo
     } else {
         state.spectrum.markers.len().to_string()
     };
+    // In Lab IQ the CAL field reflects the live I/Q auto-cal, not the spectrum
+    // reference-trace cal used by the other labs.
+    let cal_str = if state.ui.active_preset == "lab_iq" {
+        if state.iq.cal.cal_applied      { "\u{2713}".to_string() }
+        else if state.iq.cal.cal_pending { "\u{2026}".to_string() }
+        else                             { "\u{2014}".to_string() }
+    } else {
+        state.lab.cal_label().to_string()
+    };
     let fields = [
         ("REF", state.lab.ref_label()),
         ("MKR", mkr_str),
         ("AVG", state.lab.avg_label()),
-        ("CAL", state.lab.cal_label().to_string()),
+        ("CAL", cal_str),
     ];
     let mut mid: Vec<Span> = Vec::new();
     let mut mw = 0usize;

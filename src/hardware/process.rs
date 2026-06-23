@@ -37,6 +37,17 @@ pub fn process_block(
     let mut local_hist:  [u64; 32] = [0; 32];
     let mut local_const: Vec<(f32, f32)> = Vec::new();
 
+    // Snapshot the live correction state once (cheap Copy). The accumulators below
+    // stay on the RAW samples — the diagnostics measure the true hardware
+    // impairment — while a corrected copy of the stream feeds the FFT and the
+    // constellation so the [D] DC-block / [C] auto-cal cleanup is visible.
+    let cal = {
+        let m = ctx.metrics.lock().unwrap_or_else(|e| e.into_inner());
+        m.iq.cal
+    };
+    let correcting = cal.correcting();
+    let mut out_buf: Vec<u8> = if correcting { Vec::with_capacity(buf.len()) } else { Vec::new() };
+
     for (pair_idx, chunk) in buf.chunks_exact(2).enumerate() {
         // Decode to a centered signed value in [-128, 127] and flag clipping at
         // the format's extremes. Centering Uint8 by 128 (rather than the true
@@ -68,9 +79,20 @@ pub fn process_block(
         // last bin instead of indexing [32] and panicking inside the callback.
         let amp = i.unsigned_abs().max(q.unsigned_abs());
         local_hist[((amp / 4) as usize).min(31)] += 1;
+
+        // Display path: corrected samples feed the FFT (re-encoded bytes) and the
+        // constellation. When no correction is active these equal the raw samples.
+        let (ci, cq) = if correcting { cal.apply(i as f32, q as f32) }
+                       else          { (i as f32, q as f32) };
+        if correcting {
+            let (bi, bq) = encode_pair(ci, cq, format);
+            out_buf.push(bi);
+            out_buf.push(bq);
+        }
         // Constellation decimation: one normalised (I, Q) pair per CONST_DECIMATE.
-        if pair_idx % CONST_DECIMATE == 0 && local_const.len() < CONST_MAX_PER_BLOCK {
-            local_const.push((i as f32 / 128.0, q as f32 / 128.0));
+        // Frozen ([F]) → stop collecting so the cloud holds its last shape.
+        if !cal.frozen && pair_idx % CONST_DECIMATE == 0 && local_const.len() < CONST_MAX_PER_BLOCK {
+            local_const.push((ci / 128.0, cq / 128.0));
         }
     }
 
@@ -120,7 +142,20 @@ pub fn process_block(
         m.acc.last_callback = Some(now);
     }
 
-    ctx.sample_tx.try_send(buf.to_vec()).ok();
+    // Forward the corrected stream when a correction is active, else the raw bytes.
+    let forward = if correcting { out_buf } else { buf.to_vec() };
+    ctx.sample_tx.try_send(forward).ok();
+}
+
+/// Re-encode one corrected (I, Q) sample back to the wire byte format, clamping to
+/// the 8-bit range. Used only when a correction is active.
+fn encode_pair(i: f32, q: f32, format: SampleFormat) -> (u8, u8) {
+    let ci = i.round().clamp(-128.0, 127.0) as i32;
+    let cq = q.round().clamp(-128.0, 127.0) as i32;
+    match format {
+        SampleFormat::Int8  => (ci as i8 as u8, cq as i8 as u8),
+        SampleFormat::Uint8 => ((ci + 128) as u8, (cq + 128) as u8),
+    }
 }
 
 #[cfg(test)]

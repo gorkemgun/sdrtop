@@ -17,9 +17,49 @@ pub fn image_rejection_db(amp_imbalance_db: f32, phase_imbalance_deg: f32) -> f6
     10.0 * (num / den).log10()
 }
 
+/// Blind I/Q correction coefficients from DC-removed second moments. Produces a
+/// Q-row `(c_qi, c_qq)` such that `q_out = c_qi·i + c_qq·q` is decorrelated from I
+/// and power-matched to it (Gram-Schmidt orthonormalisation), which is what
+/// cancels the mirror image. Returns identity `(0.0, 1.0)` for already-balanced or
+/// degenerate input, so applying it is always safe.
+pub fn iq_correction_coeffs(var_i: f64, var_q: f64, cov_iq: f64) -> (f32, f32) {
+    if var_i <= 1e-9 { return (0.0, 1.0); }
+    let q_perp_var = (var_q - cov_iq * cov_iq / var_i).max(1e-9);
+    let b = (var_i / q_perp_var).sqrt();
+    ((-b * cov_iq / var_i) as f32, b as f32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coeffs_balanced_is_identity() {
+        let (c_qi, c_qq) = iq_correction_coeffs(1.0, 1.0, 0.0);
+        assert!(c_qi.abs() < 1e-6 && (c_qq - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn coeffs_amplitude_only_scales_q() {
+        // I has 4× the power of Q, no correlation → scale Q by 2, no cross term.
+        let (c_qi, c_qq) = iq_correction_coeffs(4.0, 1.0, 0.0);
+        assert!(c_qi.abs() < 1e-6, "no cross term, got {c_qi}");
+        assert!((c_qq - 2.0).abs() < 1e-4, "scale ≈2, got {c_qq}");
+    }
+
+    #[test]
+    fn coeffs_phase_correlation_decorrelates() {
+        // Equal power but correlated → a non-zero cross term that removes the I part.
+        let (c_qi, c_qq) = iq_correction_coeffs(1.0, 1.0, 0.3);
+        assert!(c_qi < 0.0, "cross term should subtract the I component, got {c_qi}");
+        assert!(c_qq > 1.0, "rescale to restore power, got {c_qq}");
+    }
+
+    #[test]
+    fn coeffs_degenerate_is_identity() {
+        let (c_qi, c_qq) = iq_correction_coeffs(0.0, 1.0, 0.0);
+        assert!(c_qi.abs() < 1e-6 && (c_qq - 1.0).abs() < 1e-6);
+    }
 
     #[test]
     fn irr_perfect_balance_is_high() {

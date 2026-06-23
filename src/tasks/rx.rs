@@ -138,6 +138,9 @@ pub fn spawn_rx_task(
             // Floating-point IQ and jitter metrics — computed outside the lock.
             let dc_i:              f32;
             let dc_q:              f32;
+            let dc_i_raw:          f32;          // mean I/Q in raw sample units
+            let dc_q_raw:          f32;          //   (the amount DC-block subtracts)
+            let iq_corr:           (f32, f32);   // candidate auto-cal Q-row coeffs
             let iq_imbalance_db:   Option<f32>;
             let phase_imbalance:   Option<f32>;
             let cb_period_us:      Option<u64>;
@@ -151,12 +154,15 @@ pub fn spawn_rx_task(
                 let var_q  = (acc_q_sq_sum as f64 / n - mean_q * mean_q).max(0.0);
                 dc_i = (mean_i / 128.0) as f32;
                 dc_q = (mean_q / 128.0) as f32;
+                dc_i_raw = mean_i as f32;
+                dc_q_raw = mean_q as f32;
                 let i_ac = var_i.sqrt();
                 let q_ac = var_q.sqrt();
                 iq_imbalance_db = if q_ac > 0.0 {
                     Some((20.0 * (i_ac / q_ac).log10()) as f32)
                 } else { None };
                 let cov_iq = acc_cross_sum as f64 / n - mean_i * mean_q;
+                iq_corr = crate::signal::iq_correction_coeffs(var_i, var_q, cov_iq);
                 let denom  = var_i + var_q;
                 phase_imbalance = if denom > 0.0 {
                     let sin_theta = (2.0 * cov_iq / denom).clamp(-1.0, 1.0);
@@ -164,6 +170,7 @@ pub fn spawn_rx_task(
                 } else { None };
             } else {
                 dc_i = 0.0; dc_q = 0.0;
+                dc_i_raw = 0.0; dc_q_raw = 0.0; iq_corr = (0.0, 1.0);
                 iq_imbalance_db = None; phase_imbalance = None;
             }
 
@@ -187,6 +194,28 @@ pub fn spawn_rx_task(
                     m.iq.dc_offset_q = dc_q;
                     if let Some(v) = iq_imbalance_db  { m.iq.iq_imbalance_db      = v; }
                     if let Some(v) = phase_imbalance   { m.iq.phase_imbalance_deg  = v; }
+
+                    // DC-block tracks the live DC estimate so it follows slow drift.
+                    if m.iq.cal.dc_block_on || m.iq.cal.cal_applied {
+                        m.iq.cal.dc_i_raw = dc_i_raw;
+                        m.iq.cal.dc_q_raw = dc_q_raw;
+                    }
+                    // [C] pressed → capture the correction matrix from this window
+                    // (a one-shot snapshot; it stays fixed until the next auto-cal).
+                    if m.iq.cal.cal_pending {
+                        m.iq.cal.c_qi = iq_corr.0;
+                        m.iq.cal.c_qq = iq_corr.1;
+                        m.iq.cal.dc_i_raw = dc_i_raw;
+                        m.iq.cal.dc_q_raw = dc_q_raw;
+                        m.iq.cal.cal_applied = true;
+                        m.iq.cal.cal_pending = false;
+                        m.iq.cal.last_cal_at = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).ok();
+                        let irr = crate::signal::image_rejection_db(
+                            m.iq.iq_imbalance_db, m.iq.phase_imbalance_deg);
+                        m.push_log(format!(
+                            "IQ auto-cal applied \u{2014} quadrature corrected (was IRR {irr:.1} dB)"));
+                    }
                 }
                 if let (Some(period), Some(jitter)) = (cb_period_us, cb_jitter_us) {
                     m.iq.cb_period_us = period;

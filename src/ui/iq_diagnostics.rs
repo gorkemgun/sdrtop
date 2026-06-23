@@ -118,7 +118,7 @@ impl Panel for IqDiagnosticsPanel {
     fn min_size(&self) -> (u16, u16) { (30, 12) }
     fn focus_key(&self) -> Option<char> { Some('i') }
     fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
-        &[("M", "Pin carrier/image"), ("C", "Snapshot to log")]
+        &[("D", "DC-block"), ("C", "auto-cal"), ("F", "freeze"), ("M", "pin")]
     }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
@@ -304,8 +304,10 @@ impl Panel for IqDiagnosticsPanel {
 
         // --- VERDICT BLOCK -----------------------------------------------------
         // Most-severe issue gets a titled, plain-language explanation; the healthy
-        // dimension gets its own ✓ line; the chips + foot show the actionable state
-        // (Step 5 makes DC-block / auto-cal live).
+        // dimension gets its own ✓ line. Metrics are measured on the raw stream, so
+        // when a correction is active the verdict says it's being compensated rather
+        // than telling you to do what's already done.
+        let cal = &state.iq.cal;
         let quad_bad = amp_abs > 3.0 || phase_abs > 5.0;
         let dc_bad   = dc_mag > 0.02;
         let minor    = amp_abs > 1.0 || phase_abs > 2.0;
@@ -332,11 +334,19 @@ impl Panel for IqDiagnosticsPanel {
         if quad_bad {
             push_title(&mut lines, "\u{26a0}", "QUADRATURE IMBALANCE", theme.status_crit);
             push_body(&mut lines, format!("I/Q off balance \u{2192} image only \u{2212}{irr_txt} dB."));
-            push_body(&mut lines, "Run auto-cal to correct quadrature.".into());
+            if cal.cal_applied {
+                push_ok(&mut lines, "\u{2713} auto-cal active \u{00b7} compensated downstream".into());
+            } else {
+                push_body(&mut lines, "Run auto-cal [C] to correct quadrature.".into());
+            }
         } else if dc_bad {
             push_title(&mut lines, "\u{26a0}", "DC OFFSET HIGH", theme.status_warn);
             push_body(&mut lines, format!("I/Q centroid off-zero \u{2192} DC spike {spk_txt} dBFS at LO."));
-            push_ok(&mut lines, format!("\u{2713} quadrature balanced \u{00b7} image \u{2212}{irr_txt} dB"));
+            if cal.dc_block_on {
+                push_ok(&mut lines, "\u{2713} DC-block active \u{00b7} spike removed downstream".into());
+            } else {
+                push_body(&mut lines, "Press [D] to block the DC spike.".into());
+            }
         } else if minor {
             push_title(&mut lines, "\u{00b7}", "MINOR IMBALANCE", theme.status_warn);
             push_body(&mut lines, "Within tolerance \u{2014} watch the image level.".into());
@@ -345,16 +355,30 @@ impl Panel for IqDiagnosticsPanel {
             push_body(&mut lines, format!("Quadrature balanced \u{00b7} image \u{2212}{irr_txt} dB \u{00b7} DC centred."));
         }
 
-        // Action chips (static off/idle until Step 5 wires the DSP) + status foot.
+        // Action chips lit by the live correction state + a status foot.
         lines.push(Line::from(vec![
             Span::raw(" "),
-            chip("D DC-block", false),
+            chip("D DC-block", cal.dc_block_on),
             Span::raw(" "),
-            chip("C auto-cal", false),
+            chip("C auto-cal", cal.cal_applied),
+            Span::raw(" "),
+            chip("F freeze", cal.frozen),
         ]));
+        let dc_txt  = if cal.dc_block_on { "DC-block ON" } else { "DC-block OFF" };
+        let cal_txt = if cal.cal_applied { "auto-cal applied" }
+                      else if cal.cal_pending { "auto-cal capturing\u{2026}" }
+                      else { "auto-cal idle" };
+        let mut foot = format!("{dc_txt} \u{00b7} {cal_txt}");
+        if let Some(t) = cal.last_cal_at {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(t);
+            let ago = now.saturating_sub(t);
+            let ago_str = if ago < 60 { format!("{ago}s") } else { format!("{}m", ago / 60) };
+            foot.push_str(&format!(" \u{00b7} last cal {ago_str} ago"));
+        }
         lines.push(Line::from(vec![
             Span::raw(" "),
-            Span::styled("DC-block OFF \u{00b7} auto-cal idle", Style::default().fg(dim)),
+            Span::styled(foot, Style::default().fg(dim)),
         ]));
 
         // Self-adjusting density: drop the airy spacers if the panel is too short to

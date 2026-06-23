@@ -460,13 +460,36 @@ fn handle_iq_focus(
             }
             return KeyAction::Continue;
         }
+        // [D] — DC-block: subtract the live DC estimate from the stream.
+        KeyCode::Char('d') | KeyCode::Char('D') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.iq.cal.dc_block_on = !m.iq.cal.dc_block_on;
+            let on = m.iq.cal.dc_block_on;
+            m.push_log(if on { "DC-block ON — subtracting DC offset from the stream" }
+                       else  { "DC-block OFF" }.to_string());
+            return KeyAction::Continue;
+        }
+        // [C] — auto-cal: capture (or clear) the I/Q quadrature correction.
         KeyCode::Char('c') | KeyCode::Char('C') => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
-            let (dci, dcq, imb, ph) = (m.iq.dc_offset_i, m.iq.dc_offset_q, m.iq.iq_imbalance_db, m.iq.phase_imbalance_deg);
-            m.push_log(format!(
-                "IQ snapshot — DC I:{:+.3} Q:{:+.3} · imbalance {:+.1} dB · phase {:+.1}°",
-                dci, dcq, imb, ph
-            ));
+            if m.iq.cal.cal_applied || m.iq.cal.cal_pending {
+                m.iq.cal.cal_applied = false;
+                m.iq.cal.cal_pending = false;
+                m.iq.cal.c_qi = 0.0;
+                m.iq.cal.c_qq = 1.0;
+                m.push_log("IQ auto-cal cleared — quadrature uncorrected".to_string());
+            } else {
+                m.iq.cal.cal_pending = true;
+                m.push_log("IQ auto-cal — capturing correction…".to_string());
+            }
+            return KeyAction::Continue;
+        }
+        // [F] — freeze / thaw the constellation cloud.
+        KeyCode::Char('f') | KeyCode::Char('F') => {
+            let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
+            m.iq.cal.frozen = !m.iq.cal.frozen;
+            let frozen = m.iq.cal.frozen;
+            m.push_log(if frozen { "Constellation frozen" } else { "Constellation live" }.to_string());
             return KeyAction::Continue;
         }
         _ => {}
