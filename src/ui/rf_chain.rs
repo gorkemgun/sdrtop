@@ -15,6 +15,7 @@ use ratatui::{
 };
 
 use crate::state::SdrMetrics;
+use crate::ui::charts::gain_bar_colored;
 use crate::ui::micro_common::spark_minmax;
 use crate::ui::panel::Panel;
 use crate::ui::rf_calc::{
@@ -22,42 +23,6 @@ use crate::ui::rf_calc::{
 };
 
 pub struct RfChainPanel;
-
-/// Coalesce a per-cell `(char, colour)` row into runs of same-coloured spans.
-fn coalesce(cells: Vec<(char, Color)>) -> Vec<Span<'static>> {
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut run = String::new();
-    let mut run_col: Option<Color> = None;
-    for (ch, col) in cells {
-        if run_col != Some(col) {
-            if let Some(c) = run_col {
-                spans.push(Span::styled(std::mem::take(&mut run), Style::default().fg(c)));
-            }
-            run_col = Some(col);
-        }
-        run.push(ch);
-    }
-    if let Some(c) = run_col {
-        spans.push(Span::styled(run, Style::default().fg(c)));
-    }
-    spans
-}
-
-/// A horizontal `▬` bar of `width` cells filled to `frac`, with an optional `┊` tick
-/// at `tick` (the optimal target). Filled cells take `fill`, empty `dim`, tick `hi`.
-fn tick_bar(frac: f64, tick: Option<f64>, width: usize, fill: Color, hi: Color, dim: Color)
-    -> Vec<Span<'static>>
-{
-    let w = width.max(1);
-    let fill_n = (frac.clamp(0.0, 1.0) * w as f64).round() as usize;
-    let mut cells: Vec<(char, Color)> =
-        (0..w).map(|c| ('\u{25ac}', if c < fill_n { fill } else { dim })).collect();
-    if let Some(t) = tick {
-        let tc = ((t.clamp(0.0, 1.0) * w as f64).round() as usize).min(w - 1);
-        cells[tc] = ('\u{250a}', hi); // ┊
-    }
-    coalesce(cells)
-}
 
 fn fmt_mhz(hz: u32) -> String {
     if hz >= 1_000_000 { format!("{:.0} MHz", hz as f64 / 1e6) }
@@ -162,18 +127,29 @@ impl Panel for RfChainPanel {
                 Span::styled(right, Style::default().fg(right_col).add_modifier(Modifier::BOLD)),
             ])
         };
-        // " LBL [bar] value" — a tick bar plus a right value.
+        // " LBL [bar] value" — the app's standard eighth-block gradient gain bar
+        // (same widget as the command rail / header LNA·VGA), with an optional `┊`
+        // optimal-target tick overlaid on one cell.
         const VALW: usize = 10;
         let bar_w = iw.saturating_sub(1 + 3 + 1 + 1 + VALW).max(6);
-        let bar_row = |label: &str, frac: f64, tick: Option<f64>, fill: Color, val: String, val_col: Color| -> Line<'static> {
+        let bar_row = |label: &str, val: u32, max: u32, lo: Color, hi: Color,
+                       tick: Option<f64>, val_str: String, val_col: Color| -> Line<'static> {
+            let mut bar = gain_bar_colored(val, max, bar_w, lo, hi, dim);
+            if let Some(t) = tick {
+                let tc = ((t.clamp(0.0, 1.0) * bar_w as f64).round() as usize)
+                    .min(bar_w.saturating_sub(1));
+                if tc < bar.len() {
+                    bar[tc] = Span::styled("\u{250a}".to_string(), Style::default().fg(theme.value_hi));
+                }
+            }
             let mut spans = vec![
                 Span::raw(" "),
                 Span::styled(format!("{label:<3}"), lbl),
                 Span::raw(" "),
             ];
-            spans.extend(tick_bar(frac, tick, bar_w, fill, theme.value_hi, dim));
+            spans.extend(bar);
             spans.push(Span::raw(" "));
-            spans.push(Span::styled(val, Style::default().fg(val_col).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(val_str, Style::default().fg(val_col).add_modifier(Modifier::BOLD)));
             Line::from(spans)
         };
 
@@ -193,10 +169,10 @@ impl Panel for RfChainPanel {
 
         // --- GAIN STAGING ------------------------------------------------------
         lines.push(section("Gain staging", "\u{2502} = optimal target"));
-        lines.push(bar_row("LNA", lna as f64 / 40.0, Some(lna_opt as f64 / 40.0),
-                           theme.status_ok, format!("{lna} / 40 dB"), theme.value));
-        lines.push(bar_row("VGA", vga as f64 / 62.0, Some(vga_opt as f64 / 62.0),
-                           theme.border_accent, format!("{vga} / 62 dB"), theme.value));
+        lines.push(bar_row("LNA", lna, 40, theme.status_ok, theme.value_hi,
+                           Some(lna_opt as f64 / 40.0), format!("{lna} / 40 dB"), theme.value));
+        lines.push(bar_row("VGA", vga, 62, theme.border_accent, theme.status_warn,
+                           Some(vga_opt as f64 / 62.0), format!("{vga} / 62 dB"), theme.value));
         let at_opt = lna == lna_opt && vga == vga_opt;
         lines.push(Line::from(vec![
             Span::raw(" "),
@@ -215,7 +191,8 @@ impl Panel for RfChainPanel {
         // worst stage because the LNA gain suppresses everything after it.
         lines.push(section("Noise figure", "Friis cascade"));
         for s in &stages {
-            lines.push(bar_row(s.label, s.nf_db / 12.0, None, theme.status_warn,
+            lines.push(bar_row(s.label, (s.nf_db * 100.0) as u32, 1200,
+                               theme.status_ok, theme.status_crit, None,
                                format!("{:.1} dB", s.nf_db), theme.value));
         }
         lines.push(row3("sys", "NF total".to_string(), theme.label, format!("{nf:.1} dB"), sev_col));
@@ -298,27 +275,6 @@ mod tests {
         assert_eq!(p.name(), "rf_chain");
         let (w, h) = p.min_size();
         assert!(w >= 16 && h >= 8);
-    }
-
-    #[test]
-    fn coalesce_merges_runs() {
-        let red = Color::Rgb(1, 0, 0);
-        let blue = Color::Rgb(0, 0, 1);
-        let cells = vec![('a', red), ('b', red), ('c', blue)];
-        let spans = coalesce(cells);
-        assert_eq!(spans.len(), 2, "two colour runs");
-        assert_eq!(spans[0].content.as_ref(), "ab");
-        assert_eq!(spans[1].content.as_ref(), "c");
-    }
-
-    #[test]
-    fn tick_bar_places_fill_and_tick() {
-        let (fill, hi, dim) = (Color::Rgb(0, 1, 0), Color::Rgb(1, 1, 0), Color::Rgb(0, 0, 0));
-        let spans = tick_bar(0.5, Some(1.0), 10, fill, hi, dim);
-        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(text.chars().count(), 10, "bar is exactly width cells");
-        assert!(text.contains('\u{250a}'), "tick present");
-        assert!(text.contains('\u{25ac}'), "bar cells present");
     }
 
     #[test]
