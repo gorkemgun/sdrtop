@@ -134,15 +134,15 @@ impl Panel for LevelDiagramPanel {
             // plot row
             let mut cells: Vec<(char, Color)> = Vec::with_capacity(chart_w);
             for c in 0..chart_w {
-                let sr = sig_row[c];
-                let nr = noise_row[c];
-                let (ch, col) =
-                    if row == sr                         { ('\u{2588}', sig_col) }      // █ signal
-                    else if row == nr                    { ('\u{25ac}', noise_col) }    // ▬ noise
-                    else if row > sr && row < nr         { ('\u{2591}', gap_col) }      // ░ SNR gap
-                    else if row == clip_row              { ('\u{00b7}', theme.status_crit) }
-                    else if row == floor_row             { ('\u{00b7}', theme.status_warn) }
-                    else                                 { (' ', dim) };
+                let (ch, col) = match classify(row, sig_row[c], noise_row[c]) {
+                    Cell::Signal   => ('\u{2588}', sig_col),                       // █ signal
+                    Cell::Noise    => ('\u{25ac}', noise_col),                     // ▬ noise
+                    Cell::UsableDr => ('\u{2591}', gap_col),                       // ░ usable DR
+                    Cell::Buried   => ('\u{2592}', theme.status_warn),             // ▒ signal buried
+                    Cell::Empty if row == clip_row  => ('\u{00b7}', theme.status_crit),
+                    Cell::Empty if row == floor_row => ('\u{00b7}', theme.status_warn),
+                    Cell::Empty    => (' ', dim),
+                };
                 cells.push((ch, col));
             }
             spans.extend(coalesce(cells));
@@ -166,20 +166,42 @@ impl Panel for LevelDiagramPanel {
 
         // Legend + key figures.
         let headroom = -adc_peak;
-        lines.push(Line::from(vec![
+        let mut legend = vec![
             Span::raw(" "),
             Span::styled("\u{2588} signal", Style::default().fg(sig_col)),
             Span::styled("  \u{25ac} noise", Style::default().fg(noise_col)),
-            Span::styled("  \u{2591} usable DR", Style::default().fg(gap_col)),
-            Span::styled(format!("  \u{00b7} SNR {snr:.0} dB \u{00b7} headroom {headroom:.0} dB"),
-                         Style::default().fg(dim)),
-        ]));
+        ];
+        if snr < 0.0 {
+            // Signal sits below the noise at the ADC — flag the buried band.
+            legend.push(Span::styled("  \u{2592} buried", Style::default().fg(theme.status_warn)));
+        } else {
+            legend.push(Span::styled("  \u{2591} usable DR", Style::default().fg(gap_col)));
+        }
+        legend.push(Span::styled(
+            format!("  \u{00b7} SNR {snr:.0} dB \u{00b7} headroom {headroom:.0} dB"),
+            Style::default().fg(dim)));
+        lines.push(Line::from(legend));
 
         if lines.len() > ih {
             lines.retain(|l| l.spans.iter().any(|s| !s.content.trim().is_empty()));
         }
         f.render_widget(Paragraph::new(lines), inner);
     }
+}
+
+/// What a chart row holds for a column, from the signal-trace row `sr` and the
+/// noise-trace row `nr` (rows grow downward, so a *smaller* row is a *higher* level).
+/// The `Buried` case keeps the diagram honest when the noise climbs above the signal
+/// (negative SNR): the band between them is flagged instead of left blank.
+#[derive(PartialEq, Debug)]
+enum Cell { Signal, Noise, UsableDr, Buried, Empty }
+
+fn classify(row: usize, sr: usize, nr: usize) -> Cell {
+    if row == sr { Cell::Signal }            // signal wins ties (SNR ≈ 0)
+    else if row == nr { Cell::Noise }
+    else if row > sr.min(nr) && row < sr.max(nr) {
+        if sr < nr { Cell::UsableDr } else { Cell::Buried }
+    } else { Cell::Empty }
 }
 
 /// Coalesce a per-cell `(char, colour)` row into runs of same-coloured spans.
@@ -227,5 +249,29 @@ mod tests {
     #[test]
     fn panel_name() {
         assert_eq!(LevelDiagramPanel.name(), "level_diagram");
+    }
+
+    #[test]
+    fn classify_normal_signal_above_noise() {
+        // signal at row 2 (higher level), noise at row 6 (lower level)
+        assert_eq!(classify(2, 2, 6), Cell::Signal);
+        assert_eq!(classify(6, 2, 6), Cell::Noise);
+        assert_eq!(classify(4, 2, 6), Cell::UsableDr, "between them = usable DR");
+        assert_eq!(classify(0, 2, 6), Cell::Empty);
+        assert_eq!(classify(9, 2, 6), Cell::Empty);
+    }
+
+    #[test]
+    fn classify_inverted_noise_above_signal() {
+        // Noise louder than signal: noise at row 2, signal at row 6.
+        assert_eq!(classify(2, 6, 2), Cell::Noise);
+        assert_eq!(classify(6, 6, 2), Cell::Signal);
+        assert_eq!(classify(4, 6, 2), Cell::Buried, "buried band, not blank");
+    }
+
+    #[test]
+    fn classify_coincident_is_signal() {
+        // SNR ≈ 0: the two traces land on the same row → signal drawn, no blank gap.
+        assert_eq!(classify(3, 3, 3), Cell::Signal);
     }
 }
