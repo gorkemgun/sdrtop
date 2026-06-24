@@ -272,7 +272,9 @@ impl Panel for ImageScopePanel {
         let gutter = 4usize;                       // "−120"
         let chart_w = iw.saturating_sub(gutter + 1);
         let reserved = 1 /*marker*/ + 1 /*axis*/ + 1 /*gap*/ + readouts.len() + 1 /*caption*/;
-        let chart_h = ih.saturating_sub(reserved).min(16);
+        // Fill all the vertical room left after the chrome — a taller chart gives
+        // finer dBFS resolution and matches the mockup's full-height scope.
+        let chart_h = ih.saturating_sub(reserved);
 
         if chart_w >= 8 && chart_h >= 3 {
             // Aggregate bins into columns (peak per column), single O(n) pass.
