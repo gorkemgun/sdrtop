@@ -49,6 +49,7 @@ impl App {
         registry.register(ui::SpectrumPanel);
         registry.register(ui::WaterfallPanel::new());
         registry.register(ui::RfChainPanel);
+        registry.register(ui::LevelDiagramPanel);
         registry.register(ui::SignalMetricsPanel);
         registry.register(ui::IqHistogramPanel);
         registry.register(ui::ObserverPanel);
