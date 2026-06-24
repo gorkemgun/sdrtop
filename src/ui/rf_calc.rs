@@ -49,21 +49,6 @@ pub fn system_nf_db(stages: &[Stage]) -> f64 {
     10.0 * (f_total + 1.0).log10()
 }
 
-/// Each stage's contribution to the system NF, in dB, telescoping so they sum to the
-/// total: `contribution[k] = NF(stages[0..=k]) − NF(stages[0..k])`. With a strong LNA
-/// the downstream stages contribute ~0 — that suppression is the whole point of the
-/// LNA, and the breakdown shows it honestly.
-pub fn nf_contributions(stages: &[Stage]) -> (Vec<f64>, f64) {
-    let mut out = Vec::with_capacity(stages.len());
-    let mut prev = 0.0;
-    for k in 0..stages.len() {
-        let cum = system_nf_db(&stages[..=k]);
-        out.push(cum - prev);
-        prev = cum;
-    }
-    (out, prev)
-}
-
 /// Cascade Noise Figure (dB) for the live front-end — the one number shown app-wide.
 /// Thin wrapper over [`system_nf_db`]`(`[`cascade`]`)`; VGA gain is irrelevant to NF
 /// so a nominal 0 is passed.
@@ -341,16 +326,6 @@ mod tests {
     #[test]
     fn system_nf_empty_is_zero() {
         assert_eq!(system_nf_db(&[]), 0.0);
-    }
-
-    #[test]
-    fn nf_contributions_sum_to_total_and_lna_dominates() {
-        let stages = cascade(false, 32, 32);
-        let (contrib, total) = nf_contributions(&stages);
-        assert_eq!(contrib.len(), stages.len());
-        assert!((contrib.iter().sum::<f64>() - total).abs() < 1e-9, "telescoping must sum");
-        // First stage (LNA) carries essentially all of the system NF.
-        assert!(contrib[0] > 0.9 * total, "LNA should dominate, got {contrib:?} of {total}");
     }
 
     #[test]

@@ -1,234 +1,290 @@
+//! `RfChainPanel` — the RF Diagnostics column of the Lab RF bench ([6]).
+//!
+//! Reads the whole receive chain as one story: the per-stage **gain lineup** (level
+//! after each stage), **gain staging** (LNA/VGA vs their optimal targets), the Friis
+//! **noise figure** breakdown, **sensitivity** (MDS + noise-floor trend), and a
+//! plain-language verdict with the action chips. All levels are *modeled / relative*
+//! dBm anchored to the measured ADC level — useful for staging, not a wattmeter.
+
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
-    style::Style,
+    layout::Rect,
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 
-use crate::hardware::board_rev_name;
 use crate::state::SdrMetrics;
+use crate::ui::micro_common::spark_minmax;
 use crate::ui::panel::Panel;
-use crate::ui::rf_calc::{adc_utilisation_ratio, estimate_mds_dbm, estimate_nf_db, gain_advice};
+use crate::ui::rf_calc::{
+    cascade, estimate_mds_dbm, level_lineup, staging_target, staging_verdict, system_nf_db, Stage,
+};
 
 pub struct RfChainPanel;
 
-fn fmt_hz(hz: u32) -> String {
-    if hz == 0        { return "---".to_string(); }
-    if hz >= 1_000_000 {
-        format!("{:.3} MHz", hz as f64 / 1_000_000.0)
-    } else {
-        format!("{} kHz", hz / 1_000)
+/// Coalesce a per-cell `(char, colour)` row into runs of same-coloured spans.
+fn coalesce(cells: Vec<(char, Color)>) -> Vec<Span<'static>> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut run = String::new();
+    let mut run_col: Option<Color> = None;
+    for (ch, col) in cells {
+        if run_col != Some(col) {
+            if let Some(c) = run_col {
+                spans.push(Span::styled(std::mem::take(&mut run), Style::default().fg(c)));
+            }
+            run_col = Some(col);
+        }
+        run.push(ch);
     }
+    if let Some(c) = run_col {
+        spans.push(Span::styled(run, Style::default().fg(c)));
+    }
+    spans
 }
 
-/// Format a length in cm into the most readable unit.
-fn fmt_cm(cm: f64) -> String {
-    if cm >= 100.0      { format!("{:.2} m",  cm / 100.0) }
-    else if cm >= 1.0   { format!("{:.1} cm", cm) }
-    else                { format!("{:.1} mm", cm * 10.0) }
+/// A horizontal `▬` bar of `width` cells filled to `frac`, with an optional `┊` tick
+/// at `tick` (the optimal target). Filled cells take `fill`, empty `dim`, tick `hi`.
+fn tick_bar(frac: f64, tick: Option<f64>, width: usize, fill: Color, hi: Color, dim: Color)
+    -> Vec<Span<'static>>
+{
+    let w = width.max(1);
+    let fill_n = (frac.clamp(0.0, 1.0) * w as f64).round() as usize;
+    let mut cells: Vec<(char, Color)> =
+        (0..w).map(|c| ('\u{25ac}', if c < fill_n { fill } else { dim })).collect();
+    if let Some(t) = tick {
+        let tc = ((t.clamp(0.0, 1.0) * w as f64).round() as usize).min(w - 1);
+        cells[tc] = ('\u{250a}', hi); // ┊
+    }
+    coalesce(cells)
 }
 
-/// λ and λ/4 from frequency in Hz.  Returns "--- / ---" if frequency is 0.
-fn fmt_wavelength(freq_hz: u64) -> String {
-    if freq_hz == 0 { return "--- / ---".to_string(); }
-    let lambda    = 3e10 / freq_hz as f64;   // cm  (c = 3×10¹⁰ cm/s)
-    let lambda_4  = lambda / 4.0;
-    format!("{} / {}", fmt_cm(lambda), fmt_cm(lambda_4))
+fn fmt_mhz(hz: u32) -> String {
+    if hz >= 1_000_000 { format!("{:.0} MHz", hz as f64 / 1e6) }
+    else if hz > 0     { format!("{} kHz", hz / 1000) }
+    else               { "—".to_string() }
 }
 
 impl Panel for RfChainPanel {
     fn name(&self) -> &'static str { "rf_chain" }
     fn min_size(&self) -> (u16, u16) { (32, 16) }
 
-    fn render(&self, f: &mut Frame, area: ratatui::layout::Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
+    fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let stale = !state.radio.hw_streaming;
-        let title = if stale { " RF Chain [STALE] " } else { " RF Chain " };
+        let mut title_spans = vec![
+            Span::raw(" "),
+            Span::styled("RF Diagnostics",
+                         Style::default().fg(theme.label).add_modifier(Modifier::BOLD)),
+        ];
+        if stale {
+            title_spans.push(Span::styled(" [STALE]", Style::default().fg(theme.stale)));
+        }
+        title_spans.push(Span::raw(" "));
         let border_color = if focused { theme.border_focused }
             else if stale { theme.stale }
             else { theme.border_default };
         let block = Block::default()
-            .title(title)
+            .title(Line::from(title_spans))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(border_color));
         let inner = block.inner(area);
         f.render_widget(block, area);
+        if inner.width == 0 || inner.height == 0 { return; }
 
-        let bb_bw = state.radio.bb_filter_hz;
-        let gm    = &state.caps.gain;
-        let friis = state.caps.friis_applicable;
-        let total_gain = state.radio.lna_gain as i32
-            + state.radio.vga_gain as i32
-            + if state.radio.amp_enabled { 14 } else { 0 };
+        let iw  = inner.width as usize;
+        let dim = theme.border_dim;
+        let lbl = Style::default().fg(theme.label);
 
-        let lbl  = Style::default().fg(theme.label);
-        let val  = Style::default().fg(theme.value);
-        let hi   = Style::default().fg(theme.value_hi);
-
-        let (advice_text, advice_sev) = if stale {
-            ("--- (RX not streaming)", 0u8)
-        } else {
-            gain_advice(&state.iq.iq_amplitude_hist)
-        };
-        let advice_color = if stale { theme.stale } else {
-            match advice_sev {
-                2 => theme.status_crit,
-                1 => theme.status_warn,
-                _ => theme.status_ok,
-            }
-        };
-
-        // ADC utilisation gauge: fraction of samples in mid-range bins (8–23).
-        // Show as stale (zero bar, stale color) when RX is not streaming.
-        let (util_ratio, util_color) = if stale {
-            (0.0, theme.stale)
-        } else {
-            let ratio = adc_utilisation_ratio(&state.iq.iq_amplitude_hist);
-            let color = if ratio > 0.5      { theme.status_ok }
-                        else if ratio > 0.2 { theme.status_warn }
-                        else                { theme.status_crit };
-            (ratio, color)
-        };
-
-        // Estimated cascade Noise Figure (Friis)
-        let nf_db = estimate_nf_db(state.radio.amp_enabled, state.radio.lna_gain);
-        let nf_color = if nf_db < 4.0      { theme.status_ok }
-                       else if nf_db < 8.0 { theme.status_warn }
-                       else                { theme.status_crit };
-
-        // Frequency, wavelength, and sample rate strings
-        let freq_str  = format!("{:.3} MHz", state.radio.frequency as f64 / 1_000_000.0);
-        let wl_str    = fmt_wavelength(state.radio.frequency);
-        let sr_str    = format!("{:.3} MHz", state.radio.config_sample_rate / 1_000_000.0);
-
-        // Gain chain: single TUNER stage (RTL-SDR), else AMP[14] → LNA → VGA = total dB.
-        let chain_line = if gm.is_single() {
-            Line::from(vec![
-                Span::styled("TUNER", lbl),
-                Span::styled(format!("[{}]", state.radio.lna_gain), hi),
-                Span::styled(format!(" = {} dB", state.radio.lna_gain), Style::default().fg(theme.value_hi)),
-            ])
-        } else if state.radio.amp_enabled {
-            Line::from(vec![
-                Span::styled("AMP", lbl),
-                Span::styled(format!("[{}]", 14), hi),
-                Span::styled(" → ", lbl),
-                Span::styled("LNA", lbl),
-                Span::styled(format!("[{}]", state.radio.lna_gain), hi),
-                Span::styled(" → ", lbl),
-                Span::styled("VGA", lbl),
-                Span::styled(format!("[{}]", state.radio.vga_gain), hi),
-                Span::styled(format!(" = {} dB", total_gain), Style::default().fg(theme.value_hi)),
-            ])
-        } else {
-            Line::from(vec![
-                Span::styled("LNA", lbl),
-                Span::styled(format!("[{}]", state.radio.lna_gain), hi),
-                Span::styled(" → ", lbl),
-                Span::styled("VGA", lbl),
-                Span::styled(format!("[{}]", state.radio.vga_gain), hi),
-                Span::styled(format!(" = {} dB", total_gain), Style::default().fg(theme.value_hi)),
-            ])
-        };
-
-        let info_rows: &[Line] = &[
-            Line::from(vec![
-                Span::styled(format!("{:<13}", "Freq"),       lbl),
-                Span::styled(freq_str, hi),
-            ]),
-            Line::from(vec![
-                Span::styled(format!("{:<13}", "λ / λ/4"),   lbl),
-                Span::styled(wl_str, val),
-            ]),
-            Line::from(vec![
-                Span::styled(format!("{:<13}", "Sample rate"), lbl),
-                Span::styled(sr_str, val),
-            ]),
-            Line::from(vec![
-                Span::styled(format!("{:<13}", "BB filter"),  lbl),
-                Span::styled(
-                    if state.caps.has_bb_filter { fmt_hz(bb_bw) } else { "N/A".to_string() },
-                    val),
-            ]),
-            Line::from(vec![Span::raw("")]),
-            chain_line,
-            if friis {
-                Line::from(vec![
-                    Span::styled(format!("{:<13}", "Est. NF"),  lbl),
-                    Span::styled(format!("~{:.1} dB", nf_db),  Style::default().fg(nf_color)),
-                    Span::styled("  (Friis)", Style::default().fg(theme.border_dim)),
-                ])
-            } else {
-                Line::from(vec![
-                    Span::styled(format!("{:<13}", "Est. NF"),  lbl),
-                    Span::styled("N/A (single-tuner)", Style::default().fg(theme.stale)),
-                ])
-            },
-            {
-                let (mds_str, mds_color) = match estimate_mds_dbm(bb_bw, nf_db) {
-                    Some(mds) => {
-                        let color = if mds < -95.0      { theme.status_ok }
-                                    else if mds < -85.0 { theme.status_warn }
-                                    else                { theme.status_crit };
-                        (format!("~{:.0} dBm", mds), color)
-                    }
-                    None => ("---".to_string(), theme.stale),
-                };
-                Line::from(vec![
-                    Span::styled(format!("{:<13}", "MDS"),   lbl),
-                    Span::styled(mds_str, Style::default().fg(mds_color)),
-                ])
-            },
-            Line::from(vec![Span::raw("")]),
-            Line::from(vec![
-                Span::styled(format!("{:<13}", "Board"),   lbl),
-                Span::styled(
-                    if friis { board_rev_name(state.system.board_rev).to_string() }
-                    else     { state.system.board_name.to_string() },
-                    Style::default().fg(theme.border_dim)),
-            ]),
-            Line::from(vec![
-                Span::styled(format!("{:<13}", "USB API"), lbl),
-                Span::styled(
-                    if friis { format!("{:#06x}", state.system.usb_api_version) }
-                    else     { "—".to_string() },
-                    Style::default().fg(theme.border_dim)),
-            ]),
-            Line::from(vec![Span::raw("")]),
-            Line::from(vec![
-                Span::styled(advice_text, Style::default().fg(advice_color)),
-            ]),
-        ];
-
-        // Reserve 1 row at the bottom for the ADC utilisation ▐ bar
-        let n_info = info_rows.len().min(inner.height.saturating_sub(1) as usize);
-        if inner.height < 2 { return; }
-
-        let sections = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(n_info as u16),
-                Constraint::Min(0),
-                Constraint::Length(1),
-            ])
-            .split(inner);
-
-        let row_constraints: Vec<Constraint> = (0..n_info).map(|_| Constraint::Length(1)).collect();
-        let row_areas = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(row_constraints)
-            .split(sections[0]);
-        for (i, line) in info_rows.iter().take(n_info).enumerate() {
-            f.render_widget(Paragraph::new(line.clone()), row_areas[i]);
+        if stale {
+            f.render_widget(
+                Paragraph::new(Span::styled("\u{2014}\u{2014}\u{2014}", lbl)), inner);
+            return;
         }
 
-        crate::ui::charts::draw_hbar(
-            f, sections[2], util_ratio,
-            "ADC util ",
-            &format!("{:.0}%", util_ratio * 100.0),
-            util_color, theme,
-        );
+        // Single-tuner (RTL-SDR): the cascade bench assumes the HackRF chain.
+        if !state.caps.friis_applicable {
+            let lines = vec![
+                Line::from(Span::styled(" TUNER gain ", Style::default().fg(theme.label).add_modifier(Modifier::BOLD))),
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled(format!("{} dB", state.radio.lna_gain),
+                                 Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::raw(""),
+                Line::from(Span::styled(" single-tuner \u{2014} cascade N/A", Style::default().fg(theme.stale))),
+            ];
+            f.render_widget(Paragraph::new(lines), inner);
+            return;
+        }
+
+        // --- model -------------------------------------------------------------
+        let amp = state.radio.amp_enabled;
+        let lna = state.radio.lna_gain;
+        let vga = state.radio.vga_gain;
+        let stages: Vec<Stage> = cascade(amp, lna, vga);
+        let nf  = system_nf_db(&stages);
+        let adc_peak = state.signal.adc_peak_dbfs as f64;
+        let snr = state.signal.peak_to_nf_db as f64;
+        let levels = level_lineup(adc_peak, snr, &stages);
+        let (verdict_word, sev) = staging_verdict(adc_peak);
+        let (lna_opt, vga_opt)  = staging_target(adc_peak, lna, vga);
+        let sev_col = match sev {
+            2 => theme.status_crit, 1 => theme.status_warn, _ => theme.status_ok,
+        };
+
+        // --- helpers -----------------------------------------------------------
+        let section = |name: &str, hint: &str| -> Line<'static> {
+            let label = name.to_uppercase();
+            let left = label.chars().count() + 5;
+            let hint_w = if hint.is_empty() { 0 } else { hint.chars().count() + 1 };
+            let dashes = iw.saturating_sub(left + hint_w);
+            let mut spans = vec![
+                Span::styled("\u{251c}\u{2574} ".to_string(), Style::default().fg(dim)),
+                Span::styled(label, Style::default().fg(theme.label).add_modifier(Modifier::BOLD)),
+                Span::styled(" \u{2576}".to_string(), Style::default().fg(dim)),
+                Span::styled("\u{2500}".repeat(dashes), Style::default().fg(dim)),
+            ];
+            if !hint.is_empty() {
+                spans.push(Span::styled(format!(" {hint}"), Style::default().fg(dim)));
+            }
+            Line::from(spans)
+        };
+        // " LBL  mid............ right" — label + a mid column + a right-aligned value.
+        let row3 = |label: &str, mid: String, mid_col: Color, right: String, right_col: Color| -> Line<'static> {
+            let pad = iw.saturating_sub(1 + 3 + 1 + mid.chars().count() + right.chars().count());
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(format!("{label:<3}"), lbl),
+                Span::raw(" "),
+                Span::styled(mid, Style::default().fg(mid_col)),
+                Span::raw(" ".repeat(pad.max(1))),
+                Span::styled(right, Style::default().fg(right_col).add_modifier(Modifier::BOLD)),
+            ])
+        };
+        // " LBL [bar] value" — a tick bar plus a right value.
+        const VALW: usize = 10;
+        let bar_w = iw.saturating_sub(1 + 3 + 1 + 1 + VALW).max(6);
+        let bar_row = |label: &str, frac: f64, tick: Option<f64>, fill: Color, val: String, val_col: Color| -> Line<'static> {
+            let mut spans = vec![
+                Span::raw(" "),
+                Span::styled(format!("{label:<3}"), lbl),
+                Span::raw(" "),
+            ];
+            spans.extend(tick_bar(frac, tick, bar_w, fill, theme.value_hi, dim));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(val, Style::default().fg(val_col).add_modifier(Modifier::BOLD)));
+            Line::from(spans)
+        };
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        // --- GAIN LINEUP -------------------------------------------------------
+        lines.push(section("Gain lineup", "level after each stage"));
+        for (i, node) in levels.iter().enumerate() {
+            let gain_str = if i == 0 { "\u{2014}".to_string() }
+                           else { format!("{:+} dB", stages[i - 1].gain_db as i64) };
+            lines.push(row3(node.label, gain_str, dim,
+                            format!("{:.0} dBm", node.signal_dbm), theme.value));
+        }
+        // ADC node = VGA output, read in dBFS.
+        lines.push(row3("ADC", "0 dB".to_string(), dim, format!("{adc_peak:.0} dBFS"), sev_col));
+        lines.push(Line::raw(""));
+
+        // --- GAIN STAGING ------------------------------------------------------
+        lines.push(section("Gain staging", "\u{2502} = optimal target"));
+        lines.push(bar_row("LNA", lna as f64 / 40.0, Some(lna_opt as f64 / 40.0),
+                           theme.status_ok, format!("{lna} / 40 dB"), theme.value));
+        lines.push(bar_row("VGA", vga as f64 / 62.0, Some(vga_opt as f64 / 62.0),
+                           theme.border_accent, format!("{vga} / 62 dB"), theme.value));
+        let at_opt = lna == lna_opt && vga == vga_opt;
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled("opt ", lbl),
+            if at_opt {
+                Span::styled("\u{2713} at optimum", Style::default().fg(theme.status_ok))
+            } else {
+                Span::styled(format!("\u{2192} LNA {lna_opt} \u{00b7} VGA {vga_opt}"),
+                             Style::default().fg(theme.status_warn))
+            },
+        ]));
+        lines.push(Line::raw(""));
+
+        // --- NOISE FIGURE ------------------------------------------------------
+        // Per-stage own NF (visible bars); the Friis system total can sit *below* the
+        // worst stage because the LNA gain suppresses everything after it.
+        lines.push(section("Noise figure", "Friis cascade"));
+        for s in &stages {
+            lines.push(bar_row(s.label, s.nf_db / 12.0, None, theme.status_warn,
+                               format!("{:.1} dB", s.nf_db), theme.value));
+        }
+        lines.push(row3("sys", "NF total".to_string(), theme.label, format!("{nf:.1} dB"), sev_col));
+        lines.push(Line::raw(""));
+
+        // --- SENSITIVITY -------------------------------------------------------
+        lines.push(section("Sensitivity", "noise floor trend"));
+        let mds_str = match estimate_mds_dbm(state.radio.bb_filter_hz, nf) {
+            Some(mds) => format!("{mds:.0} dBm"),
+            None      => "\u{2014}".to_string(),
+        };
+        lines.push(row3("MDS", format!("({} BW)", fmt_mhz(state.radio.bb_filter_hz)), dim,
+                        mds_str, theme.value_hi));
+        let floor: Vec<f32> = state.signal.nf_history.iter().copied().collect();
+        let spark_w = iw.saturating_sub(1 + 5 + 1 + 12).max(4);
+        let (spark, p2p) = spark_minmax(&floor, spark_w);
+        if !spark.is_empty() {
+            let ann = format!("\u{00b1}{:.1} dB/60s", p2p / 2.0);
+            let pad = iw.saturating_sub(7 + spark.chars().count() + ann.chars().count());
+            lines.push(Line::from(vec![
+                Span::raw(" "),
+                Span::styled("floor", lbl),
+                Span::raw(" "),
+                Span::styled(spark, Style::default().fg(theme.value)),
+                Span::raw(" ".repeat(pad.max(1))),
+                Span::styled(ann, Style::default().fg(dim)),
+            ]));
+        }
+        lines.push(Line::raw(""));
+
+        // --- VERDICT -----------------------------------------------------------
+        let headroom = -adc_peak;
+        let above_floor = adc_peak - state.signal.peak_to_nf_db as f64; // ≈ noise floor dBFS
+        let title_mark = if sev == 0 { "\u{2713}" } else if sev == 2 { "\u{26a0}" } else { "\u{00b7}" };
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(format!("{title_mark} GAIN {verdict_word}"),
+                         Style::default().fg(sev_col).add_modifier(Modifier::BOLD)),
+        ]));
+        let body = |t: String| Line::from(vec![Span::raw(" "), Span::styled(t, lbl)]);
+        lines.push(body(format!("Signal lands at {adc_peak:.0} dBFS \u{2014} {headroom:.0} dB clip headroom,")));
+        lines.push(body(format!("{:.0} dB above the ADC floor. SNR set at the", (adc_peak - above_floor).abs())));
+        lines.push(body("front end is preserved.".to_string()));
+
+        // Action chips (idle until Step 7 wires auto-gain) + status foot.
+        let chip = |label: &str, active: bool| -> Span<'static> {
+            let bg = if active { theme.value_hi } else { theme.border_dim };
+            Span::styled(format!(" {label} "), Style::default().bg(bg).fg(Color::Rgb(4, 6, 15)))
+        };
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            chip("A auto-gain", false), Span::raw(" "),
+            chip("\u{2191}\u{2193} LNA", false), Span::raw(" "),
+            chip("[ ] VGA", false),
+        ]));
+        let limited = if state.signal.adc_rms_dbfs > -50.0 { "analog-noise limited" }
+                      else { "quantisation limited" };
+        let amp_txt = if amp { "AMP on" } else { "AMP bypass" };
+        lines.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(format!("{amp_txt} \u{00b7} auto-gain idle \u{00b7} {limited}"),
+                         Style::default().fg(dim)),
+        ]));
+
+        // Dense fallback: drop the airy spacers if too tall for the pane.
+        if lines.len() > inner.height as usize {
+            lines.retain(|l| l.spans.iter().any(|s| !s.content.trim().is_empty()));
+        }
+        f.render_widget(Paragraph::new(lines), inner);
     }
 }
 
@@ -237,24 +293,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn wavelength_2400mhz() {
-        // λ = 3e10 / 2.4e9 = 12.5 cm,  λ/4 = 3.1 cm
-        let s = fmt_wavelength(2_400_000_000);
-        assert!(s.contains("12.5 cm"), "got: {}", s);
-        assert!(s.contains("3.1 cm"),  "got: {}", s);
+    fn panel_name_and_min_size() {
+        let p = RfChainPanel;
+        assert_eq!(p.name(), "rf_chain");
+        let (w, h) = p.min_size();
+        assert!(w >= 16 && h >= 8);
     }
 
     #[test]
-    fn wavelength_433mhz() {
-        // λ = 3e10 / 4.33e8 ≈ 69.3 cm,  λ/4 ≈ 17.3 cm
-        let s = fmt_wavelength(433_000_000);
-        assert!(s.contains("69."), "got: {}", s);
-        assert!(s.contains("17."), "got: {}", s);
+    fn coalesce_merges_runs() {
+        let red = Color::Rgb(1, 0, 0);
+        let blue = Color::Rgb(0, 0, 1);
+        let cells = vec![('a', red), ('b', red), ('c', blue)];
+        let spans = coalesce(cells);
+        assert_eq!(spans.len(), 2, "two colour runs");
+        assert_eq!(spans[0].content.as_ref(), "ab");
+        assert_eq!(spans[1].content.as_ref(), "c");
     }
 
     #[test]
-    fn wavelength_zero_returns_dashes() {
-        assert_eq!(fmt_wavelength(0), "--- / ---");
+    fn tick_bar_places_fill_and_tick() {
+        let (fill, hi, dim) = (Color::Rgb(0, 1, 0), Color::Rgb(1, 1, 0), Color::Rgb(0, 0, 0));
+        let spans = tick_bar(0.5, Some(1.0), 10, fill, hi, dim);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(text.chars().count(), 10, "bar is exactly width cells");
+        assert!(text.contains('\u{250a}'), "tick present");
+        assert!(text.contains('\u{25ac}'), "bar cells present");
     }
 
+    #[test]
+    fn fmt_mhz_units() {
+        assert_eq!(fmt_mhz(2_000_000), "2 MHz");
+        assert_eq!(fmt_mhz(500_000), "500 kHz");
+        assert_eq!(fmt_mhz(0), "\u{2014}");
+    }
 }

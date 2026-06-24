@@ -17,4 +17,9 @@ pub(crate) struct Accumulators {
     pub iq_cross_sum:  i64,
     pub last_callback: Option<Instant>,
     pub iq_hist:       [u64; 32],
+    /// Signed per-sample histogram (I and Q each binned) for the ADC-loading bell:
+    /// bin `((v + 128) / 8)`, so bin 16 is mid-scale, 0/31 the rails.
+    pub adc_signed_hist: [u64; 32],
+    /// Loudest sample magnitude this window (max |i|,|q|), for the ADC peak level.
+    pub peak_amp:        u32,
 }

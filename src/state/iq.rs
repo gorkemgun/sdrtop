@@ -98,6 +98,10 @@ pub struct IqState {
     pub cb_jitter_us:        u64,
     pub jitter_history:      std::collections::VecDeque<u64>,
     pub iq_amplitude_hist:   [u64; 32],
+    /// Signed ADC sample histogram (I and Q binned together) for the Lab RF
+    /// ADC-loading bell: bin `((v + 128) / 8)`, bin 16 = mid-scale, 0/31 = the rails.
+    /// Snapshotted from the accumulator each ~200 ms window, like `iq_amplitude_hist`.
+    pub adc_signed_hist:     [u64; 32],
     pub buf_fill_pct:        f32,
     pub buf_fill_history:    std::collections::VecDeque<u64>,
     pub phase_imbalance_deg: f32,

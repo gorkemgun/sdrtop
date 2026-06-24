@@ -97,10 +97,52 @@ pub fn sparkline(samples: &[f64], width: usize) -> String {
         .collect()
 }
 
+/// Block-sparkline of the most recent `width` samples, **auto-scaled to the window's
+/// own min..max** (not 0..max) so a flat-but-jittery trend — IRR hovering at 56 dB,
+/// a noise floor wandering near −48 dBFS — still shows its wiggle. Returns the glyph
+/// string and the peak-to-peak spread of the visible window (for a `±x` annotation).
+/// Shared by the Lab IQ IRR trend and the Lab RF sensitivity floor trend.
+pub fn spark_minmax(samples: &[f32], width: usize) -> (String, f64) {
+    if samples.is_empty() || width == 0 { return (String::new(), 0.0); }
+    let start = samples.len().saturating_sub(width);
+    let slice = &samples[start..];
+    let lo = slice.iter().cloned().fold(f32::INFINITY, f32::min);
+    let hi = slice.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let span = (hi - lo).max(1e-6);
+    let s = slice.iter()
+        .map(|&v| SPARK_TICKS[(((v - lo) / span) * 7.0).round().clamp(0.0, 7.0) as usize])
+        .collect();
+    (s, (hi - lo) as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::theme::Theme;
+
+    #[test]
+    fn spark_minmax_autoscales_to_window() {
+        // A flat-but-high series with a small wiggle still spans the glyph range,
+        // and the reported peak-to-peak is the true window span.
+        let (s, p2p) = spark_minmax(&[56.0, 56.2, 55.8, 56.4, 56.0], 8);
+        assert_eq!(s.chars().count(), 5);
+        assert!(s.contains('\u{2588}'), "max sample → full block: {s}");
+        assert!(s.contains('\u{2581}'), "min sample → low block: {s}");
+        assert!((p2p - 0.6).abs() < 1e-4, "p2p {p2p}");
+    }
+
+    #[test]
+    fn spark_minmax_empty_is_empty() {
+        let (s, p2p) = spark_minmax(&[], 8);
+        assert!(s.is_empty() && p2p == 0.0);
+    }
+
+    #[test]
+    fn spark_minmax_respects_width() {
+        let data: Vec<f32> = (0..30).map(|i| i as f32).collect();
+        let (s, _) = spark_minmax(&data, 10);
+        assert_eq!(s.chars().count(), 10);
+    }
 
     #[test]
     fn snr_color_thresholds() {

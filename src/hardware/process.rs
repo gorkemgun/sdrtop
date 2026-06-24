@@ -20,6 +20,13 @@ const CONST_DECIMATE: usize = 1024;
 /// Hard cap on constellation points collected per block (bounds lock time).
 const CONST_MAX_PER_BLOCK: usize = 64;
 
+/// Bin a centered signed sample (`[-128, 127]`) into the 32-bucket signed ADC
+/// histogram: bin 0 = −FS rail, 16 = mid-scale, 31 = +FS rail.
+#[inline]
+fn signed_bin(v: i64) -> usize {
+    ((v + 128) / 8).clamp(0, 31) as usize
+}
+
 pub fn process_block(
     buf: &[u8],
     format: SampleFormat,
@@ -35,6 +42,8 @@ pub fn process_block(
     let mut q_sq:        i64 = 0;
     let mut iq_cross:    i64 = 0;
     let mut local_hist:  [u64; 32] = [0; 32];
+    let mut local_signed: [u64; 32] = [0; 32];   // signed I/Q distribution (ADC bell)
+    let mut local_peak:  u32 = 0;                 // loudest |i|,|q| this block
     let mut local_const: Vec<(f32, f32)> = Vec::new();
 
     // Snapshot the live correction state once (cheap Copy). The accumulators below
@@ -79,6 +88,11 @@ pub fn process_block(
         // last bin instead of indexing [32] and panicking inside the callback.
         let amp = i.unsigned_abs().max(q.unsigned_abs());
         local_hist[((amp / 4) as usize).min(31)] += 1;
+        // Signed sample distribution (I and Q each) for the ADC-loading bell, plus the
+        // loudest sample — both on the RAW samples, the physical ADC's-eye view.
+        local_peak = local_peak.max(amp as u32);
+        local_signed[signed_bin(i)] += 1;
+        local_signed[signed_bin(q)] += 1;
 
         // Display path: corrected samples feed the FFT (re-encoded bytes) and the
         // constellation. When no correction is active these equal the raw samples.
@@ -123,6 +137,10 @@ pub fn process_block(
         for (acc, &local) in m.acc.iq_hist.iter_mut().zip(local_hist.iter()) {
             *acc += local;
         }
+        for (acc, &local) in m.acc.adc_signed_hist.iter_mut().zip(local_signed.iter()) {
+            *acc += local;
+        }
+        m.acc.peak_amp = m.acc.peak_amp.max(local_peak);
 
         if !local_const.is_empty() {
             let cap = crate::state::CONSTELLATION_CAP;
@@ -170,6 +188,16 @@ mod tests {
         assert!(0x7Fu8 == 0x7F || 0x7Fu8 == 0x80);
         let normal: u8 = 0x40;
         assert!(normal != 0x7F && normal != 0x80);
+    }
+
+    #[test]
+    fn signed_bin_maps_rails_and_centre() {
+        assert_eq!(super::signed_bin(-128), 0,  "−FS rail → bin 0");
+        assert_eq!(super::signed_bin(0),    16, "mid-scale → centre bin");
+        assert_eq!(super::signed_bin(127),  31, "+FS rail → top bin");
+        // Clamps out-of-range without panicking on the array index.
+        assert_eq!(super::signed_bin(200),  31);
+        assert_eq!(super::signed_bin(-200), 0);
     }
 
     #[test]

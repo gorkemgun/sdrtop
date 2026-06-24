@@ -36,6 +36,13 @@ pub struct SignalState {
     /// Unix-epoch second of the most recent ADC clip (saturation ≥ [`SAT_CLIP_PCT`]),
     /// for the rail's fading "last clip Xs" alert-memory. `None` = none this session.
     pub last_clip_at:         Option<u64>,
+    /// ADC loading for the Lab RF bench, refreshed each ~200 ms window: the loudest
+    /// sample (`adc_peak_dbfs`), the full-bandwidth RMS level (`adc_rms_dbfs`, total
+    /// I/Q power vs full scale — distinct from the in-channel `channel_power_dbfs`),
+    /// and the clipped-sample count in the last window (`adc_clip_events`).
+    pub adc_peak_dbfs:        f32,
+    pub adc_rms_dbfs:         f32,
+    pub adc_clip_events:      u64,
 }
 
 impl SignalState {
@@ -65,6 +72,7 @@ mod tests {
             snr_history: VecDeque::new(), pwr_history: VecDeque::new(), nf_history: VecDeque::new(),
             sat_history: VecDeque::new(),
             last_clip_at: None,
+            adc_peak_dbfs: 0.0, adc_rms_dbfs: 0.0, adc_clip_events: 0,
         };
         s.snr_history.extend(samples.iter().copied());
         s

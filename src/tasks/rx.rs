@@ -43,7 +43,7 @@ pub fn spawn_rx_task(
             // Floating-point transcendentals (sqrt, log10, asin) run outside the lock.
             let (acc_i_sum, acc_q_sum, acc_i_sq_sum, acc_q_sq_sum,
                  acc_cross_sum, acc_samples, acc_jitter_sum, acc_jitter_sq, acc_jitter_cnt,
-                 cal_snap) = {
+                 cal_snap, acc_peak_amp) = {
                 let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
                 let elapsed_ms = now.duration_since(m.radio.last_poll_time).as_millis() as u64;
                 let bytes = m.radio.bytes_since_last_poll;
@@ -96,6 +96,11 @@ pub fn spawn_rx_task(
 
                 m.iq.iq_amplitude_hist = m.acc.iq_hist;
                 m.acc.iq_hist = [0u64; 32];
+                m.iq.adc_signed_hist = m.acc.adc_signed_hist;
+                m.acc.adc_signed_hist = [0u64; 32];
+                let acc_peak_amp = m.acc.peak_amp;
+                m.acc.peak_amp = 0;
+                m.signal.adc_clip_events = acc_saturated;
 
                 let saturable = acc_samples * 2;
                 m.signal.adc_saturation_pct = if saturable > 0 {
@@ -139,7 +144,7 @@ pub fn spawn_rx_task(
 
                 (acc_i_sum, acc_q_sum, acc_i_sq_sum, acc_q_sq_sum,
                  acc_cross_sum, acc_samples, acc_jitter_sum, acc_jitter_sq, acc_jitter_cnt,
-                 cal_snap)
+                 cal_snap, acc_peak_amp)
             };
 
             // Floating-point IQ and jitter metrics — computed outside the lock.
@@ -152,6 +157,8 @@ pub fn spawn_rx_task(
             let phase_imbalance:   Option<f32>;
             let cb_period_us:      Option<u64>;
             let cb_jitter_us:      Option<u64>;
+            let adc_peak_dbfs:     f32;           // loudest sample, dBFS (Lab RF loading)
+            let adc_rms_dbfs:      f32;           // full-bandwidth RMS, dBFS
 
             if acc_samples > 0 {
                 let n      = acc_samples as f64;
@@ -160,6 +167,16 @@ pub fn spawn_rx_task(
                 let var_i  = (acc_i_sq_sum as f64 / n - mean_i * mean_i).max(0.0);
                 let var_q  = (acc_q_sq_sum as f64 / n - mean_q * mean_q).max(0.0);
                 let cov_iq = acc_cross_sum as f64 / n - mean_i * mean_q;
+
+                // ADC loading: peak from the loudest sample, RMS from the total I/Q
+                // power, both referenced to full scale (128 counts). −120 dBFS floor.
+                adc_peak_dbfs = if acc_peak_amp > 0 {
+                    20.0 * (acc_peak_amp as f32 / 128.0).log10()
+                } else { -120.0 };
+                adc_rms_dbfs = {
+                    let p = (var_i + var_q) / (128.0 * 128.0);
+                    if p > 0.0 { (10.0 * p.log10()) as f32 } else { -120.0 }
+                };
 
                 // Candidate auto-cal coefficients + DC to subtract are always derived
                 // from the RAW moments — that is what [C]/[D] capture and apply.
@@ -197,6 +214,7 @@ pub fn spawn_rx_task(
                 dc_i = 0.0; dc_q = 0.0;
                 dc_i_raw = 0.0; dc_q_raw = 0.0; iq_corr = (0.0, 1.0);
                 iq_imbalance_db = None; phase_imbalance = None;
+                adc_peak_dbfs = -120.0; adc_rms_dbfs = -120.0;
             }
 
             if acc_jitter_cnt > 0 {
@@ -217,6 +235,8 @@ pub fn spawn_rx_task(
                 if acc_samples > 0 {
                     m.iq.dc_offset_i = dc_i;
                     m.iq.dc_offset_q = dc_q;
+                    m.signal.adc_peak_dbfs = adc_peak_dbfs;
+                    m.signal.adc_rms_dbfs  = adc_rms_dbfs;
                     if let Some(v) = iq_imbalance_db  { m.iq.iq_imbalance_db      = v; }
                     if let Some(v) = phase_imbalance   { m.iq.phase_imbalance_deg  = v; }
 

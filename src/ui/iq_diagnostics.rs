@@ -29,30 +29,6 @@ mod tests {
         assert!(dc_spike_dbfs(0.0).is_none());
     }
 
-    #[test]
-    fn spark_minmax_autoscales_to_window() {
-        // A flat-but-high series with a small wiggle still spans the glyph range,
-        // and the reported peak-to-peak is the true window span.
-        let (s, p2p) = spark_minmax(&[56.0, 56.2, 55.8, 56.4, 56.0], 8);
-        assert_eq!(s.chars().count(), 5);
-        assert!(s.contains('\u{2588}'), "max sample → full block: {s}");
-        assert!(s.contains('\u{2581}'), "min sample → low block: {s}");
-        assert!((p2p - 0.6).abs() < 1e-4, "p2p {p2p}");
-    }
-
-    #[test]
-    fn spark_minmax_empty_is_empty() {
-        let (s, p2p) = spark_minmax(&[], 8);
-        assert!(s.is_empty() && p2p == 0.0);
-    }
-
-    #[test]
-    fn spark_minmax_respects_width() {
-        // Only the most recent `width` samples are drawn.
-        let data: Vec<f32> = (0..30).map(|i| i as f32).collect();
-        let (s, _) = spark_minmax(&data, 10);
-        assert_eq!(s.chars().count(), 10);
-    }
 }
 
 fn offset_color(abs_val: f32, theme: &crate::Theme) -> Color {
@@ -85,25 +61,7 @@ fn spike_color(spike_dbfs: f64, theme: &crate::Theme) -> Color {
     else                       { theme.status_crit }
 }
 
-const SPARK: [&str; 8] = ["\u{2581}", "\u{2582}", "\u{2583}", "\u{2584}",
-                          "\u{2585}", "\u{2586}", "\u{2587}", "\u{2588}"];
-
-/// Block-sparkline of the most recent `width` samples, **auto-scaled to the
-/// window's own min..max** (not 0..max) so a flat-but-jittery trend like IRR
-/// hovering at 56 dB still shows its wiggle. Returns the glyphs and the
-/// peak-to-peak spread of the visible window (for the `±x dB` annotation).
-fn spark_minmax(samples: &[f32], width: usize) -> (String, f64) {
-    if samples.is_empty() || width == 0 { return (String::new(), 0.0); }
-    let start = samples.len().saturating_sub(width);
-    let slice = &samples[start..];
-    let lo = slice.iter().cloned().fold(f32::INFINITY, f32::min);
-    let hi = slice.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let span = (hi - lo).max(1e-6);
-    let s = slice.iter()
-        .map(|&v| SPARK[(((v - lo) / span) * 7.0).round().clamp(0.0, 7.0) as usize])
-        .collect();
-    (s, (hi - lo) as f64)
-}
+use crate::ui::micro_common::spark_minmax;
 
 /// DC spike level in dBFS: how tall the centre-frequency spike is in the spectrum.
 ///   DC spike = 20·log₁₀(dc_magnitude)
