@@ -40,6 +40,15 @@ fn rebin(hist: &[u64; 32], w: usize) -> Vec<u64> {
     cols
 }
 
+/// Per-axis 1σ amplitude (fraction of full scale) from the combined-magnitude RMS
+/// in dBFS. `adc_rms_dbfs` measures √(var_i+var_q) — the magnitude RMS — but the
+/// signed histogram's axis is a single I/Q component, whose standard deviation is
+/// that divided by √2 (balanced I/Q). Placing the inner caliper here brackets the
+/// bell's actual spread instead of sitting √2 wider than it.
+fn per_axis_sigma_frac(rms_dbfs: f64) -> f64 {
+    10f64.powf(rms_dbfs / 20.0) / std::f64::consts::SQRT_2
+}
+
 /// Caliper column pair for an amplitude fraction `a` (0..1 of full scale), placed
 /// symmetrically about the centre of a `w`-wide axis that runs −FS … 0 … +FS.
 /// Returns `(lo, hi)` display columns, clamped into range. `a = 1` lands on the
@@ -160,15 +169,16 @@ impl Panel for AdcLoadingPanel {
             else { theme.value_hi }
         };
 
-        // Caliper columns from the live levels (full-scale fraction = 10^(dBFS/20)).
-        // Peak is the bright outer caliper; rms the fainter inner band. Both use cool
-        // colours so they stay legible over the bell's warm fill.
-        let a_peak = 10f64.powf(peak / 20.0);
-        let a_rms  = 10f64.powf(rms  / 20.0);
-        let (peak_lo, peak_hi) = caliper_cols(a_peak, chart_w);
-        let (rms_lo,  rms_hi)  = caliper_cols(a_rms,  chart_w);
+        // Caliper columns from the live levels. Peak is the bright outer caliper at
+        // the loudest per-axis sample (peak_amp is already a single-component max, so
+        // ±a_peak is its true envelope); the inner band marks the per-axis 1σ of the
+        // distribution. Both use cool colours so they stay legible over the warm fill.
+        let a_peak  = 10f64.powf(peak / 20.0);
+        let a_sigma = per_axis_sigma_frac(rms);
+        let (peak_lo, peak_hi) = caliper_cols(a_peak,  chart_w);
+        let (sig_lo,  sig_hi)  = caliper_cols(a_sigma, chart_w);
         let peak_col = theme.border_accent;
-        let rms_col  = theme.label;
+        let sig_col  = theme.label;
 
         if maxc == 0 {
             lines.push(Line::from(Span::styled(" no samples yet", lbl)));
@@ -182,8 +192,8 @@ impl Panel for AdcLoadingPanel {
                     // guides read as a full-height measuring caliper (peak before rms).
                     if c == peak_lo || c == peak_hi {
                         spans.push(Span::styled("\u{254e}".to_string(), Style::default().fg(peak_col)));
-                    } else if c == rms_lo || c == rms_hi {
-                        spans.push(Span::styled("\u{2506}".to_string(), Style::default().fg(rms_col)));
+                    } else if c == sig_lo || c == sig_hi {
+                        spans.push(Span::styled("\u{2506}".to_string(), Style::default().fg(sig_col)));
                     } else {
                         let he = (h * chart_h as f64 * 8.0).round() as usize;
                         let cell = he.saturating_sub(rb * 8).min(8);
@@ -210,8 +220,9 @@ impl Panel for AdcLoadingPanel {
             Span::raw(" "),
             Span::styled(axis.into_iter().collect::<String>(), Style::default().fg(dim)),
         ]));
-        // Caliper legend: the glyph keys coloured to match the guides, each level as a
-        // percent of full scale (how close the signal comes to the rail).
+        // Caliper legend: the glyph keys coloured to match the guides — peak (loudest
+        // sample) and the per-axis 1σ, each as a percent of full scale, so the line
+        // positions tie to numbers. The combined-magnitude rms lives in LOADING below.
         if maxc == 0 {
             lines.push(Line::raw(""));
         } else {
@@ -219,8 +230,8 @@ impl Panel for AdcLoadingPanel {
                 Span::raw(" "),
                 Span::styled("\u{254e}".to_string(), Style::default().fg(peak_col)),
                 Span::styled(format!(" peak \u{00b1}{:.0}%", (a_peak * 100.0).min(100.0)), lbl),
-                Span::styled("   \u{2506}".to_string(), Style::default().fg(rms_col)),
-                Span::styled(format!(" rms \u{00b1}{:.0}%", (a_rms * 100.0).min(100.0)), lbl),
+                Span::styled("   \u{2506}".to_string(), Style::default().fg(sig_col)),
+                Span::styled(format!(" 1\u{03c3} \u{00b1}{:.0}%", (a_sigma * 100.0).min(100.0)), lbl),
             ]));
         }
         lines.push(Line::raw(""));
@@ -351,5 +362,24 @@ mod tests {
     #[test]
     fn caliper_zero_width_is_safe() {
         assert_eq!(caliper_cols(0.5, 0), (0, 0));
+    }
+
+    #[test]
+    fn per_axis_sigma_is_magnitude_rms_over_sqrt2() {
+        // −18 dBFS magnitude RMS ≈ 0.1259 of FS; the per-axis 1σ is that / √2.
+        let a = per_axis_sigma_frac(-18.0);
+        let mag = 10f64.powf(-18.0 / 20.0);
+        assert!((a - mag / std::f64::consts::SQRT_2).abs() < 1e-9, "got {a}");
+        // The inner caliper sits strictly inside the old (√2-too-wide) placement.
+        assert!(a < mag, "per-axis σ must be narrower than the magnitude RMS");
+    }
+
+    #[test]
+    fn per_axis_sigma_inside_peak_for_typical_signal() {
+        // A signal whose peak is 8 dB above its rms → the 1σ band sits inside the
+        // peak envelope (the inner caliper never crosses the outer one).
+        let a_peak  = 10f64.powf(-8.0 / 20.0);
+        let a_sigma = per_axis_sigma_frac(-16.0);
+        assert!(a_sigma < a_peak, "1σ {a_sigma} should be inside peak {a_peak}");
     }
 }
