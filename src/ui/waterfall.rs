@@ -67,6 +67,17 @@ impl Panel for WaterfallPanel {
     }
 }
 
+/// Max dB over the bin range `[start, end)` of one waterfall row, clamped to the
+/// row's own length. Rows are normally all the (fixed) FFT bin count, but reading
+/// each row against its own length means a row that ever differs — e.g. if the FFT
+/// size changed at runtime — degrades to a partial read instead of slicing out of
+/// bounds and panicking. An empty or fully out-of-range span reads −∞ (the floor).
+fn band_max(row: &[f32], start: usize, end: usize) -> f32 {
+    let s = start.min(row.len());
+    let e = end.min(row.len()).max(s);
+    if s == e { f32::NEG_INFINITY } else { row[s..e].iter().copied().fold(f32::NEG_INFINITY, f32::max) }
+}
+
 /// Free render entry point so the layout engine can bond the waterfall to the
 /// spectrum above it. `Bond::Above` forces `zoom = 1` (the shared ruler shows the
 /// spectrum's full span), drops the nameplate (its identity + live tags move to
@@ -262,10 +273,12 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
             for col in 0..cols {
                 let bin_start = (lo_bin + col * visible_n / cols).min(row_bins - 1);
                 let bin_end   = (lo_bin + ((col + 1) * visible_n) / cols).max(bin_start + 1).min(row_bins);
-                let top_db    = top_row[bin_start..bin_end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                // Read each row against its own length (band_max clamps) so a row
+                // that ever differs from the newest row's bin count can't slice OOB.
+                let top_db    = band_max(top_row, bin_start, bin_end);
                 let top_color = magnitude_to_color_palette(top_db, db_min, DB_MAX, depth, theme, wp);
                 let bot_color = bot_row.map(|r| {
-                    let db = r[bin_start..bin_end].iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+                    let db = band_max(r, bin_start, bin_end);
                     magnitude_to_color_palette(db, db_min, DB_MAX, depth, theme, wp)
                 }).unwrap_or(floor_color);
                 if Some(col) == cursor_col {
@@ -402,4 +415,31 @@ pub fn render(f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Them
             ]);
             f.render_widget(Paragraph::new(line), ind_area);
         }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn band_max_reads_in_range() {
+        let row = [-90.0, -50.0, -70.0, -60.0];
+        assert_eq!(band_max(&row, 0, 4), -50.0, "max over the whole row");
+        assert_eq!(band_max(&row, 2, 4), -60.0, "max over a sub-range");
+    }
+
+    #[test]
+    fn band_max_clamps_out_of_range_indices() {
+        let row = [-90.0, -50.0, -70.0];
+        // End past the row length must clamp, not panic.
+        assert_eq!(band_max(&row, 1, 99), -50.0);
+        // A start at/after the row length yields the floor (empty span).
+        assert_eq!(band_max(&row, 3, 9), f32::NEG_INFINITY);
+        assert_eq!(band_max(&row, 5, 2), f32::NEG_INFINITY);
+    }
+
+    #[test]
+    fn band_max_empty_row_is_floor() {
+        assert_eq!(band_max(&[], 0, 4), f32::NEG_INFINITY);
+    }
 }

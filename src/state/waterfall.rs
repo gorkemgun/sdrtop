@@ -62,15 +62,19 @@ impl WaterfallBuffer {
         if self.paused || self.max_rows == 0 { return false; }
 
         if self.acc_count == 0 || self.acc_bins.len() != bins.len() {
-            // Reuse existing capacity — resize only when the bin count changes.
+            // Fresh accumulation: the first frame of a stride, or the bin count
+            // changed mid-stride. Restart cleanly (count = 1) so the materialised
+            // row divides by the number of frames it actually summed — not a stale
+            // count carried over from the previous, differently-sized run.
             self.acc_bins.resize(bins.len(), 0.0);
             self.acc_bins.copy_from_slice(bins);
+            self.acc_count = 1;
         } else {
             for (a, &b) in self.acc_bins.iter_mut().zip(bins.iter()) {
                 *a += b;
             }
+            self.acc_count += 1;
         }
-        self.acc_count += 1;
 
         if self.acc_count >= self.row_stride {
             let inv = 1.0 / self.acc_count as f32;
@@ -157,6 +161,22 @@ mod tests {
         buf.push(&[20.0, 40.0]);
         assert_eq!(buf.rows.len(), 1, "second frame should push averaged row");
         assert_eq!(*buf.rows[0].1, vec![15.0, 30.0]);
+    }
+
+    #[test]
+    fn stride_restarts_average_on_bin_count_change() {
+        let mut buf = WaterfallBuffer::new(4);
+        buf.set_row_stride(3);
+        buf.push(&[10.0, 10.0]);              // 2-bin frame → acc_count 1
+        buf.push(&[20.0, 20.0]);              //             → acc_count 2
+        // Bin count changes mid-stride: accumulation must restart, not carry the
+        // stale count of 2 (which would materialise a single frame divided by 3).
+        assert!(!buf.push(&[4.0, 4.0, 4.0]), "size change restarts → still accumulating");
+        assert!(!buf.push(&[6.0, 6.0, 6.0]));
+        assert!(buf.push(&[8.0, 8.0, 8.0]), "third post-change frame materialises");
+        // Row = average of the three 3-bin frames only: (4+6+8)/3 = 6.
+        assert_eq!(*buf.rows[0].1, vec![6.0, 6.0, 6.0],
+                   "average restarts cleanly after a bin-count change");
     }
 
     #[test]
