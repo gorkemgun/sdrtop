@@ -756,7 +756,7 @@ impl Panel for CommandRailPanel {
         // TOTAL gain, plus the clip headroom (peak headroom, same as RF Diagnostics).
         let mut total_spans = vec![
             Span::raw(" "), lbl("TOTAL"),
-            Span::styled(format!("{total} dB"), Style::default().fg(theme.value)),
+            Span::styled(format!("{total} dB"), Style::default().fg(val_col)),
         ];
         if active {
             let headroom = (-state.signal.adc_peak_dbfs).max(0.0);

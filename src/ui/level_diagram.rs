@@ -99,8 +99,8 @@ impl Panel for LevelDiagramPanel {
         let ih = inner.height as usize;
         let gutter = 4usize;                         // "−110"
         let chart_w = iw.saturating_sub(gutter + 1);
-        // Reserve: caption(1) + gap(1) + x-labels(1) + legend(1).
-        let chart_h = ih.saturating_sub(4).clamp(4, 28);
+        // Reserve: caption(1) + x-labels(1) + legend(1).
+        let chart_h = ih.saturating_sub(3).clamp(4, 28);
         if chart_w < 8 || chart_h < 4 {
             f.render_widget(Paragraph::new(Span::styled(" level diagram", Style::default().fg(dim))), inner);
             return;

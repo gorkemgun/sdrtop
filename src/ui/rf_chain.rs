@@ -52,6 +52,8 @@ impl Panel for RfChainPanel {
         ];
         if stale {
             title_spans.push(Span::styled(" [STALE]", Style::default().fg(theme.stale)));
+        } else if state.lab.rf_freeze.is_some() {
+            title_spans.push(Span::styled(" [FRZ]", Style::default().fg(theme.status_warn)));
         }
         title_spans.push(Span::raw(" "));
         let border_color = if focused { theme.border_focused }
@@ -92,14 +94,16 @@ impl Panel for RfChainPanel {
             return;
         }
 
-        // --- model -------------------------------------------------------------
-        let amp = state.radio.amp_enabled;
-        let lna = state.radio.lna_gain;
-        let vga = state.radio.vga_gain;
+        // --- model (frozen snapshot when held, else live) ----------------------
+        let fz = state.lab.rf_freeze.as_ref();
+        let amp = fz.map(|f| f.amp_enabled).unwrap_or(state.radio.amp_enabled);
+        let lna = fz.map(|f| f.lna_gain).unwrap_or(state.radio.lna_gain);
+        let vga = fz.map(|f| f.vga_gain).unwrap_or(state.radio.vga_gain);
+        let adc_peak = fz.map(|f| f.peak_dbfs).unwrap_or(state.signal.adc_peak_dbfs) as f64;
+        let snr = fz.map(|f| f.snr_db).unwrap_or(state.signal.peak_to_nf_db) as f64;
+        let adc_rms  = fz.map(|f| f.rms_dbfs).unwrap_or(state.signal.adc_rms_dbfs);
         let stages: Vec<Stage> = cascade(amp, lna, vga);
         let nf  = system_nf_db(&stages);
-        let adc_peak = state.signal.adc_peak_dbfs as f64;
-        let snr = state.signal.peak_to_nf_db as f64;
         let levels = level_lineup(adc_peak, snr, &stages);
         let (verdict_word, sev) = staging_verdict(adc_peak);
         let (lna_opt, vga_opt)  = staging_target(adc_peak, lna, vga);
@@ -293,7 +297,7 @@ impl Panel for RfChainPanel {
             chip("\u{2191}\u{2193} LNA", false), Span::raw(" "),
             chip("[ ] VGA", false),
         ]));
-        let limited = if state.signal.adc_rms_dbfs > -50.0 { "analog-noise limited" }
+        let limited = if adc_rms > -50.0 { "analog-noise limited" }
                       else { "quantisation limited" };
         let amp_txt = if amp { "AMP on" } else { "AMP bypass" };
         let ag_txt  = if tracking { "auto-gain \u{2713} tracking" } else { "auto-gain idle" };
