@@ -40,6 +40,18 @@ fn rebin(hist: &[u64; 32], w: usize) -> Vec<u64> {
     cols
 }
 
+/// Caliper column pair for an amplitude fraction `a` (0..1 of full scale), placed
+/// symmetrically about the centre of a `w`-wide axis that runs −FS … 0 … +FS.
+/// Returns `(lo, hi)` display columns, clamped into range. `a = 1` lands on the
+/// rails, `a = 0` collapses to the centre — so the guides measure how close the
+/// signal comes to clipping, independent of where the bell's mass actually sits.
+fn caliper_cols(a: f64, w: usize) -> (usize, usize) {
+    if w == 0 { return (0, 0); }
+    let a = a.clamp(0.0, 1.0);
+    let col = |p: f64| ((p * w as f64).round() as isize).clamp(0, w as isize - 1) as usize;
+    (col(0.5 - a / 2.0), col(0.5 + a / 2.0))
+}
+
 impl Panel for AdcLoadingPanel {
     fn name(&self) -> &'static str { "adc_loading" }
     fn min_size(&self) -> (u16, u16) { (30, 18) }
@@ -126,10 +138,17 @@ impl Panel for AdcLoadingPanel {
 
         let mut lines: Vec<Line> = Vec::new();
 
-        // --- HISTOGRAM BELL ----------------------------------------------------
-        // Chart fills whatever height is left after the fixed read-out blocks below.
+        // --- HISTOGRAM BELL (signed-sample distribution) -----------------------
+        // The panel's hero visual: it grows to fill all the height the fixed read-out
+        // blocks below leave free, instead of capping low and stranding empty rows.
+        // Caliper guides overlay the loudest-sample (peak) and bulk (rms) reach,
+        // mapped symmetrically about true 0 — so the bell reads as a measured
+        // instrument, and a DC offset shows up as the bell sitting off the calipers.
         let chart_w = iw.saturating_sub(1).max(8);
-        let chart_h = ih.saturating_sub(16).clamp(3, 10);
+        // Rows reserved below the bell: axis + caliper legend + the 3 read-out
+        // sections (HEADROOM / LOADING / LINEARITY, with their spacers and caption).
+        const BELOW: usize = 17;
+        let chart_h = ih.saturating_sub(BELOW).clamp(3, 28);
         let cols = rebin(hist, chart_w);
         let maxc  = cols.iter().copied().max().unwrap_or(0);
 
@@ -141,6 +160,16 @@ impl Panel for AdcLoadingPanel {
             else { theme.value_hi }
         };
 
+        // Caliper columns from the live levels (full-scale fraction = 10^(dBFS/20)).
+        // Peak is the bright outer caliper; rms the fainter inner band. Both use cool
+        // colours so they stay legible over the bell's warm fill.
+        let a_peak = 10f64.powf(peak / 20.0);
+        let a_rms  = 10f64.powf(rms  / 20.0);
+        let (peak_lo, peak_hi) = caliper_cols(a_peak, chart_w);
+        let (rms_lo,  rms_hi)  = caliper_cols(a_rms,  chart_w);
+        let peak_col = theme.border_accent;
+        let rms_col  = theme.label;
+
         if maxc == 0 {
             lines.push(Line::from(Span::styled(" no samples yet", lbl)));
         } else {
@@ -149,11 +178,19 @@ impl Panel for AdcLoadingPanel {
                 let rb = chart_h - 1 - r; // rows fill from the bottom up
                 let mut spans: Vec<Span> = vec![Span::raw(" ")];
                 for (c, &h) in heights.iter().enumerate() {
-                    let he = (h * chart_h as f64 * 8.0).round() as usize;
-                    let cell = he.saturating_sub(rb * 8).min(8);
-                    let ch = VBLOCKS[cell];
-                    let color = if cell == 0 { dim } else { col_color(c) };
-                    spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
+                    // The caliper overlay wins over the bell fill at its column, so the
+                    // guides read as a full-height measuring caliper (peak before rms).
+                    if c == peak_lo || c == peak_hi {
+                        spans.push(Span::styled("\u{254e}".to_string(), Style::default().fg(peak_col)));
+                    } else if c == rms_lo || c == rms_hi {
+                        spans.push(Span::styled("\u{2506}".to_string(), Style::default().fg(rms_col)));
+                    } else {
+                        let he = (h * chart_h as f64 * 8.0).round() as usize;
+                        let cell = he.saturating_sub(rb * 8).min(8);
+                        let ch = VBLOCKS[cell];
+                        let color = if cell == 0 { dim } else { col_color(c) };
+                        spans.push(Span::styled(ch.to_string(), Style::default().fg(color)));
+                    }
                 }
                 lines.push(Line::from(spans));
             }
@@ -173,6 +210,19 @@ impl Panel for AdcLoadingPanel {
             Span::raw(" "),
             Span::styled(axis.into_iter().collect::<String>(), Style::default().fg(dim)),
         ]));
+        // Caliper legend: the glyph keys coloured to match the guides, each level as a
+        // percent of full scale (how close the signal comes to the rail).
+        if maxc == 0 {
+            lines.push(Line::raw(""));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw(" "),
+                Span::styled("\u{254e}".to_string(), Style::default().fg(peak_col)),
+                Span::styled(format!(" peak \u{00b1}{:.0}%", (a_peak * 100.0).min(100.0)), lbl),
+                Span::styled("   \u{2506}".to_string(), Style::default().fg(rms_col)),
+                Span::styled(format!(" rms \u{00b1}{:.0}%", (a_rms * 100.0).min(100.0)), lbl),
+            ]));
+        }
         lines.push(Line::raw(""));
 
         // --- CLIP HEADROOM -----------------------------------------------------
@@ -270,5 +320,36 @@ mod tests {
     #[test]
     fn rebin_zero_width_is_empty() {
         assert!(rebin(&[1u64; 32], 0).is_empty());
+    }
+
+    #[test]
+    fn caliper_full_scale_lands_on_the_rails() {
+        let (lo, hi) = caliper_cols(1.0, 20);
+        assert_eq!((lo, hi), (0, 19), "a=1 (0 dBFS) sits on both rails");
+    }
+
+    #[test]
+    fn caliper_zero_collapses_to_centre() {
+        let (lo, hi) = caliper_cols(0.0, 20);
+        assert_eq!(lo, hi, "a=0 collapses to a single centre column");
+        assert_eq!(lo, 10);
+    }
+
+    #[test]
+    fn caliper_is_symmetric_about_centre() {
+        let w = 24;
+        // −8 dBFS ≈ 0.398 of full scale.
+        let a = 10f64.powf(-8.0 / 20.0);
+        let (lo, hi) = caliper_cols(a, w);
+        // Equal distance from the centre on both sides.
+        let centre = w as f64 / 2.0;
+        assert!(((centre - lo as f64) - (hi as f64 - centre)).abs() <= 1.0,
+                "caliper columns symmetric about centre: lo={lo} hi={hi}");
+        assert!(lo < w / 2 && hi > w / 2, "peak guides straddle the centre");
+    }
+
+    #[test]
+    fn caliper_zero_width_is_safe() {
+        assert_eq!(caliper_cols(0.5, 0), (0, 0));
     }
 }
