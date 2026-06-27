@@ -348,13 +348,14 @@ fn rail_peaks(bins: &[f32], noise_floor: f32, center_hz: u64, sample_rate: f64, 
 }
 
 /// BENCH gain-health verdict from ADC saturation and clip headroom. Returns the
-/// word plus whether it's an alarm/warn/ok, so the caller picks the colour.
-/// Pure for testability. `headroom_db` is `-channel_power_dbfs` (how far the
-/// in-channel level sits below full scale).
+/// word plus severity (2=crit, 1=warn, 0=ok), so the caller picks the colour.
+/// Pure for testability. `headroom_db` is `-adc_peak_dbfs`.
+/// Severity mirrors `sat_color`: ≥50% → crit, ≥10% → warn.
 fn chain_verdict(sat_pct: f32, headroom_db: f32) -> (&'static str, i8) {
-    if sat_pct >= 10.0      { ("hot",     2) }   // clipping → back off gain
-    else if headroom_db > 45.0 { ("low",  1) }   // lots of room → add gain
-    else                    { ("optimal", 0) }
+    if sat_pct >= 50.0         { ("clipping", 2) }  // rail hits → back off now
+    else if sat_pct >= 10.0    { ("hot",      1) }  // high level → nudge down
+    else if headroom_db > 45.0 { ("low",      1) }  // lots of room → add gain
+    else                       { ("optimal",  0) }
 }
 
 /// The mode-adaptive lead card that sits between the mode strip and the SIGNAL
@@ -913,9 +914,10 @@ mod tests {
 
     #[test]
     fn chain_verdict_reads_saturation_and_headroom() {
-        assert_eq!(chain_verdict(20.0, 10.0).0, "hot");      // clipping wins
-        assert_eq!(chain_verdict(0.0, 60.0),  ("low", 1));   // lots of headroom
-        assert_eq!(chain_verdict(0.0, 20.0),  ("optimal", 0));
+        assert_eq!(chain_verdict(60.0, 10.0), ("clipping", 2)); // ≥50% → crit
+        assert_eq!(chain_verdict(20.0, 10.0), ("hot",      1)); // 10-50% → warn
+        assert_eq!(chain_verdict(0.0,  60.0), ("low",      1)); // lots of headroom
+        assert_eq!(chain_verdict(0.0,  20.0), ("optimal",  0));
     }
 
     #[test]
