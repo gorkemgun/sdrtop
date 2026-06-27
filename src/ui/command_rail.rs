@@ -576,7 +576,7 @@ impl Panel for CommandRailPanel {
     // (which auto-switches the mode to Hunt) and `Tab` cycles the mode manually.
     fn focus_key(&self) -> Option<char> { Some('c') }
     fn focus_bindings(&self) -> &'static [(&'static str, &'static str)] {
-        &[("←→", "Tune"), ("1·2·3", "Recall"), ("M", "Save"), ("L", "Log")]
+        &[("←→", "Tune"), ("Tab", "Mode"), ("1·2·3", "Recall"), ("M", "Save"), ("L", "Log")]
     }
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
