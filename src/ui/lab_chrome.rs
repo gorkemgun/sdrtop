@@ -19,6 +19,7 @@ use ratatui::{
 };
 
 use crate::state::{SdrMetrics, SpectrumMarker};
+use crate::ui::rf_calc::{cascade, estimate_mds_dbm, staging_verdict, system_nf_db};
 use super::panel::Panel;
 
 /// Map an active preset name to its lab banner label and the number key that
@@ -84,6 +85,38 @@ fn hairline(iw: usize, color: ratatui::style::Color) -> Line<'static> {
 
 // ── Banner (top bar) ────────────────────────────────────────────────────────
 
+/// The receive-chain flow string for the Lab RF banner: `ANT▸LNA▸MIX▸VGA▸ADC`,
+/// with `AMP` inserted when the front-end amp is on, collapsing to `ANT▸TUNER▸ADC`
+/// on a single-tuner radio (no cascade).
+fn rf_chain_str(friis_applicable: bool, amp_enabled: bool) -> String {
+    if !friis_applicable { return "ANT\u{25B8}TUNER\u{25B8}ADC".to_string(); }
+    let mut s = String::from("ANT\u{25B8}");
+    if amp_enabled { s.push_str("AMP\u{25B8}"); }
+    s.push_str("LNA\u{25B8}MIX\u{25B8}VGA\u{25B8}ADC");
+    s
+}
+
+/// Lab RF banner middle fields: `CHAIN … · NF … · MDS … · SNR …` (modeled NF/MDS
+/// from the live cascade). On a single-tuner radio only the honest CHAIN + SNR show.
+fn rf_banner_fields(state: &SdrMetrics) -> Vec<(&'static str, String)> {
+    let chain = rf_chain_str(state.caps.friis_applicable, state.radio.amp_enabled);
+    let snr   = format!("{:.0} dB", state.signal.peak_to_nf_db);
+    if !state.caps.friis_applicable {
+        return vec![("CHAIN", chain), ("SNR", snr)];
+    }
+    let nf  = system_nf_db(&cascade(state.radio.amp_enabled, state.radio.lna_gain, state.radio.vga_gain));
+    let mds = match estimate_mds_dbm(state.radio.bb_filter_hz, nf) {
+        Some(m) => format!("{m:.0} dBm"),
+        None    => "\u{2014}".to_string(),
+    };
+    vec![
+        ("CHAIN", chain),
+        ("NF",    format!("{nf:.1} dB")),
+        ("MDS",   mds),
+        ("SNR",   snr),
+    ]
+}
+
 fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize, focused: bool) -> Vec<Line<'static>> {
     let (label, num) = match lab_label(&state.ui.active_preset) {
         Some(x) => x,
@@ -123,29 +156,34 @@ fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize, focused: bo
     let mut rw = span_w(&right);
     if iw <= lw + rw + 1 { right.clear(); rw = 0; } // too narrow for the right zone
 
-    // Middle fields in priority order (REF > MKR > AVG > CAL). In Lab IQ the two
-    // markers are the auto-tracked carrier + image, so MKR reads "2" (and "pin"
-    // when frozen) rather than the placed-marker count.
-    let mkr_str = if state.ui.active_preset == "lab_iq" {
-        if state.lab.iq_marker_pin.is_some() { "2 pin".to_string() } else { "2".to_string() }
+    // Middle fields. Lab RF reads the RF cascade summary (CHAIN/NF/MDS/SNR) rather
+    // than the generic spectrum REF/MKR/AVG/CAL set.
+    let fields: Vec<(&'static str, String)> = if state.ui.active_preset == "lab_rf" {
+        rf_banner_fields(state)
     } else {
-        state.spectrum.markers.len().to_string()
+        // In Lab IQ the two markers are the auto-tracked carrier + image, so MKR
+        // reads "2" (and "pin" when frozen) rather than the placed-marker count.
+        let mkr_str = if state.ui.active_preset == "lab_iq" {
+            if state.lab.iq_marker_pin.is_some() { "2 pin".to_string() } else { "2".to_string() }
+        } else {
+            state.spectrum.markers.len().to_string()
+        };
+        // In Lab IQ the CAL field reflects the live I/Q auto-cal, not the spectrum
+        // reference-trace cal used by the other labs.
+        let cal_str = if state.ui.active_preset == "lab_iq" {
+            if state.iq.cal.cal_applied      { "\u{2713}".to_string() }
+            else if state.iq.cal.cal_pending { "\u{2026}".to_string() }
+            else                             { "\u{2014}".to_string() }
+        } else {
+            state.lab.cal_label().to_string()
+        };
+        vec![
+            ("REF", state.lab.ref_label()),
+            ("MKR", mkr_str),
+            ("AVG", state.lab.avg_label()),
+            ("CAL", cal_str),
+        ]
     };
-    // In Lab IQ the CAL field reflects the live I/Q auto-cal, not the spectrum
-    // reference-trace cal used by the other labs.
-    let cal_str = if state.ui.active_preset == "lab_iq" {
-        if state.iq.cal.cal_applied      { "\u{2713}".to_string() }
-        else if state.iq.cal.cal_pending { "\u{2026}".to_string() }
-        else                             { "\u{2014}".to_string() }
-    } else {
-        state.lab.cal_label().to_string()
-    };
-    let fields = [
-        ("REF", state.lab.ref_label()),
-        ("MKR", mkr_str),
-        ("AVG", state.lab.avg_label()),
-        ("CAL", cal_str),
-    ];
     let mut mid: Vec<Span> = Vec::new();
     let mut mw = 0usize;
     for (lbl, value) in fields {
@@ -287,9 +325,66 @@ fn iq_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<L
     vec![hairline(iw, theme.border_dim), Line::from(spans)]
 }
 
+/// Lab RF marker bar: the ADC window read as a single line —
+/// `CLIP 0 dBFS · PEAK −8 dBFS · Δ headroom +8 dB · NOISE −48 dBFS · SNR 40 dB` —
+/// plus the focused panel's key hints. PEAK / headroom carry the staging severity
+/// colour so a clipping or starved chain reads at a glance.
+fn rf_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
+    let dim = Style::default().fg(theme.label);
+    let val = Style::default().fg(theme.value);
+
+    let peak     = state.signal.adc_peak_dbfs;
+    let snr      = state.signal.peak_to_nf_db;
+    let noise    = peak - snr; // ADC noise floor, dBFS
+    let headroom = -peak;
+    let (_, sev) = staging_verdict(peak as f64);
+    let peak_col = match sev {
+        2 => theme.status_crit, 1 => theme.status_warn, _ => theme.status_ok,
+    };
+
+    // CLIP reference line is the constant 0 dBFS rail; always shown first.
+    let mut spans: Vec<Span> = vec![
+        Span::raw(" "),
+        Span::styled("CLIP ", dim),
+        Span::styled("0 dBFS", val),
+    ];
+    let mut used = span_w(&spans);
+
+    let try_add = |cand: Vec<Span<'static>>, used: &mut usize, spans: &mut Vec<Span<'static>>| {
+        let cw = span_w(&cand);
+        if *used + cw + 1 <= iw { spans.extend(cand); *used += cw; }
+    };
+
+    try_add(vec![
+        Span::raw("   "), Span::styled("PEAK ", dim),
+        Span::styled(format!("{peak:.0} dBFS"), Style::default().fg(peak_col).add_modifier(Modifier::BOLD)),
+    ], &mut used, &mut spans);
+
+    try_add(vec![
+        Span::raw("   "), Span::styled("\u{0394} headroom ", dim),
+        Span::styled(format!("{headroom:+.0} dB"), Style::default().fg(peak_col)),
+    ], &mut used, &mut spans);
+
+    try_add(vec![
+        Span::raw("   "), Span::styled("NOISE ", dim),
+        Span::styled(format!("{noise:.0} dBFS"), val),
+    ], &mut used, &mut spans);
+
+    try_add(vec![
+        Span::raw("   "), Span::styled("SNR ", dim),
+        Span::styled(format!("{snr:.0} dB"), Style::default().fg(theme.value).add_modifier(Modifier::BOLD)),
+    ], &mut used, &mut spans);
+
+    append_focus_hints(state, theme, iw, used, &mut spans);
+    vec![hairline(iw, theme.border_dim), Line::from(spans)]
+}
+
 fn marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
     if state.ui.active_preset == "lab_iq" {
         return iq_marker_lines(state, theme, iw);
+    }
+    if state.ui.active_preset == "lab_rf" {
+        return rf_marker_lines(state, theme, iw);
     }
     let dim = Style::default().fg(theme.label);
     let key = Style::default().fg(theme.value_hi);
@@ -401,5 +496,12 @@ mod tests {
     fn fmt_delta_formats_with_and_without_level() {
         assert_eq!(fmt_delta(5_400_000, Some(-12.3)), "5.400 MHz 12.3 dB");
         assert_eq!(fmt_delta(5_400_000, None),        "5.400 MHz");
+    }
+
+    #[test]
+    fn rf_chain_str_inserts_amp_and_collapses_single_tuner() {
+        assert_eq!(rf_chain_str(true, false), "ANT\u{25B8}LNA\u{25B8}MIX\u{25B8}VGA\u{25B8}ADC");
+        assert_eq!(rf_chain_str(true, true),  "ANT\u{25B8}AMP\u{25B8}LNA\u{25B8}MIX\u{25B8}VGA\u{25B8}ADC");
+        assert_eq!(rf_chain_str(false, true), "ANT\u{25B8}TUNER\u{25B8}ADC", "no cascade → single tuner");
     }
 }
