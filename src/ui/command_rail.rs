@@ -414,12 +414,18 @@ fn mode_card_lines(mode: RailMode, state: &SdrMetrics, stale: bool,
 
         // BENCH — gain-chain health: clip headroom + a one-word verdict.
         RailMode::Bench => {
+            let streaming = state.radio.hw_streaming;
             let power = state.signal.adc_peak_dbfs;
-            let headroom = if state.radio.hw_streaming { (-power).max(0.0) } else { f32::NAN };
+            let headroom = if streaming { (-power).max(0.0) } else { f32::NAN };
             let sat = state.signal.adc_saturation_pct;
-            let (verdict, sev) = chain_verdict(sat, if headroom.is_finite() { headroom } else { 0.0 });
-            let vcol = match sev { 2 => theme.status_crit, 1 => theme.status_warn, _ => theme.status_ok };
-            let hstr = if headroom.is_finite() { format!("{headroom:.0} dB") } else { "—".into() };
+            let (verdict_str, vcol) = if streaming {
+                let (v, sev) = chain_verdict(sat, headroom);
+                let col = match sev { 2 => theme.status_crit, 1 => theme.status_warn, _ => theme.status_ok };
+                (v.to_string(), col)
+            } else {
+                ("\u{2014}".to_string(), theme.stale)
+            };
+            let hstr = if headroom.is_finite() { format!("{headroom:.0} dB") } else { "\u{2014}".into() };
             vec![
                 Line::from(vec![
                     Span::raw(" "),
@@ -429,7 +435,7 @@ fn mode_card_lines(mode: RailMode, state: &SdrMetrics, stale: bool,
                 Line::from(vec![
                     Span::raw(" "),
                     Span::styled("CHAIN ", Style::default().fg(theme.label)),
-                    Span::styled(verdict.to_string(), Style::default().fg(vcol).add_modifier(Modifier::BOLD)),
+                    Span::styled(verdict_str, Style::default().fg(vcol).add_modifier(Modifier::BOLD)),
                 ]),
             ]
         }
