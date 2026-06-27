@@ -243,7 +243,6 @@ impl Panel for RfChainPanel {
 
         // --- VERDICT -----------------------------------------------------------
         let headroom = -adc_peak;
-        let above_floor = adc_peak - state.signal.peak_to_nf_db as f64; // ≈ noise floor dBFS
         let title_mark = if sev == 0 { "\u{2713}" } else if sev == 2 { "\u{26a0}" } else { "\u{00b7}" };
         lines.push(Line::from(vec![
             Span::raw(" "),
@@ -251,9 +250,36 @@ impl Panel for RfChainPanel {
                          Style::default().fg(sev_col).add_modifier(Modifier::BOLD)),
         ]));
         let body = |t: String| Line::from(vec![Span::raw(" "), Span::styled(t, lbl)]);
-        lines.push(body(format!("Signal lands at {adc_peak:.0} dBFS \u{2014} {headroom:.0} dB clip headroom,")));
-        lines.push(body(format!("{:.0} dB above the noise floor. SNR set at the", (adc_peak - above_floor).abs())));
-        lines.push(body("front end is preserved.".to_string()));
+        let (b1, b2, b3) = match verdict_word {
+            "CLIPPING" => (
+                format!("Signal at {adc_peak:.0} dBFS \u{2014} ADC saturating, waveform distorted."),
+                "Reduce LNA or VGA to restore headroom.".to_string(),
+                "SNR is lost wherever the ADC clips.".to_string(),
+            ),
+            "HOT" => (
+                format!("Signal at {adc_peak:.0} dBFS \u{2014} {headroom:.0} dB from the rail."),
+                "SNR intact but peaks may saturate.".to_string(),
+                "Trim VGA by 2\u{2013}4 dB to add margin.".to_string(),
+            ),
+            "UNDER-UTILISED" => (
+                format!("Signal at {adc_peak:.0} dBFS \u{2014} {headroom:.0} dB headroom,"),
+                "ADC window under-used. Increase LNA gain".to_string(),
+                "to lift the signal into the optimal zone.".to_string(),
+            ),
+            "WEAK" => (
+                format!("Signal at {adc_peak:.0} dBFS \u{2014} ADC severely under-driven."),
+                "Increase LNA; if maxed, check the antenna".to_string(),
+                "or reduce the system noise figure.".to_string(),
+            ),
+            _ => ( // WELL-STAGED
+                format!("Signal at {adc_peak:.0} dBFS \u{2014} {headroom:.0} dB headroom,"),
+                format!("{snr:.0} dB above the noise floor. SNR set at"),
+                "the front end is fully preserved.".to_string(),
+            ),
+        };
+        lines.push(body(b1));
+        lines.push(body(b2));
+        lines.push(body(b3));
 
         // Action chips (idle until Step 7 wires auto-gain) + status foot.
         let chip = |label: &str, active: bool| -> Span<'static> {
