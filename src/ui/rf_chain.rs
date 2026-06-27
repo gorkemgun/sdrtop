@@ -42,10 +42,13 @@ impl Panel for RfChainPanel {
 
     fn render(&self, f: &mut Frame, area: Rect, state: &SdrMetrics, theme: &crate::Theme, focused: bool) {
         let stale = !state.radio.hw_streaming;
+        let key_style = Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD);
+        let name_style = Style::default().fg(theme.label).add_modifier(Modifier::BOLD);
         let mut title_spans = vec![
             Span::raw(" "),
-            Span::styled("RF Diagnostics",
-                         Style::default().fg(theme.label).add_modifier(Modifier::BOLD)),
+            Span::styled("RF ", name_style),
+            Span::styled("D", key_style),
+            Span::styled("iagnostics", name_style),
         ];
         if stale {
             title_spans.push(Span::styled(" [STALE]", Style::default().fg(theme.stale)));
@@ -163,11 +166,13 @@ impl Panel for RfChainPanel {
 
         // --- GAIN LINEUP -------------------------------------------------------
         lines.push(section("Gain lineup", "level after each stage"));
+        lines.push(Line::raw(""));
         for (i, node) in levels.iter().enumerate() {
             let gain_str = if i == 0 { "\u{2014}".to_string() }
                            else { format!("{:+} dB", stages[i - 1].gain_db as i64) };
             lines.push(row3(node.label, gain_str, dim,
                             format!("{:.0} dBm", node.signal_dbm), theme.value));
+            lines.push(Line::raw(""));
         }
         // ADC node = VGA output, read in dBFS.
         lines.push(row3("ADC", "0 dB".to_string(), dim, format!("{adc_peak:.0} dBFS"), sev_col));
@@ -175,10 +180,13 @@ impl Panel for RfChainPanel {
 
         // --- GAIN STAGING ------------------------------------------------------
         lines.push(section("Gain staging", "\u{2502} = optimal target"));
+        lines.push(Line::raw(""));
         lines.push(bar_row("LNA", lna, 40, theme.status_ok, theme.value_hi,
                            Some(lna_opt as f64 / 40.0), format!("{lna} / 40 dB"), theme.value));
+        lines.push(Line::raw(""));
         lines.push(bar_row("VGA", vga, 62, theme.border_accent, theme.status_warn,
                            Some(vga_opt as f64 / 62.0), format!("{vga} / 62 dB"), theme.value));
+        lines.push(Line::raw(""));
         let at_opt = lna == lna_opt && vga == vga_opt;
         lines.push(Line::from(vec![
             Span::raw(" "),
@@ -196,16 +204,19 @@ impl Panel for RfChainPanel {
         // Per-stage own NF (visible bars); the Friis system total can sit *below* the
         // worst stage because the LNA gain suppresses everything after it.
         lines.push(section("Noise figure", "Friis cascade"));
+        lines.push(Line::raw(""));
         for s in &stages {
             lines.push(bar_row(s.label, (s.nf_db * 100.0) as u32, 1200,
                                theme.status_ok, theme.status_crit, None,
                                format!("{:.1} dB", s.nf_db), theme.value));
+            lines.push(Line::raw(""));
         }
         lines.push(row3("sys", "NF total".to_string(), theme.label, format!("{nf:.1} dB"), sev_col));
         lines.push(Line::raw(""));
 
         // --- SENSITIVITY -------------------------------------------------------
         lines.push(section("Sensitivity", "noise floor trend"));
+        lines.push(Line::raw(""));
         let mds_str = match estimate_mds_dbm(state.radio.bb_filter_hz, nf) {
             Some(mds) => format!("{mds:.0} dBm"),
             None      => "\u{2014}".to_string(),
