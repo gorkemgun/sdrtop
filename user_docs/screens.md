@@ -68,19 +68,15 @@ Shows whether your HackRF is running smoothly, with trend sparklines for each me
 
 ---
 
-## RF chain
+## RF front-end bench *(Lab RF, `6`)*
 
-Diagnostic view of the signal path. Shows the current frequency and its wavelength, sample rate, baseband filter bandwidth, and a visual gain chain (AMP → LNA → VGA = total dB). Two derived figures stand out:
+The whole receive chain as one story, across three panels. The lesson: level climbs stage by stage, the gap between signal and noise is the SNR set at the antenna, and gain only positions that gap in the ADC window — it can't widen it.
 
-- **Est. NF** — estimated noise figure (how much noise the receiver adds), via the Friis formula.
-- **MDS** — minimum detectable signal in dBm (the weakest signal you can hear in this configuration).
+- **RF Diagnostics** *(left, focus `D`)* — the chain quantified: the **gain lineup** (level after each stage), **gain staging** bars with optimal-target ticks, the per-stage and Friis-total **noise figure**, **sensitivity** (MDS + noise-floor trend), and a plain-language **verdict**. Press `A` to auto-stage the gain, or `⎵`/`F` to freeze the bench.
+- **Gain-Staging Level Diagram** *(centre)* — the lineup drawn as two traces (signal + noise floor) climbing the stage axis; the gap between them is the SNR, carried up the chain into the ADC window.
+- **ADC Loading** *(right)* — a signed sample-histogram bell (fill the range without hitting the rails), the loading read-out (peak / rms / crest / effective bits / clip events), and a modeled linearity card.
 
-At the bottom:
-
-- **ADC utilisation gauge** — what fraction of incoming samples land in the optimal amplitude range (not too weak, not clipping).
-- **Gain advisor** — reads the ADC utilisation and tells you whether to increase or reduce gain, and by how much.
-
-See the [lab presets guide](lab.md) for what each number means and how to use them.
+The levels are *modeled / relative* dBm, not a calibrated wattmeter. See the [lab presets guide](lab.md) for what each number means and how to use them.
 
 ---
 
@@ -143,7 +139,7 @@ Switch between preset layouts with number keys. Each preset rearranges which pan
 | `3` | Waterfall only |
 | `4` | Spectrum + waterfall |
 | `5` | Lab IQ — IQ diagnostics · constellation · spectrum ([guide](lab.md)) |
-| `6` | Lab RF — RF chain · spectrum · hardware vitals ([guide](lab.md)) |
+| `6` | Lab RF — RF diagnostics · level diagram · ADC loading ([guide](lab.md)) |
 | `7` | Lab Timing — stream-timing diagnostics · hardware vitals ([guide](lab.md)) |
 | `8` | Lab Signal — spectrum · signal metrics · waterfall ([guide](lab.md)) |
 | `9` | Lab Sweep — frequency scanner across a wide band ([guide](lab.md)) |

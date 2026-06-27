@@ -9,7 +9,7 @@ The measurements are split across four focused presets, each on its own number k
 | Key | Preset | Focus |
 |-----|--------|-------|
 | `5` | **Lab IQ** | IQ diagnostics + constellation + spectrum |
-| `6` | **Lab RF** | RF chain (NF / MDS) + spectrum + hardware vitals |
+| `6` | **Lab RF** | RF front-end bench: diagnostics + level diagram + ADC loading |
 | `7` | **Lab Timing** | stream-timing diagnostics + hardware vitals |
 | `8` | **Lab Signal** | spectrum + signal metrics + waterfall |
 | `9` | **Lab Sweep** | frequency scanner across a band wider than one window |
@@ -20,44 +20,43 @@ This guide explains each measurement below; the heading notes which preset to op
 
 ---
 
-## RF Chain  ·  *Lab RF (`6`)*
+## RF Front-End Bench  ·  *Lab RF (`6`)*
 
-The receiver's capability in the current configuration — what the hardware *can* do, before any signal arrives.
+A three-panel bench that reads the whole receive chain as one story. The thesis it teaches: **level climbs stage by stage; the gap between signal and noise is the SNR set at the antenna; gain only positions that gap in the ADC window** — it never improves it. Each panel restates one face of that.
 
-**Top block — what you're tuned to:**
+The banner across the top sums it up: `CHAIN ANT▸LNA▸MIX▸VGA▸ADC · NF 6.0 dB · MDS −105 dBm · SNR 40 dB`, and the marker bar at the bottom reads the ADC window: `CLIP 0 dBFS · PEAK −8 dBFS · Δ headroom +8 dB · NOISE −48 dBFS · SNR 40 dB`.
 
-- **Freq** — current centre frequency.
-- **λ / λ/4** — the wavelength and quarter-wavelength at that frequency. Handy in the field for cutting an antenna: at 433 MHz, λ/4 ≈ 17.3 cm; at 2.4 GHz, ≈ 3.1 cm. Measure twice, cut once — copper doesn't grow back.
-- **Sample rate** — the configured rate (how wide a slice of spectrum you're capturing).
-- **BB filter** — the analog baseband filter bandwidth the HackRF picked for that rate.
+> **A note on the levels.** The HackRF is not power-calibrated, so the dBm figures here are *modeled / relative*: the lineup is back-computed from the *measured* ADC level through the *known* stage gains, anchored to a documented `0 dBFS = 0 dBm` reference. They're exactly right for staging decisions, and they're not a wattmeter reading. Likewise the linearity figures (below) are datasheet-anchored estimates, not lab measurements — both are labelled as such in the panel.
 
-**Gain chain:**
+### RF Diagnostics *(left — focus `D`)*
 
-```
-AMP[14] → LNA[24] → VGA[20] = 58 dB
-```
+The chain quantified, top to bottom:
 
-A visual of the three amplifier stages in order, with each stage's gain and the total. The AMP stage only appears when the front-end amplifier is enabled (`a`).
+- **Gain lineup** — the signal level after each stage (ANT, LNA, MIX, VGA, ADC), with each stage's gain in the middle column. You can watch the signal climb by each stage's gain and land at the measured ADC level.
+- **Gain staging** — LNA `n / 40` and VGA `n / 62` gradient bars (the same bars as the command rail and header), each with a `┊` tick marking the *optimal* target. The `opt` line reads `✓ at optimum` or points at the LNA/VGA the staging wants.
+- **Noise figure** — each stage's own NF as a bar, and the Friis **system total** beneath. The system total can sit *below* the worst single stage because the LNA's gain suppresses the noise of everything after it — that's the whole point of leading with a low-noise amplifier.
+- **Sensitivity** — **MDS** (Minimum Detectable Signal, `−174 dBm/Hz + 10·log₁₀(BW) + NF`) plus a noise-floor trend sparkline with its ±dB/60s spread. Narrowing the BB filter or lowering the NF improves (lowers) the MDS.
+- **Verdict** — a plain-language read of the staging (`WELL-STAGED`, `HOT`, `CLIPPING`, `UNDER-UTILISED`…) and the action chips `[A] auto-gain · [↑↓] LNA · [ ] VGA`.
 
-**Est. NF (Friis)** — estimated cascade **Noise Figure** in dB. This is the single number that describes how much noise your receiver adds to the signal. Computed from the HackRF's known stage characteristics using the Friis formula. Lower is better:
+### Gain-Staging Level Diagram *(centre)*
 
-- With AMP on at high LNA gain: ~2 dB (excellent)
-- AMP off, LNA at max: ~3.5 dB (good)
-- Low LNA gain: 6 dB and up (the receiver is adding significant noise)
+The lineup drawn as a picture: two traces climbing the stage axis ANT▸LNA▸MIX▸VGA▸ADC — **signal** (filled) and **noise floor** (line). The vertical gap between them is the SNR. Reading it left to right shows the gap being *carried up* the chain and parked inside the ADC window, never widened. Dashed reference lines mark the ADC clip ceiling and 8-bit floor; the band between the traces is shaded as **usable dynamic range** (or, if the noise ever climbs above the signal, flagged as a **buried** band instead of left blank).
 
-Green below 4 dB, amber to 8 dB, red above.
+### ADC Loading *(right)*
 
-**MDS** — **Minimum Detectable Signal** in dBm. The weakest signal your receiver can pull out of the noise in the current configuration:
+How hard the 8-bit ADC is actually driven:
 
-```
-MDS = −174 dBm/Hz + 10·log₁₀(bandwidth) + NF
-```
+- **Signed sample histogram** — a centred bell from −FS to +FS. A healthy signal fills the middle without piling up on the rails; the rails turn amber, then red, as clipping appears. A lopsided bell reveals a DC offset.
+- **Headroom** bar — clip headroom in dB, with the optimal tick.
+- **Loading** — `peak` / `rms` in dBFS and ADC counts, **crest** factor, **effective bits** (ENOB), and the **clip-event** count for the window.
+- **Linearity** *(modeled)* — P1dB headroom, IIP3 / IMD3, and SFDR against the honest 8-bit ceiling (`6.02·8 + 1.76 ≈ 50 dB`). These need a two-tone source to measure for real; here they're gain-adjusted datasheet estimates for guidance.
 
-A typical value at 10 MHz bandwidth with a 3.5 dB noise figure is about −100 dBm. Narrowing the BB filter or lowering the noise figure improves (lowers) the MDS. This is the number to watch when you're trying to hear something faint.
+### Auto-gain and freeze
 
-**Board / USB API** — board revision and firmware USB API version, dimmed because they're reference info, not something you monitor.
+Focus the RF Diagnostics panel with `D`, then:
 
-**Gain advisor + ADC utilisation gauge** (bottom) — reads the live amplitude distribution and tells you whether to raise or lower gain, with the fraction of samples landing in the ADC's sweet spot.
+- **`A` — auto-gain.** When the chain is off-optimal, one press jumps LNA/VGA to the staging target (signal ≈ −8 dBFS, no clip), filling LNA first to protect the noise figure. Once you're already at the optimum, pressing `A` again **latches a continuous auto-track** that re-nudges the gain when the level drifts (the chip lights `✓`); press once more to unlatch. Touching the gain manually (`↑↓`, `[ ]`, `a`, `r`) drops the latch immediately, so it never fights you.
+- **`⎵` / `F` — freeze.** Holds the histogram and level diagram on a snapshot so you can study them while RX keeps running; both panels show `[FRZ]` in their title. Press again to go live.
 
 ---
 
@@ -119,7 +118,7 @@ The cloud is coloured by **point density**: a phosphor-scope look where sparse e
 
 ---
 
-## Hardware Vitals  ·  *Lab RF (`6`) / Lab Timing (`7`)*
+## Hardware Vitals  ·  *Lab Timing (`7`)*
 
 Whether the capture chain is keeping up, with a trend sparkline under each metric.
 
@@ -155,9 +154,9 @@ A typical setup flow, switching presets as you go:
 
 1. Tune to your target and start RX (`Space`).
 2. In **Lab IQ (`5`)**, watch the **constellation**: adjust LNA/VGA (`↑`/`↓`, `[`/`]`) until the cloud is a bright, well-filled ring sitting comfortably *inside* the unit circle (smearing out to the edge means clipping). Glance at **IQ Diagnostics**: a centred needle on each null-meter, IRR above 30 dB and DC spike below −40 dBFS mean clean quadrature.
-3. In **Lab RF (`6`)**, check the **gain advisor**, **Est. NF** and **MDS** — confirm the receiver is sensitive enough for what you're chasing.
+3. In **Lab RF (`6`)**, focus the **RF Diagnostics** panel (`D`) and press `A` to auto-stage the gain, then read **NF** and **MDS** to confirm the receiver is sensitive enough for what you're chasing. Watch the **ADC Loading** bell fill the range without touching the rails.
 4. In **Lab Timing (`7`)**, confirm the timing verdict is Good/Excellent before committing to a long run.
-5. During a long capture, keep an eye on **Hardware Vitals** (in the `6`/`7` labs) — CPU, BUF fill, and Drops together tell you whether the run is sustainable.
+5. During a long capture, keep an eye on **Hardware Vitals** (in **Lab Timing `7`**) — CPU, BUF fill, and Drops together tell you whether the run is sustainable.
 
 ---
 

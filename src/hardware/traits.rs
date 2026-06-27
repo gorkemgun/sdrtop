@@ -85,7 +85,10 @@ pub struct DeviceCapabilities {
     /// IQ pairs per USB transfer — feeds the expected callback-period math in
     /// [`crate::state::TimingState`].
     pub samples_per_transfer: u64,
-    /// Programmable baseband filter (HackRF yes, RTL-SDR no).
+    /// Programmable baseband filter (HackRF yes, RTL-SDR no). Part of the device
+    /// capability contract and asserted in the device tests; the live panels key off
+    /// `bb_filter_hz` (0 ⇒ unknown) directly, so the binary never reads this flag.
+    #[allow(dead_code)]
     pub has_bb_filter: bool,
     /// The Friis cascade NF / MDS panel applies (HackRF's known 3-stage chain).
     pub friis_applicable: bool,
