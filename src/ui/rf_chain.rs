@@ -211,7 +211,8 @@ impl Panel for RfChainPanel {
                                format!("{:.1} dB", s.nf_db), theme.value));
             lines.push(Line::raw(""));
         }
-        lines.push(row3("sys", "NF total".to_string(), theme.label, format!("{nf:.1} dB"), sev_col));
+        let nf_col = if nf < 6.0 { theme.status_ok } else if nf < 10.0 { theme.status_warn } else { theme.status_crit };
+        lines.push(row3("sys", "NF total".to_string(), theme.label, format!("{nf:.1} dB"), nf_col));
         lines.push(Line::raw(""));
 
         // --- SENSITIVITY -------------------------------------------------------
