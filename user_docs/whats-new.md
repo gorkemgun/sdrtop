@@ -4,7 +4,7 @@
 
 The story of sdrtop so far — not as a wall of dates, but as **checkpoints**: the big moments where the app levelled up. Each one is condensed to the essentials.
 
-> **Where we are now:** the interactive TUI is feature-complete, RTL-SDR support has landed, and the current arc is **instrument-grade polish**: the **Command Rail** cockpit, the redrawn **Lab IQ**, and the rebuilt **Lab RF** front-end bench are the latest (see Checkpoint 10). The ongoing work is polishing the UI, sharpening the radio math, and squashing bugs. So if something looks off or behaves oddly, that's exactly what we're hunting.
+> **Where we are now:** the interactive TUI is feature-complete, RTL-SDR support has landed, and the current arc is **instrument-grade polish**: the **Command Rail** cockpit, the redrawn **Lab IQ**, the rebuilt **Lab RF** bench, and now the new **Lab Timing** real-time bench are the latest (see Checkpoint 11). The ongoing work is polishing the UI, sharpening the radio math, and squashing bugs. So if something looks off or behaves oddly, that's exactly what we're hunting.
 
 ---
 
@@ -58,12 +58,19 @@ sdrtop stopped being a one-device app.
 - Plug in more than one radio and a **device picker** greets you at launch; `--device hackrf|rtlsdr` pins one
 - **Status: working, new.** Community-contributed and confirmed on real hardware — normal RX *and* observer mode, with FM reception, tuner gain, AGC and sweep all checked out. The only open question is the zoo of RTL clones, which no single person owns. **So this is where you come in:** run it on yours and [open an issue](../../../issues) with how it went — real-world reports are what make "works" universal.
 
-## 🎛️ Checkpoint 10 — The instrument cockpit (you are here)
+## 🎛️ Checkpoint 10 — The instrument cockpit
 The polish arc grew teeth: the UI started reading like a real radio's front panel, not a table of numbers.
 - **Command Rail** (`1`, now the default): a left instrument rail with a big segmented **frequency hero**, an analog **S-meter**, the HUNT·MONITOR·BENCH mode tabs whose lead card follows what you're doing, recall slots with live activity pips, and a **SIGNAL** zone where SNR·PWR·NF·SAT each ride their own braille oscilloscope trace beside the value
 - **Lab IQ, reimagined**: IQ diagnostics redrawn as analog **null-meters** (centre is ideal, the needle shows the deviation), paired with a **persistence constellation**, a density-coloured I/Q cloud with a fitted imbalance ellipse whose stretch is amplitude imbalance and whose tilt is phase imbalance
 - **Lab RF, rebuilt as a front-end bench** (`6`): three panels that teach one idea — level climbs stage by stage, the signal/noise gap *is* the SNR set at the antenna, and gain only parks that gap in the ADC window. **RF Diagnostics** (gain lineup, staging, Friis noise figure, sensitivity, verdict), a **Gain-Staging Level Diagram** (signal and noise traces climbing ANT▸LNA▸MIX▸VGA▸ADC), and an **ADC Loading** panel (signed-sample histogram bell, loading stats, a modeled linearity card). Focus it with `D` and press `A` to auto-stage the gain, or `⎵` to freeze the bench — the dBm are honestly labelled *modeled / relative*, never a wattmeter
 - A shared braille-instrument language (oscilloscope traces, ⅛-block gain bars, gradient fills) applied across the rail, with the radio math left exactly as honest as it always was. No "AI-enhanced" anything; the only thing that learns here is you
+
+## ⏱️ Checkpoint 11 - Lab Timing (you are here)
+The newest instrument answers a question the others could not: is your computer keeping up with the radio in real time? The radio ships samples in steady USB bursts, one callback at a time, and your machine has to catch every one on schedule or the buffer backs up and samples drop. **Lab Timing** (`7`) watches that handoff and grades it.
+- **Timing Diagnostics** (`t`): measured callback period versus the expected period at your sample rate, host clock drift in ppm, jitter, and per-callback deviation percentiles (p95 / p99 / peak) drawn against a **deadline budget** that scales with the rate, plus a late-callback count and a plain verdict (Excellent / Good / Marginal / Poor)
+- **Callback Interval Strip Chart**: every point is one real callback, plotted as how far its arrival drifted from the expected interval. Late deliveries climb, early ones dip, and anything past the deadline band gets tagged (▲ late, ▼ early), so a host hiccup is something you watch happen instead of guess at
+- **Hardware Vitals** (`v`): the supporting cast. Sample drops, ADC saturation and CPU / RAM as 60 second trends, USB link utilization against the device's real ceiling, ring-buffer overrun headroom, and uptime
+- Quieter fixes that rode along: **Lab IQ** now gates carrier / image detection on the noise floor (an idle radio reads "no signal" instead of flagging a noise bin as a carrier), gains clamp to each device's own model on load, the RTL-SDR AGC indicator stays honest after a manual gain nudge, and the spectrum / waterfall cursor respects each radio's true frequency range
 
 ---
 
