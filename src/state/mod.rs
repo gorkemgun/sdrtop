@@ -22,8 +22,7 @@ pub use signal::{SignalState, SAT_CLIP_PCT};
 pub use spectrum::{SpectrumMarker, SpectrumState, SpectrumStyle};
 pub use sweep::{SweepConfig, SweepFrame, SweepState, SWEEP_SETTLING_MS};
 pub use system::SystemState;
-pub use timing::{TimingQuality, TimingState, HACKRF_SAMPLES_PER_TRANSFER,
-                 DEADLINE_BUDGET_FRAC, DEADLINE_BUDGET_FLOOR_US, STRIP_WINDOW};
+pub use timing::{TimingQuality, TimingState, HACKRF_SAMPLES_PER_TRANSFER};
 pub use ui::{active_recall_slot, recall_from_hz, recall_to_hz, InputMode, LogLevel,
              RailMode, UiState, RECALL_SLOTS};
 pub use waterfall::{FftFrame, WaterfallState};
