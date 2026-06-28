@@ -194,7 +194,7 @@ fn handle_spectrum_focus(
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             let step = m.spectrum.step_hz;
             m.spectrum.cursor_freq = Some(match m.spectrum.cursor_freq {
-                Some(f) => f.saturating_sub(step).max(1_000_000),
+                Some(f) => f.saturating_sub(step).max(m.caps.freq_min_hz),
                 None    => m.radio.frequency,
             });
         }
@@ -202,7 +202,7 @@ fn handle_spectrum_focus(
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             let step = m.spectrum.step_hz;
             m.spectrum.cursor_freq = Some(match m.spectrum.cursor_freq {
-                Some(f) => (f + step).min(6_000_000_000),
+                Some(f) => (f + step).min(m.caps.freq_max_hz),
                 None    => m.radio.frequency,
             });
         }
@@ -344,13 +344,13 @@ fn handle_waterfall_focus(
         KeyCode::Left => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(cf) = m.waterfall.cursor_freq {
-                m.waterfall.cursor_freq = Some(cf.saturating_sub(m.spectrum.step_hz).max(1_000_000));
+                m.waterfall.cursor_freq = Some(cf.saturating_sub(m.spectrum.step_hz).max(m.caps.freq_min_hz));
             }
         }
         KeyCode::Right => {
             let mut m = state.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(cf) = m.waterfall.cursor_freq {
-                m.waterfall.cursor_freq = Some((cf + m.spectrum.step_hz).min(6_000_000_000));
+                m.waterfall.cursor_freq = Some((cf + m.spectrum.step_hz).min(m.caps.freq_max_hz));
             }
         }
         KeyCode::Char('j') => {
