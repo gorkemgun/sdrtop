@@ -39,6 +39,7 @@ pub mod system_resources;
 pub mod telemetry;
 pub mod throughput;
 pub mod timing_panel;
+pub mod timing_vitals;
 pub mod usb_sr;
 pub mod waterfall;
 
@@ -75,4 +76,5 @@ pub use waterfall::WaterfallPanel;
 pub use telemetry::TelemetryPanel;
 pub use throughput::ThroughputPanel;
 pub use timing_panel::TimingPanel;
+pub use timing_vitals::TimingVitalsPanel;
 pub use usb_sr::UsbSrPanel;
