@@ -117,6 +117,29 @@ fn rf_banner_fields(state: &SdrMetrics) -> Vec<(&'static str, String)> {
     ]
 }
 
+/// Lab timing banner middle fields: `CALLBACK … · JITTER … · DRIFT … · DEADLINE …`.
+/// DEADLINE reads `✓ met` while no callback misses the budget, else the worst
+/// slip as a percentage of the budget (the mockup's `⚠ 130%` / `⚠ 1050%`).
+fn timing_banner_fields(t: &crate::state::TimingState) -> Vec<(&'static str, String)> {
+    let callback = if t.cb_period_us == 0 {
+        "\u{2014}".to_string()
+    } else {
+        crate::ui::timing_panel::fmt_us(t.cb_period_us)
+    };
+    let deadline = if t.late_callbacks == 0 {
+        "\u{2713} met".to_string()
+    } else {
+        let pct = if t.deadline_budget_us > 0 { t.dev_peak_us * 100 / t.deadline_budget_us } else { 0 };
+        format!("\u{26a0} {pct}%")
+    };
+    vec![
+        ("CALLBACK", callback),
+        ("JITTER",   format!("\u{00b1}{} \u{00b5}s", t.cb_jitter_us)),
+        ("DRIFT",    format!("{:+} ppm", t.cb_period_delta_ppm)),
+        ("DEADLINE", deadline),
+    ]
+}
+
 fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize, focused: bool) -> Vec<Line<'static>> {
     let (label, num) = match lab_label(&state.ui.active_preset) {
         Some(x) => x,
@@ -160,6 +183,8 @@ fn banner_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize, focused: bo
     // than the generic spectrum REF/MKR/AVG/CAL set.
     let fields: Vec<(&'static str, String)> = if state.ui.active_preset == "lab_rf" {
         rf_banner_fields(state)
+    } else if state.ui.active_preset == "lab_timing" {
+        timing_banner_fields(&state.timing)
     } else {
         // In Lab IQ the two markers are the auto-tracked carrier + image, so MKR
         // reads "2" (and "pin" when frozen) rather than the placed-marker count.
@@ -379,12 +404,76 @@ fn rf_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<L
     vec![hairline(iw, theme.border_dim), Line::from(spans)]
 }
 
+/// `EXCELLENT` → `Excellent`: first letter upper, rest lower.
+fn titlecase(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + &c.as_str().to_lowercase(),
+        None => String::new(),
+    }
+}
+
+/// Lab timing marker bar: the host-timing window as a single line —
+/// `JITTER ±42 µs · DRIFT +12 ppm · LATE 0 · BUF 0% · QUALITY ✓ Excellent` —
+/// plus the focused panel's key hints. LATE / BUF / QUALITY carry their severity
+/// colour so a pressured pipeline reads at a glance.
+fn timing_marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
+    let dim = Style::default().fg(theme.label);
+    let val = Style::default().fg(theme.value);
+    let t = &state.timing;
+
+    let mut spans: Vec<Span> = vec![
+        Span::raw(" "),
+        Span::styled("JITTER ", dim),
+        Span::styled(format!("\u{00b1}{} \u{00b5}s", t.cb_jitter_us), val),
+    ];
+    let mut used = span_w(&spans);
+
+    let try_add = |cand: Vec<Span<'static>>, used: &mut usize, spans: &mut Vec<Span<'static>>| {
+        let cw = span_w(&cand);
+        if *used + cw + 1 <= iw { spans.extend(cand); *used += cw; }
+    };
+
+    try_add(vec![
+        Span::raw("   "), Span::styled("DRIFT ", dim),
+        crate::ui::timing_panel::ppm_span(t.cb_period_delta_ppm, theme),
+    ], &mut used, &mut spans);
+
+    let late_col = if t.late_callbacks == 0 { theme.status_ok }
+                   else if t.late_callbacks * 20 > t.late_window.max(1) { theme.status_crit }
+                   else { theme.status_warn };
+    try_add(vec![
+        Span::raw("   "), Span::styled("LATE ", dim),
+        Span::styled(format!("{}/{}", t.late_callbacks, t.late_window), Style::default().fg(late_col)),
+    ], &mut used, &mut spans);
+
+    try_add(vec![
+        Span::raw("   "), Span::styled("BUF ", dim),
+        Span::styled(format!("{:.0}%", state.iq.buf_fill_pct),
+            Style::default().fg(crate::ui::micro_common::buf_color(state.iq.buf_fill_pct, theme))),
+    ], &mut used, &mut spans);
+
+    let q = t.timing_quality;
+    let mark = if q.severity() == 0 { "\u{2713}" } else { "\u{26a0}" };
+    try_add(vec![
+        Span::raw("   "), Span::styled("QUALITY ", dim),
+        Span::styled(format!("{mark} {}", titlecase(q.label())),
+            Style::default().fg(crate::ui::timing_panel::quality_color(q, theme)).add_modifier(Modifier::BOLD)),
+    ], &mut used, &mut spans);
+
+    append_focus_hints(state, theme, iw, used, &mut spans);
+    vec![hairline(iw, theme.border_dim), Line::from(spans)]
+}
+
 fn marker_lines(state: &SdrMetrics, theme: &crate::Theme, iw: usize) -> Vec<Line<'static>> {
     if state.ui.active_preset == "lab_iq" {
         return iq_marker_lines(state, theme, iw);
     }
     if state.ui.active_preset == "lab_rf" {
         return rf_marker_lines(state, theme, iw);
+    }
+    if state.ui.active_preset == "lab_timing" {
+        return timing_marker_lines(state, theme, iw);
     }
     let dim = Style::default().fg(theme.label);
     let key = Style::default().fg(theme.value_hi);
@@ -496,6 +585,31 @@ mod tests {
     fn fmt_delta_formats_with_and_without_level() {
         assert_eq!(fmt_delta(5_400_000, Some(-12.3)), "5.400 MHz 12.3 dB");
         assert_eq!(fmt_delta(5_400_000, None),        "5.400 MHz");
+    }
+
+    #[test]
+    fn titlecase_first_upper_rest_lower() {
+        assert_eq!(titlecase("EXCELLENT"), "Excellent");
+        assert_eq!(titlecase("POOR"), "Poor");
+        assert_eq!(titlecase(""), "");
+    }
+
+    #[test]
+    fn timing_banner_deadline_met_then_breached() {
+        let mut t = crate::state::TimingState {
+            cb_period_us: 13_107, cb_jitter_us: 42, deadline_budget_us: 603, ..Default::default()
+        };
+        // No late callbacks → DEADLINE reads "✓ met".
+        let f = timing_banner_fields(&t);
+        let deadline = f.iter().find(|(k, _)| *k == "DEADLINE").unwrap();
+        assert_eq!(deadline.1, "\u{2713} met");
+        assert!(f.iter().any(|(k, v)| *k == "CALLBACK" && v == "13.107 ms"));
+        // A worst slip past budget → "⚠ N%" of the budget.
+        t.late_callbacks = 3;
+        t.dev_peak_us = 6_300; // 6300 / 603 ≈ 1044%
+        let f = timing_banner_fields(&t);
+        let deadline = f.iter().find(|(k, _)| *k == "DEADLINE").unwrap();
+        assert_eq!(deadline.1, "\u{26a0} 1044%");
     }
 
     #[test]
