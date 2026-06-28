@@ -22,6 +22,7 @@ use ratatui::{
 };
 
 use crate::state::SdrMetrics;
+use crate::ui::charts::gain_bar_colored;
 use crate::ui::micro_common::sparkline;
 use crate::ui::panel::Panel;
 use crate::ui::timing_panel::{fmt_us, ppm_span, quality_color};
@@ -43,26 +44,20 @@ fn section(left: &str, right: &str, iw: usize, theme: &crate::Theme) -> Line<'st
     ])
 }
 
-/// One deadline-budget track: a `▬` ruler `track_w` wide with the budget marker
-/// `┊` fixed at 75% of the axis, and the bar filled to `value` in a colour graded
-/// by how far past the budget it sits. Returns just the track spans.
-fn budget_track(value: u64, budget: u64, track_w: usize, theme: &crate::Theme) -> Vec<Span<'static>> {
-    const BUDGET_FRAC: f64 = 0.75; // where the ┊ marker sits along the axis
-    let full_scale = (budget as f64 / BUDGET_FRAC).max(1.0);
-    let vfill = ((value as f64 / full_scale).clamp(0.0, 1.0) * track_w as f64).round() as usize;
-    let bmark = (BUDGET_FRAC * track_w as f64).round() as usize;
-    let color = if value <= budget { theme.status_ok }
-                else if value <= budget * 2 { theme.status_warn }
-                else { theme.status_crit };
-    (0..track_w).map(|x| {
-        if x == bmark {
-            Span::styled("\u{250A}".to_string(), Style::default().fg(theme.label))
-        } else if x < vfill {
-            Span::styled("\u{25AC}".to_string(), Style::default().fg(color))
-        } else {
-            Span::styled("\u{25AC}".to_string(), Style::default().fg(theme.border_dim))
-        }
-    }).collect()
+/// One deadline-budget bar in the shared lab bar language: a `gain_bar_colored`
+/// ⅛-block fill graded green→red across `bar_w`, with the budget marker `┊`
+/// overlaid at mid-bar (full scale = 2 × budget, so the tick sits at the centre
+/// and a value that reaches past it is over budget). Same look as the RF-chain
+/// gain bars and their optimal-target tick.
+fn budget_bar(value: u64, budget: u64, bar_w: usize, theme: &crate::Theme) -> Vec<Span<'static>> {
+    let full_scale = (budget.max(1) * 2) as u32;
+    let val = value.min(full_scale as u64) as u32;
+    let mut bar = gain_bar_colored(val, full_scale, bar_w, theme.status_ok, theme.status_crit, theme.border_dim);
+    let tc = ((0.5 * bar_w as f64).round() as usize).min(bar_w.saturating_sub(1));
+    if tc < bar.len() {
+        bar[tc] = Span::styled("\u{250a}".to_string(), Style::default().fg(theme.value_hi));
+    }
+    bar
 }
 
 /// Two-line plain-language verdict copy, keyed off the 4-level severity, with live
@@ -168,14 +163,15 @@ impl Panel for TimingDiagnosticsPanel {
         let budget = t.deadline_budget_us;
         lines.push(section("DEADLINE BUDGET", &format!("\u{250A} = \u{00b1}{} \u{00b5}s", budget), iw, theme));
         for (name, v) in [("p95", t.dev_p95_us), ("p99", t.dev_p99_us), ("peak", t.dev_peak_us)] {
-            let value_str = format!(" {} \u{00b5}s", v);
-            let track_w = iw.saturating_sub(2 + 4 + value_str.chars().count()).max(6);
-            let mut spans = vec![Span::styled(format!(" {name:<4}"), lbl)];
+            let value_str = format!("{} \u{00b5}s", v);
+            // lead(1) + label(4) + gap(1) + bar + gap(1) + value
+            let bar_w = iw.saturating_sub(1 + 4 + 1 + 1 + value_str.chars().count()).max(6);
+            let mut spans = vec![Span::styled(format!(" {name:<4} "), lbl)];
             if stale {
                 spans.push(dash());
             } else {
-                spans.extend(budget_track(v, budget, track_w, theme));
-                spans.push(Span::styled(value_str, val));
+                spans.extend(budget_bar(v, budget, bar_w, theme));
+                spans.push(Span::styled(format!(" {value_str}"), val));
             }
             lines.push(Line::from(spans));
         }
@@ -253,24 +249,24 @@ mod tests {
     use crate::theme::Theme;
 
     #[test]
-    fn budget_track_width_and_marker() {
+    fn budget_bar_width_and_single_marker() {
         let t = Theme::sdr();
-        let spans = budget_track(88, 600, 20, &t);
-        // Exactly track_w cells, and the budget marker appears once.
-        assert_eq!(spans.len(), 20);
-        let marks = spans.iter().filter(|s| s.content == "\u{250A}").count();
+        let spans = budget_bar(88, 600, 20, &t);
+        // Exactly bar_w cells, and the budget marker appears exactly once.
+        assert_eq!(spans.iter().map(|s| s.content.chars().count()).sum::<usize>(), 20);
+        let marks = spans.iter().filter(|s| s.content == "\u{250a}").count();
         assert_eq!(marks, 1, "exactly one ┊ budget marker");
     }
 
     #[test]
-    fn budget_track_colors_by_overage() {
+    fn budget_bar_fill_grades_green_to_red() {
         let t = Theme::sdr();
-        // Under budget → the filled run is status_ok.
-        let under = budget_track(100, 600, 24, &t);
-        assert!(under.iter().any(|s| s.style.fg == Some(t.status_ok)));
-        // Far over budget → status_crit appears in the fill.
-        let over = budget_track(6_300, 600, 24, &t);
-        assert!(over.iter().any(|s| s.style.fg == Some(t.status_crit)));
+        // A non-zero fill starts green at the left (gain_bar_colored's lo).
+        let under = budget_bar(100, 600, 24, &t);
+        assert_eq!(under.first().unwrap().style.fg, Some(t.status_ok));
+        // Clamped well over budget → the fill reaches the red end of the gradient.
+        let over = budget_bar(6_300, 600, 24, &t);
+        assert_eq!(over.last().unwrap().style.fg, Some(t.status_crit));
     }
 
     #[test]

@@ -1,14 +1,15 @@
 //! `timing_vitals` — the right column of the `lab_timing` preset's redesign.
 //!
-//! The host-pipeline health view: sample drops, ADC saturation and CPU each as a
-//! labelled mini-graph (60 s rolling), then the USB link and ring-buffer state as
-//! captioned bar sections, closed by a one-line vitals verdict + uptime. It reads
-//! the same `state.signal` / `state.system` / `state.iq` vitals the standalone
-//! `hardware_health` panel does, re-grouped to the redesign's three captions, plus
-//! a per-device USB-link utilisation derived from `caps.sample_rate_max_hz`.
+//! The host-pipeline health view, built in the shared lab side-panel language: an
+//! airy Line stack collapsed to fit (`chrome::collapse_spacers`), inline trend
+//! sparklines, and `gain_bar_colored` ⅛-block bars (same look as the RF-chain /
+//! ADC-loading / IQ-diagnostics bars). Sample drops, ADC saturation and CPU as
+//! 60 s trends, then the USB link and ring-buffer state as captioned bars, closed
+//! by a one-line vitals verdict + uptime. Link utilisation is referenced to the
+//! device's own USB ceiling (`caps.sample_rate_max_hz`), not a magic constant.
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
@@ -16,7 +17,8 @@ use ratatui::{
 };
 
 use crate::state::SdrMetrics;
-use crate::ui::micro_common::{buf_color, drop_color, sat_color};
+use crate::ui::charts::gain_bar_colored;
+use crate::ui::micro_common::{buf_color, drop_color, sat_color, sparkline};
 use crate::ui::panel::Panel;
 
 pub struct TimingVitalsPanel;
@@ -43,21 +45,9 @@ fn threshold_color(value: f64, warn: f64, crit: f64, theme: &crate::Theme) -> Co
     if value >= crit { theme.status_crit } else if value >= warn { theme.status_warn } else { theme.status_ok }
 }
 
-/// `▰▰▰▱▱` segment bar: `ratio` filled in `color`, the rest dim. One row, `width` cells.
-fn seg_bar(ratio: f64, width: usize, color: Color, theme: &crate::Theme) -> [Span<'static>; 2] {
-    let ratio  = ratio.clamp(0.0, 1.0);
-    let filled = (ratio * width as f64).round() as usize;
-    [
-        Span::styled("\u{25B0}".repeat(filled), Style::default().fg(color)),
-        Span::styled("\u{25B1}".repeat(width.saturating_sub(filled)), Style::default().fg(theme.border_dim)),
-    ]
-}
-
 /// `SECTION                       right caption` — bold left, dim right-aligned.
-fn section_header(left: &'static str, right: &'static str, iw: usize, theme: &crate::Theme) -> Line<'static> {
-    let lw = left.chars().count();
-    let rw = right.chars().count();
-    let gap = iw.saturating_sub(lw + rw + 1).max(1);
+fn section(left: &'static str, right: &'static str, iw: usize, theme: &crate::Theme) -> Line<'static> {
+    let gap = iw.saturating_sub(left.chars().count() + right.chars().count() + 1).max(1);
     Line::from(vec![
         Span::raw(" "),
         Span::styled(left, Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
@@ -95,152 +85,158 @@ impl Panel for TimingVitalsPanel {
         if inner.width == 0 || inner.height == 0 { return; }
         let iw = inner.width as usize;
 
-        let rows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1), // 0  pipeline caption
-                Constraint::Length(1), // 1  drops label
-                Constraint::Length(2), // 2  drops graph
-                Constraint::Length(1), // 3  sat label
-                Constraint::Length(2), // 4  sat graph
-                Constraint::Length(1), // 5  cpu label
-                Constraint::Length(2), // 6  cpu graph
-                Constraint::Length(1), // 7  USB LINK header
-                Constraint::Length(1), // 8  usb errors
-                Constraint::Length(1), // 9  bus throughput
-                Constraint::Length(1), // 10 link util bar
-                Constraint::Length(1), // 11 RING BUFFER header
-                Constraint::Length(1), // 12 fill depth bar
-                Constraint::Length(1), // 13 peak fill
-                Constraint::Length(1), // 14 overrun margin
-                Constraint::Min(0),    // 15 verdict (last line)
-            ])
-            .split(inner);
+        let lbl  = Style::default().fg(theme.label);
+        let val  = Style::default().fg(theme.value);
+        let dim  = Style::default().fg(theme.stale);
+        let dash = || Span::styled("---".to_string(), dim);
+        let spark_w = iw.saturating_sub(2).max(4);
 
-        let lbl = Style::default().fg(theme.label);
-        let val = Style::default().fg(theme.value);
+        // A label + value trend block: the heading row, then an inline sparkline.
+        let trend = |heading: Vec<Span<'static>>, hist: Vec<f64>| -> [Line<'static>; 2] {
+            let s = if stale { String::new() } else { sparkline(&hist, spark_w) };
+            [Line::from(heading), Line::from(vec![Span::raw(" "), Span::styled(s, val)])]
+        };
 
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "),
-            Span::styled("host pipeline health \u{00b7} 60 s rolling", lbl),
-        ])), rows[0]);
+        // A captioned ⅛-block bar row (lab bar language) that never lets the value
+        // collide with the bar: fixed label column, computed bar width, value tail.
+        let bar_row = |label: &'static str, ratio: f64, value_str: String, lo: Color, hi: Color, val_col: Color| -> Line<'static> {
+            const LW: usize = 11;
+            let vw = value_str.chars().count() + 1;
+            let bar_w = iw.saturating_sub(1 + LW + 1 + vw).max(4);
+            let mut spans = vec![Span::raw(" "), Span::styled(format!("{label:<LW$}"), lbl), Span::raw(" ")];
+            if stale {
+                spans.extend(gain_bar_colored(0, 1000, bar_w, lo, hi, theme.border_dim));
+                spans.push(Span::styled(" ---".to_string(), dim));
+            } else {
+                let v = (ratio.clamp(0.0, 1.0) * 1000.0) as u32;
+                spans.extend(gain_bar_colored(v, 1000, bar_w, lo, hi, theme.border_dim));
+                spans.push(Span::styled(format!(" {value_str}"), Style::default().fg(val_col)));
+            }
+            Line::from(spans)
+        };
+
+        let mut lines: Vec<Line> = Vec::new();
+        lines.push(Line::from(vec![Span::raw(" "), Span::styled("host pipeline health \u{00b7} 60 s rolling", lbl)]));
 
         // ── Sample drops ────────────────────────────────────────────────────────
         let dcol = drop_color(state.signal.drops_per_sec, theme);
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), Span::styled("Sample drops ", lbl),
-            Span::styled(format!("{}/s", state.signal.drops_per_sec), Style::default().fg(dcol)),
-            Span::styled(format!("   session {}", state.signal.total_drops_session), lbl),
-        ])), rows[1]);
-        let drop_data: Vec<u64> = state.signal.drop_history.iter().copied().collect();
-        crate::ui::charts::draw_mini_graph(f, rows[2], &drop_data, dcol);
+        let drops_head = if stale {
+            vec![Span::raw(" "), Span::styled("Sample drops ", lbl), dash()]
+        } else {
+            vec![
+                Span::raw(" "), Span::styled("Sample drops ", lbl),
+                Span::styled(format!("{}/s", state.signal.drops_per_sec), Style::default().fg(dcol)),
+                Span::styled(format!("   session {}", state.signal.total_drops_session), lbl),
+            ]
+        };
+        lines.extend(trend(drops_head, state.signal.drop_history.iter().map(|&v| v as f64).collect()));
+        lines.push(Line::raw(""));
 
         // ── ADC saturation ──────────────────────────────────────────────────────
         let scol = sat_color(state.signal.adc_saturation_pct, theme);
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), Span::styled("ADC saturation ", lbl),
-            Span::styled(format!("{:.1} %", state.signal.adc_saturation_pct), Style::default().fg(scol)),
-            Span::styled(format!("   peak {:.1}%", state.signal.adc_saturation_peak), lbl),
-        ])), rows[3]);
-        let sat_data: Vec<u64> = state.signal.saturation_history.iter().map(|v| (*v * 1000.0) as u64).collect();
-        crate::ui::charts::draw_mini_graph(f, rows[4], &sat_data, scol);
+        let sat_head = if stale {
+            vec![Span::raw(" "), Span::styled("ADC saturation ", lbl), dash()]
+        } else {
+            vec![
+                Span::raw(" "), Span::styled("ADC saturation ", lbl),
+                Span::styled(format!("{:.1} %", state.signal.adc_saturation_pct), Style::default().fg(scol)),
+                Span::styled(format!("   peak {:.1}%", state.signal.adc_saturation_peak), lbl),
+            ]
+        };
+        lines.extend(trend(sat_head, state.signal.saturation_history.iter().map(|&v| v as f64).collect()));
+        lines.push(Line::raw(""));
 
         // ── CPU / RAM ───────────────────────────────────────────────────────────
         let cpu = state.system.process_cpu_pct as f64;
         let ccol = threshold_color(cpu, 50.0, 80.0, theme);
-        f.render_widget(Paragraph::new(Line::from(vec![
+        let cpu_head = vec![
             Span::raw(" "), Span::styled("CPU load ", lbl),
-            Span::styled(format!("{:.1} %", cpu), Style::default().fg(ccol)),
+            Span::styled(format!("{cpu:.1} %"), Style::default().fg(ccol)),
             Span::styled(format!("   RAM {} MB", state.system.process_rss_mb), lbl),
-        ])), rows[5]);
-        let cpu_data: Vec<u64> = state.system.cpu_history.iter().copied().collect();
-        crate::ui::charts::draw_mini_graph(f, rows[6], &cpu_data, ccol);
+        ];
+        lines.extend(trend(cpu_head, state.system.cpu_history.iter().map(|&v| v as f64).collect()));
+        lines.push(Line::raw(""));
 
         // ── USB link ────────────────────────────────────────────────────────────
-        f.render_widget(section_header("USB LINK", "bulk transfer", iw, theme), rows[7]);
+        lines.push(section("USB LINK", "bulk transfer", iw, theme));
         let usb_recent: u64 = state.signal.usb_error_history.iter().sum();
         let ucol = if usb_recent > 0 { theme.status_crit }
                    else if state.signal.usb_errors_session > 0 { theme.status_warn }
                    else { theme.status_ok };
-        f.render_widget(Paragraph::new(Line::from(vec![
+        lines.push(Line::from(vec![
             Span::raw(" "), Span::styled("USB errors ", lbl),
             Span::styled(format!("{}", state.signal.usb_errors_session), Style::default().fg(ucol)),
             Span::styled(" (session)", lbl),
-        ])), rows[8]);
-
+        ]));
         let mbps    = state.timing.throughput_mean_mbps;
         let ceiling = link_ceiling_mbps(state.caps.sample_rate_max_hz);
         let util    = if ceiling > 0.0 { (mbps / ceiling).clamp(0.0, 1.0) } else { 0.0 };
-        if stale {
-            f.render_widget(Paragraph::new(Line::from(vec![
-                Span::raw(" "), Span::styled("Bus throughput ", lbl), Span::styled("---", Style::default().fg(theme.stale)),
-            ])), rows[9]);
+        lines.push(Line::from(if stale {
+            vec![Span::raw(" "), Span::styled("Bus throughput ", lbl), dash()]
         } else {
-            f.render_widget(Paragraph::new(Line::from(vec![
+            vec![
                 Span::raw(" "), Span::styled("Bus throughput ", lbl),
                 Span::styled(format!("{mbps:.1} MB/s"), val),
                 Span::styled(format!(" of {ceiling:.1} max"), lbl),
-            ])), rows[9]);
-        }
-        let subtle = Style::default().fg(theme.label);
-        let util_label = "link util ";
-        let bar_w = iw.saturating_sub(util_label.chars().count() + 6).max(4);
-        let [uf, ue] = seg_bar(util, bar_w, theme.value, theme);
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), Span::styled(util_label, subtle), uf, ue,
-            Span::styled(format!(" {:.0}%", util * 100.0), val),
-        ])), rows[10]);
+            ]
+        }));
+        lines.push(bar_row("link util", util, format!("{:.0}%", util * 100.0),
+                           theme.status_ok, theme.status_warn, theme.value));
+        lines.push(Line::raw(""));
 
         // ── Ring buffer ─────────────────────────────────────────────────────────
-        f.render_widget(section_header("RING BUFFER", "overrun margin", iw, theme), rows[11]);
+        lines.push(section("RING BUFFER", "overrun margin", iw, theme));
         let fill = state.iq.buf_fill_pct as f64;
         let fcol = buf_color(state.iq.buf_fill_pct, theme);
-        let fill_label = "fill depth ";
-        let fbar_w = iw.saturating_sub(fill_label.chars().count() + 6).max(4);
-        let [ff, fe] = seg_bar(fill / 100.0, fbar_w, fcol, theme);
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), Span::styled(fill_label, subtle), ff, fe,
-            Span::styled(format!(" {:.0}%", if stale { 0.0 } else { fill }), if stale { Style::default().fg(theme.stale) } else { Style::default().fg(fcol) }),
-        ])), rows[12]);
-
+        lines.push(bar_row("fill depth", fill / 100.0, format!("{fill:.0}%"),
+                           theme.status_ok, theme.status_crit, fcol));
         let peak_fill = state.iq.buf_fill_history.iter().copied().max().unwrap_or(0) as f64 / 10.0;
         let (peak_tag, peak_col) = if peak_fill >= 100.0 { ("hit ceiling", theme.status_crit) } else { ("headroom ok", theme.status_ok) };
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), Span::styled("Peak fill ", lbl),
-            Span::styled(format!("{peak_fill:.0} %"), Style::default().fg(buf_color(peak_fill as f32, theme))),
-            Span::styled(format!("   {peak_tag}"), Style::default().fg(peak_col)),
-        ])), rows[13]);
-
+        lines.push(Line::from(if stale {
+            vec![Span::raw(" "), Span::styled("Peak fill ", lbl), dash()]
+        } else {
+            vec![
+                Span::raw(" "), Span::styled("Peak fill ", lbl),
+                Span::styled(format!("{peak_fill:.0} %"), Style::default().fg(buf_color(peak_fill as f32, theme))),
+                Span::styled(format!("   {peak_tag}"), Style::default().fg(peak_col)),
+            ]
+        }));
         let margin = overrun_margin_pct(peak_fill);
-        f.render_widget(Paragraph::new(Line::from(vec![
-            Span::raw(" "), Span::styled("Overrun margin ", lbl),
-            Span::styled(format!("{margin:.0}%"), Style::default().fg(threshold_color(100.0 - margin, 50.0, 80.0, theme))),
-        ])), rows[14]);
+        lines.push(Line::from(if stale {
+            vec![Span::raw(" "), Span::styled("Overrun margin ", lbl), dash()]
+        } else {
+            vec![
+                Span::raw(" "), Span::styled("Overrun margin ", lbl),
+                Span::styled(format!("{margin:.0}%"), Style::default().fg(threshold_color(100.0 - margin, 50.0, 80.0, theme))),
+            ]
+        }));
+        lines.push(Line::raw(""));
 
         // ── Verdict + uptime ────────────────────────────────────────────────────
-        let verdict = if stale {
-            Line::from(vec![Span::raw(" "), Span::styled("\u{25cb} idle \u{2014} RX stopped", Style::default().fg(theme.stale))])
+        if stale {
+            lines.push(Line::from(vec![Span::raw(" "), Span::styled("\u{25cb} idle \u{2014} RX stopped", dim)]));
         } else {
             let (mark, text, col) = match state.timing.timing_quality.severity() {
                 0 => ("\u{2713}", "all vitals nominal", theme.status_ok),
                 1 | 2 => ("\u{26a0}", "pipeline under load", theme.status_warn),
                 _ => ("\u{26a0}", "overrun logged", theme.status_crit),
             };
-            let up = state.radio.rx_start_time.map(|t| fmt_uptime(t.elapsed().as_secs()));
             let mut spans = vec![
                 Span::raw(" "),
                 Span::styled(format!("{mark} {text}"), Style::default().fg(col).add_modifier(Modifier::BOLD)),
             ];
-            if let Some(up) = up {
+            if let Some(up) = state.radio.rx_start_time.map(|t| fmt_uptime(t.elapsed().as_secs())) {
                 let used = 1 + mark.chars().count() + 1 + text.chars().count();
                 let tail = format!("uptime {up}");
                 let gap = iw.saturating_sub(used + tail.chars().count()).max(1);
                 spans.push(Span::raw(" ".repeat(gap)));
-                spans.push(Span::styled(tail, Style::default().fg(theme.label)));
+                spans.push(Span::styled(tail, lbl));
             }
-            Line::from(spans)
-        };
-        f.render_widget(Paragraph::new(verdict), rows[15]);
+            lines.push(Line::from(spans));
+        }
+
+        crate::ui::chrome::collapse_spacers(&mut lines, inner.height as usize);
+        f.render_widget(Paragraph::new(lines), inner);
     }
 }
 
@@ -270,14 +266,5 @@ mod tests {
         assert_eq!(fmt_uptime(0), "00:00:00");
         assert_eq!(fmt_uptime(15_127), "04:12:07");
         assert_eq!(fmt_uptime(59), "00:00:59");
-    }
-
-    #[test]
-    fn seg_bar_total_width_is_n() {
-        let t = crate::theme::Theme::sdr();
-        for r in [0.0, 0.5, 1.0, 2.0_f64] {
-            let [a, b] = seg_bar(r, 10, t.status_ok, &t);
-            assert_eq!(a.content.chars().count() + b.content.chars().count(), 10, "ratio {r}");
-        }
     }
 }
