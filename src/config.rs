@@ -330,18 +330,20 @@ impl LayoutConfig {
                 PanelSpec { name: "footer".into(),         position: Bottom, height: None,    width_pct: None     },
             ],
         };
-        // Lab timing — host-side stream-timing diagnostics: callback period /
-        // jitter, sample-rate accuracy and throughput on the left, hardware health
-        // centre.
+        // Lab timing — host-side stream-timing instrument (DSN-2026-06 redesign):
+        // a left diagnostics rail (callback period / jitter / deadline budget /
+        // sample-rate), the real-time per-callback strip chart filling the body,
+        // and a hardware-vitals column on the right.
         let lab_timing = PresetConfig {
             panels: vec![
-                PanelSpec { name: "header".into(),          position: Top,    height: Some(5), width_pct: None     },
-                PanelSpec { name: "lab_banner".into(),      position: Top,    height: Some(2), width_pct: None     },
-                PanelSpec { name: "timing_panel".into(),    position: Left,   height: None,    width_pct: Some(45) },
-                PanelSpec { name: "hardware_health".into(), position: Body,   height: None,    width_pct: None     },
-                PanelSpec { name: "signal_strip".into(),    position: Bottom, height: Some(3), width_pct: None     },
-                PanelSpec { name: "log".into(),             position: Bottom, height: Some(5), width_pct: None     },
-                PanelSpec { name: "footer".into(),          position: Bottom, height: None,    width_pct: None     },
+                PanelSpec { name: "header".into(),             position: Top,    height: Some(5), width_pct: None     },
+                PanelSpec { name: "lab_banner".into(),         position: Top,    height: Some(2), width_pct: None     },
+                PanelSpec { name: "timing_diagnostics".into(), position: Left,   height: None,    width_pct: Some(28) },
+                PanelSpec { name: "timing_stripchart".into(),  position: Body,   height: None,    width_pct: None     },
+                PanelSpec { name: "timing_vitals".into(),      position: Right,  height: None,    width_pct: Some(24) },
+                PanelSpec { name: "lab_marker".into(),         position: Bottom, height: Some(2), width_pct: None     },
+                PanelSpec { name: "log".into(),                position: Bottom, height: Some(5), width_pct: None     },
+                PanelSpec { name: "footer".into(),             position: Bottom, height: None,    width_pct: None     },
             ],
         };
         // Lab sweep — frequency-scanner mode: the wide sweep curve fills the body,
@@ -562,12 +564,17 @@ mod tests {
     }
 
     #[test]
-    fn default_config_lab_timing_has_timing_panel() {
+    fn default_config_lab_timing_has_redesign_panels() {
+        // The lab_timing redesign is a three-zone instrument: diagnostics rail,
+        // the per-callback strip chart, and the hardware-vitals column.
         let cfg = LayoutConfig::default_config();
         let p = cfg.presets.get("lab_timing").expect("lab_timing preset present");
         let names: Vec<&str> = p.panels.iter().map(|s| s.name.as_str()).collect();
-        assert!(names.contains(&"timing_panel"), "lab_timing missing timing_panel");
-        assert!(names.contains(&"hardware_health"), "lab_timing missing hardware_health");
+        for panel in ["timing_diagnostics", "timing_stripchart", "timing_vitals"] {
+            assert!(names.contains(&panel), "lab_timing missing {panel}");
+        }
+        // The bottom lab chrome (marker bar) rides along like the other labs.
+        assert!(names.contains(&"lab_marker"), "lab_timing missing lab_marker");
     }
 
     #[test]
