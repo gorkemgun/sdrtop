@@ -59,6 +59,7 @@ impl App {
         registry.register(ui::MicroGainPanel);
         registry.register(ui::MicroHealthPanel);
         registry.register(ui::TimingPanel);
+        registry.register(ui::TimingDiagnosticsPanel);
         registry.register(ui::TimingVitalsPanel);
         registry.register(ui::SweepPanel);
         registry.register(ui::SweepStripPanel);

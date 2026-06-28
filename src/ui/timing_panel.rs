@@ -215,19 +215,20 @@ impl Panel for TimingPanel {
     }
 }
 
-/// Microseconds rendered as `ms` once they pass 1000 µs, else plain `µs`.
-fn fmt_us(us: u64) -> String {
+/// Microseconds rendered as `ms` once they pass 1000 µs, else plain `µs`. Shared
+/// with the `lab_timing` redesign panels so every timing read-out formats alike.
+pub(crate) fn fmt_us(us: u64) -> String {
     if us >= 1_000 { format!("{:.3} ms", us as f64 / 1_000.0) } else { format!("{} µs", us) }
 }
 
 /// Signed ppm value, colored by absolute magnitude (green / yellow / red).
-fn ppm_span(ppm: i64, theme: &crate::Theme) -> Span<'static> {
+pub(crate) fn ppm_span(ppm: i64, theme: &crate::Theme) -> Span<'static> {
     let mag = ppm.unsigned_abs();
     let color = if mag < 50 { theme.status_ok } else if mag < 200 { theme.status_warn } else { theme.status_crit };
     Span::styled(format!("{:+} ppm", ppm), Style::default().fg(color))
 }
 
-fn quality_color(q: TimingQuality, theme: &crate::Theme) -> ratatui::style::Color {
+pub(crate) fn quality_color(q: TimingQuality, theme: &crate::Theme) -> ratatui::style::Color {
     match q.severity() {
         0 => theme.status_ok,
         1 => theme.value_hi,
