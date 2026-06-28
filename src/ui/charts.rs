@@ -203,6 +203,70 @@ pub fn mini_braille_line(data: &[f32], width: usize) -> String {
     s
 }
 
+/// Bipolar, zero-centered braille strip chart. Plots a signed series as filled
+/// columns growing from a centered zero baseline (up for positive, down for
+/// negative), across `cols` braille characters (2 samples each) and `rows` text
+/// rows (4 dot levels each). The top edge is `+full_scale`, the bottom `−full_scale`,
+/// and the zero line sits in the middle; every plotted sample also lights the zero
+/// row, so the baseline reads as a continuous rule (the mockup's `⣀…`).
+///
+/// Only the most recent `2 * cols` samples are shown. Values beyond `±full_scale`
+/// clamp to the edge and have their braille column index reported in the returned
+/// vec, so the caller can tag over-range spikes (the mockup's `▲ overrun` marker).
+/// Returns exactly `rows` strings, each exactly `cols` braille chars.
+pub fn bipolar_braille_strip(
+    data: &[i32], cols: usize, rows: usize, full_scale: i32,
+) -> (Vec<String>, Vec<usize>) {
+    if cols == 0 || rows == 0 {
+        return (vec![String::new(); rows], Vec::new());
+    }
+    // Dot bits within a 2×4 braille cell, indexed top (0) → bottom (3) per side.
+    const LEFT:  [u8; 4] = [0x01, 0x02, 0x04, 0x40]; // dots 1,2,3,7
+    const RIGHT: [u8; 4] = [0x08, 0x10, 0x20, 0x80]; // dots 4,5,6,8
+
+    let fs = full_scale.max(1) as f64;
+    let total_levels = (rows * 4) as i32;
+    let span = (total_levels - 1) as f64 / 2.0; // dot rows from center to either edge
+    let zero_row = span.round() as i32;
+
+    let n = cols * 2;
+    let start = data.len().saturating_sub(n);
+    let window = &data[start..];
+
+    let mut cells = vec![0u8; cols * rows];
+    let mut over_range: Vec<usize> = Vec::new();
+
+    for (p, &v) in window.iter().enumerate() {
+        let col  = p / 2;
+        let side = p % 2;
+        if (v as f64).abs() > fs && over_range.last() != Some(&col) {
+            over_range.push(col);
+        }
+        let r = (v as f64 / fs).clamp(-1.0, 1.0);
+        // +full_scale → top row (0); −full_scale → bottom row; 0 → zero_row.
+        let value_row = ((1.0 - r) * span).round() as i32;
+        let (lo, hi) = (value_row.min(zero_row), value_row.max(zero_row));
+        for level in lo..=hi {
+            if level < 0 || level >= total_levels { continue; }
+            let cell_row = (level / 4) as usize;
+            let dot      = (level % 4) as usize;
+            let bit = if side == 0 { LEFT[dot] } else { RIGHT[dot] };
+            cells[cell_row * cols + col] |= bit;
+        }
+    }
+
+    let mut out = Vec::with_capacity(rows);
+    for row in 0..rows {
+        let mut s = String::with_capacity(cols);
+        for col in 0..cols {
+            let bits = cells[row * cols + col];
+            s.push(char::from_u32(0x2800 + bits as u32).unwrap_or(' '));
+        }
+        out.push(s);
+    }
+    (out, over_range)
+}
+
 /// Canvas filled-column graph — same style as the spectrum panel (filled columns + outline).
 /// Accepts a plain `&[u64]` slice. Scales automatically to the data maximum.
 pub fn draw_mini_graph(f: &mut Frame, area: Rect, data: &[u64], color: Color) {
@@ -286,6 +350,54 @@ mod tests {
         let s: Vec<char> = mini_braille_line(&[0.0, 1.0, 2.0, 3.0], 6).chars().collect();
         assert!(s[0] as u32 > 0x2800, "left end should carry dots, got {:?}", s[0]);
         assert_eq!(s[5] as u32, 0x2800, "right end has no data yet");
+    }
+
+    fn is_braille(s: &str) -> bool {
+        s.chars().all(|c| (0x2800..=0x28FF).contains(&(c as u32)))
+    }
+
+    #[test]
+    fn bipolar_strip_dims_and_blank_on_empty() {
+        let (rows, over) = bipolar_braille_strip(&[], 10, 3, 100);
+        assert_eq!(rows.len(), 3);
+        for r in &rows {
+            assert_eq!(r.chars().count(), 10);
+            // Empty input → all blank braille cells, no over-range.
+            assert!(r.chars().all(|c| c as u32 == 0x2800), "row not blank: {r:?}");
+        }
+        assert!(over.is_empty());
+        // Degenerate sizes never panic.
+        let (r0, _) = bipolar_braille_strip(&[1, 2, 3], 0, 3, 100);
+        assert!(r0.iter().all(|s| s.is_empty()));
+    }
+
+    #[test]
+    fn bipolar_strip_zero_lights_centered_baseline() {
+        // A single zero sample lights only the centered zero row, not the top.
+        let (rows, over) = bipolar_braille_strip(&[0], 1, 2, 100);
+        assert!(over.is_empty());
+        assert!(rows.iter().all(|s| is_braille(s)));
+        // total_levels = 8, zero_row = 4 → cell row 1. Top row stays blank.
+        assert_eq!(rows[0].chars().next().unwrap() as u32, 0x2800, "top row should be blank");
+        assert_ne!(rows[1].chars().next().unwrap() as u32, 0x2800, "baseline row should carry a dot");
+    }
+
+    #[test]
+    fn bipolar_strip_sign_fills_up_and_down() {
+        // +full_scale fills up to the top row; −full_scale fills down to the bottom.
+        let (up, _)   = bipolar_braille_strip(&[100], 1, 2, 100);
+        let (down, _) = bipolar_braille_strip(&[-100], 1, 2, 100);
+        assert_ne!(up[0].chars().next().unwrap() as u32, 0x2800, "positive reaches the top row");
+        assert_ne!(down[1].chars().next().unwrap() as u32, 0x2800, "negative reaches the bottom row");
+        // A positive bar leaves the bottom row's lower dots unlit at its extreme.
+        assert!(is_braille(&up[0]) && is_braille(&down[1]));
+    }
+
+    #[test]
+    fn bipolar_strip_flags_over_range_columns() {
+        // First sample in budget, second well past full scale → column 0 flagged once.
+        let (_, over) = bipolar_braille_strip(&[50, 100_000], 1, 3, 600);
+        assert_eq!(over, vec![0]);
     }
 
     #[test]
