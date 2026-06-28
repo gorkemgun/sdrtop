@@ -95,7 +95,7 @@ impl LayoutEngine {
         let top_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Top && visible(&s.name)).collect();
         let bottom_specs: Vec<_> = specs.iter().filter(|s| s.position == Position::Bottom && visible(&s.name)).collect();
         let body_specs: Vec<_> = specs.iter().filter(|s| {
-            matches!(s.position, Position::Left | Position::Right | Position::Body)
+            matches!(s.position, Position::Left | Position::Right | Position::Body) && visible(&s.name)
         }).collect();
 
         let panel_h = |s: &&crate::config::PanelSpec| -> u16 {
