@@ -5,7 +5,8 @@
 //! are late deliveries, negative are early; the deadline budget is drawn as a
 //! faint guide line and, more usefully, every bar is coloured the instant it
 //! crosses the budget, so late callbacks redden in place. Spikes beyond the axis
-//! clamp and are tagged with `▲`.
+//! clamp and are tagged in the direction they blew out: `▲` at the top for a late
+//! (positive) overrun, `▼` at the bottom for an early (negative) one.
 //!
 //! The axis is anchored to the budget (full scale = 1.5 × budget) so the band sits
 //! at a stable two-thirds out and the scale labels stay put across sample rates,
@@ -41,6 +42,15 @@ fn dev_severity(max_abs_us: u64, budget_us: u64) -> u8 {
 
 fn severity_color(sev: u8, theme: &crate::Theme) -> Color {
     match sev { 0 => theme.value, 1 => theme.status_warn, _ => theme.status_crit }
+}
+
+/// Direction of a column's over-range spike, from its two samples: `+1` if the
+/// worst (largest-magnitude) sample is late (positive), `−1` if it is early
+/// (negative). Decides whether the spike tag is drawn as `▲` at the top of the
+/// chart (a late overrun) or `▼` at the bottom (an early one).
+fn over_tag_sign(a: i32, b: i32) -> i8 {
+    let worst = if a.unsigned_abs() >= b.unsigned_abs() { a } else { b };
+    if worst < 0 { -1 } else { 1 }
 }
 
 /// Signed deviation (µs) at the top edge of text row `r` of an `rows`-tall chart,
@@ -168,6 +178,16 @@ impl Panel for TimingStripchartPanel {
                 }
             };
 
+            // Per-column over-range tag direction: +1 late (▲ top), −1 early
+            // (▼ bottom), 0 in range. Precomputed so the row loop is a cheap lookup.
+            let mut over_sign = vec![0i8; cols];
+            for &c in &over {
+                let a = window.get(2 * c).copied().unwrap_or(0);
+                let b = window.get(2 * c + 1).copied().unwrap_or(0);
+                if let Some(slot) = over_sign.get_mut(c) { *slot = over_tag_sign(a, b); }
+            }
+            let last_row = chart_h - 1;
+
             // Text rows nearest the ±budget band edges (for the faint guide line).
             let span = (chart_h * 4 - 1) as f64 / 2.0;
             let bf = budget as f64 / full_scale as f64;
@@ -185,8 +205,11 @@ impl Panel for TimingStripchartPanel {
                 } else { None };
                 let mut spans = vec![Span::styled(gutter_label(label), lbl)];
                 for (c, &ch) in chars.iter().enumerate() {
-                    if r == 0 && over.contains(&c) {
+                    let osign = over_sign.get(c).copied().unwrap_or(0);
+                    if r == 0 && osign > 0 {
                         spans.push(Span::styled("\u{25B2}".to_string(), Style::default().fg(theme.status_crit)));
+                    } else if r == last_row && osign < 0 {
+                        spans.push(Span::styled("\u{25BC}".to_string(), Style::default().fg(theme.status_crit)));
                     } else if ch == BLANK {
                         // Empty cell: draw the deadline guide on the band rows, else nothing.
                         if r == band_top || r == band_bot {
@@ -242,6 +265,16 @@ mod tests {
         assert_eq!(dev_severity(900, 600), 1, "over budget");
         assert_eq!(dev_severity(1_300, 600), 2, "more than double");
         assert_eq!(dev_severity(999, 0), 0, "no budget → never late");
+    }
+
+    #[test]
+    fn over_tag_sign_points_to_the_worst_samples_direction() {
+        // The larger-magnitude sample decides: a late spike tags up, an early one down.
+        assert_eq!(over_tag_sign(8_000, -50), 1, "late spike → ▲ top");
+        assert_eq!(over_tag_sign(-9_000, 50), -1, "early spike → ▼ bottom");
+        // Ties go to the first (positive) sample; a lone positive sample is late.
+        assert_eq!(over_tag_sign(700, -700), 1);
+        assert_eq!(over_tag_sign(0, -300), -1);
     }
 
     #[test]
