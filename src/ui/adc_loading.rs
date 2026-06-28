@@ -291,9 +291,10 @@ impl Panel for AdcLoadingPanel {
         lines.push(Line::from(Span::styled(
             " fill the range without hitting the rails", Style::default().fg(dim))));
 
-        // Self-adjusting density: drop only as many airy spacers as needed to fit,
-        // spread evenly, so a short pane keeps balanced breathing room. (chrome)
-        crate::ui::chrome::collapse_spacers(&mut lines, ih);
+        // Self-adjusting density: collapse spacers when short, grow them to fill when
+        // tall (chrome::fit_spacers), so the pane breathes the same at every height —
+        // consistent with the other lab side panels.
+        crate::ui::chrome::fit_spacers(&mut lines, ih);
         f.render_widget(Paragraph::new(lines), inner);
     }
 }
