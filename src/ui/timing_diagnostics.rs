@@ -32,16 +32,25 @@ pub struct TimingDiagnosticsPanel;
 /// Inline trend sparkline width.
 const SPARK_W: usize = 18;
 
-/// `SECTION              right caption` — bold left, dim right-aligned. Both
-/// captions are owned, so the right side can carry a live value (the budget).
-fn section(left: &str, right: &str, iw: usize, theme: &crate::Theme) -> Line<'static> {
-    let gap = iw.saturating_sub(left.chars().count() + right.chars().count() + 1).max(1);
-    Line::from(vec![
-        Span::raw(" "),
-        Span::styled(left.to_string(), Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
-        Span::raw(" ".repeat(gap)),
-        Span::styled(right.to_string(), Style::default().fg(theme.label)),
-    ])
+/// `├╴ SECTION ╶──── hint` nameplate — the shared lab side-panel subheading style
+/// (identical to lab_iq / lab_rf), so every lab pane groups its zones the same way.
+/// `hint` is owned, so the right annotation can carry a live value (the budget).
+fn section(name: &str, hint: &str, iw: usize, theme: &crate::Theme) -> Line<'static> {
+    let dim = theme.border_dim;
+    let label = name.to_uppercase();
+    let left = label.chars().count() + 5;
+    let hint_w = if hint.is_empty() { 0 } else { hint.chars().count() + 1 };
+    let dashes = iw.saturating_sub(left + hint_w);
+    let mut spans = vec![
+        Span::styled("\u{251c}\u{2574} ".to_string(), Style::default().fg(dim)),
+        Span::styled(label, Style::default().fg(theme.label).add_modifier(Modifier::BOLD)),
+        Span::styled(" \u{2576}".to_string(), Style::default().fg(dim)),
+        Span::styled("\u{2500}".repeat(dashes), Style::default().fg(dim)),
+    ];
+    if !hint.is_empty() {
+        spans.push(Span::styled(format!(" {hint}"), Style::default().fg(dim)));
+    }
+    Line::from(spans)
 }
 
 /// One deadline-budget bar in the shared lab bar language: a `gain_bar_colored`

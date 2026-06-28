@@ -45,15 +45,24 @@ fn threshold_color(value: f64, warn: f64, crit: f64, theme: &crate::Theme) -> Co
     if value >= crit { theme.status_crit } else if value >= warn { theme.status_warn } else { theme.status_ok }
 }
 
-/// `SECTION                       right caption` — bold left, dim right-aligned.
-fn section(left: &'static str, right: &'static str, iw: usize, theme: &crate::Theme) -> Line<'static> {
-    let gap = iw.saturating_sub(left.chars().count() + right.chars().count() + 1).max(1);
-    Line::from(vec![
-        Span::raw(" "),
-        Span::styled(left, Style::default().fg(theme.value_hi).add_modifier(Modifier::BOLD)),
-        Span::raw(" ".repeat(gap)),
-        Span::styled(right, Style::default().fg(theme.label)),
-    ])
+/// `├╴ SECTION ╶──── hint` nameplate — the shared lab side-panel subheading style
+/// (identical to lab_iq / lab_rf), so every lab pane groups its zones the same way.
+fn section(name: &str, hint: &str, iw: usize, theme: &crate::Theme) -> Line<'static> {
+    let dim = theme.border_dim;
+    let label = name.to_uppercase();
+    let left = label.chars().count() + 5;
+    let hint_w = if hint.is_empty() { 0 } else { hint.chars().count() + 1 };
+    let dashes = iw.saturating_sub(left + hint_w);
+    let mut spans = vec![
+        Span::styled("\u{251c}\u{2574} ".to_string(), Style::default().fg(dim)),
+        Span::styled(label, Style::default().fg(theme.label).add_modifier(Modifier::BOLD)),
+        Span::styled(" \u{2576}".to_string(), Style::default().fg(dim)),
+        Span::styled("\u{2500}".repeat(dashes), Style::default().fg(dim)),
+    ];
+    if !hint.is_empty() {
+        spans.push(Span::styled(format!(" {hint}"), Style::default().fg(dim)));
+    }
+    Line::from(spans)
 }
 
 impl Panel for TimingVitalsPanel {
