@@ -105,7 +105,8 @@ pub struct TimingState {
 
     // ── Per-callback deadline view (drives the lab_timing strip chart) ──────────
     /// Signed per-callback deviation from the expected period (µs), newest last.
-    /// Snapshot of the hot-path gap ring; the strip chart plots this directly.
+    /// The full snapshot of the hot-path gap ring (not just the deadline window),
+    /// so the strip chart can fill a wide panel; it plots this directly.
     pub cb_deviations_us:     Vec<i32>,
     /// Late-callback deadline budget for this sample rate (µs), proportional to
     /// the expected period (see [`DEADLINE_BUDGET_FRAC`]).
@@ -161,22 +162,28 @@ impl TimingState {
 
         // ── Per-callback deadline view ──────────────────────────────────────────
         // Budget scales with the expected period (floored), so "late" means the
-        // same proportional slip at any sample rate. Deviations, the late count,
-        // and the |deviation| percentiles are all measured over the shown window.
+        // same proportional slip at any sample rate.
         let deadline_budget_us = if cb_period_expected > 0 {
             ((DEADLINE_BUDGET_FRAC * cb_period_expected as f64).round() as u64)
                 .max(DEADLINE_BUDGET_FLOOR_US)
         } else {
             DEADLINE_BUDGET_FLOOR_US
         };
-        let win_start = cb_gaps.len().saturating_sub(STRIP_WINDOW);
-        let cb_deviations_us: Vec<i32> = cb_gaps[win_start..]
+        // The strip chart plots the whole snapshot ring so a wide panel fills with
+        // real samples (newest at the right edge) rather than blanking out — the
+        // chart shows as many of these as its width allows.
+        let cb_deviations_us: Vec<i32> = cb_gaps
             .iter()
             .map(|&g| (g as i64 - cb_period_expected as i64)
                 .clamp(i32::MIN as i64, i32::MAX as i64) as i32)
             .collect();
-        let late_window = cb_deviations_us.len() as u32;
-        let abs_dev: Vec<u64> = cb_deviations_us.iter().map(|&d| d.unsigned_abs() as u64).collect();
+        // The deadline figures (late count, |deviation| percentiles) are evaluated
+        // over a fixed recent window so "n / N over budget" stays a stable 2.1 s
+        // measure regardless of how wide the chart happens to be drawn.
+        let win_start = cb_deviations_us.len().saturating_sub(STRIP_WINDOW);
+        let dl_window = &cb_deviations_us[win_start..];
+        let late_window = dl_window.len() as u32;
+        let abs_dev: Vec<u64> = dl_window.iter().map(|&d| d.unsigned_abs() as u64).collect();
         let late_callbacks = abs_dev.iter().filter(|&&d| d > deadline_budget_us).count() as u32;
         let dev_p95_us  = percentile_u64(&abs_dev, 95.0);
         let dev_p99_us  = percentile_u64(&abs_dev, 99.0);
@@ -314,6 +321,24 @@ mod tests {
         assert_eq!(t.late_window, 5);
         assert_eq!(t.late_callbacks, 2, "only the +700 and -6300 exceed the budget");
         assert_eq!(t.dev_peak_us, 6300, "peak is over the absolute deviation");
+    }
+
+    #[test]
+    fn deadline_view_decouples_chart_from_late_window() {
+        // More gaps than the deadline window: the chart series keeps them all, but
+        // the late count / percentiles only consider the last STRIP_WINDOW of them.
+        let exp = 13_107u64;
+        let mut gaps: Vec<u64> = vec![exp + 5_000; 40];     // 40 old, very late
+        gaps.extend(std::iter::repeat(exp).take(STRIP_WINDOW)); // STRIP_WINDOW on time
+        let t = TimingState::compute(
+            exp, 10_000_000.0, HACKRF_SAMPLES_PER_TRANSFER, &[], &gaps,
+            50, 10_000_000, 0, 19.5, 0.2);
+        // Whole ring is available to plot.
+        assert_eq!(t.cb_deviations_us.len(), 40 + STRIP_WINDOW);
+        // But the deadline figures see only the last STRIP_WINDOW (all on time).
+        assert_eq!(t.late_window, STRIP_WINDOW as u32);
+        assert_eq!(t.late_callbacks, 0, "the 40 late gaps scrolled out of the window");
+        assert_eq!(t.dev_peak_us, 0);
     }
 
     #[test]

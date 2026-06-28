@@ -238,9 +238,11 @@ impl Panel for TimingStripchartPanel {
         ]);
         f.render_widget(Paragraph::new(legend1), rows[4]);
 
+        // Time span of the samples actually on screen: the chart shows the last
+        // 2×cols deviations, but never more than the snapshot holds.
         let window_s = {
-            let cols = (chart.width as usize).saturating_sub(GUTTER_W).max(1);
-            (2 * cols as u64 * t.cb_period_us) as f64 / 1e6
+            let shown = (2 * cols).min(t.cb_deviations_us.len());
+            (shown as u64 * t.cb_period_us) as f64 / 1e6
         };
         let legend2 = if stale || t.cb_period_us == 0 {
             Line::from(vec![Span::raw(" "), Span::styled("one point per RX callback", lbl)])
